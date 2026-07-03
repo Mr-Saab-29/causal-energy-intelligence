@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: causal-energy-api
+spec:
+  type: ClusterIP
+  selector:
+    app: causal-energy-api
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+
