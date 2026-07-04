@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable, Sequence
+from datetime import date
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
@@ -138,6 +139,197 @@ def insert_raw_api_page(
         )
 
 
+def is_ingestion_window_completed(
+    engine: Engine,
+    source_name: str,
+    dataset_name: str,
+    region: str,
+    window_start_date: date,
+    window_end_date: date,
+) -> bool:
+    """Return whether a source/date window was already loaded successfully."""
+    statement = text(
+        """
+        select 1
+        from ingestion_checkpoints
+        where source_name = :source_name
+          and dataset_name = :dataset_name
+          and region = :region
+          and window_start_date = :window_start_date
+          and window_end_date = :window_end_date
+          and status = 'completed'
+        limit 1
+        """
+    )
+    with engine.begin() as connection:
+        result = connection.execute(
+            statement,
+            {
+                "source_name": source_name,
+                "dataset_name": dataset_name,
+                "region": region,
+                "window_start_date": window_start_date,
+                "window_end_date": window_end_date,
+            },
+        )
+        return result.scalar_one_or_none() is not None
+
+
+def start_ingestion_window(
+    engine: Engine,
+    source_name: str,
+    dataset_name: str,
+    region: str,
+    window_start_date: date,
+    window_end_date: date,
+) -> None:
+    """Mark a source/date window as running."""
+    statement = text(
+        """
+        insert into ingestion_checkpoints (
+            source_name,
+            dataset_name,
+            region,
+            window_start_date,
+            window_end_date,
+            status,
+            rows_loaded,
+            error_message,
+            started_at,
+            finished_at,
+            updated_at
+        )
+        values (
+            :source_name,
+            :dataset_name,
+            :region,
+            :window_start_date,
+            :window_end_date,
+            'running',
+            0,
+            null,
+            now(),
+            null,
+            now()
+        )
+        on conflict (source_name, dataset_name, region, window_start_date, window_end_date)
+        do update set
+            status = 'running',
+            rows_loaded = 0,
+            error_message = null,
+            started_at = now(),
+            finished_at = null,
+            updated_at = now()
+        where ingestion_checkpoints.status != 'completed'
+        """
+    )
+    _execute_checkpoint_statement(
+        engine,
+        statement,
+        source_name,
+        dataset_name,
+        region,
+        window_start_date,
+        window_end_date,
+    )
+
+
+def complete_ingestion_window(
+    engine: Engine,
+    source_name: str,
+    dataset_name: str,
+    region: str,
+    window_start_date: date,
+    window_end_date: date,
+    rows_loaded: int,
+) -> None:
+    """Mark a source/date window as completed."""
+    statement = text(
+        """
+        update ingestion_checkpoints
+        set status = 'completed',
+            rows_loaded = :rows_loaded,
+            error_message = null,
+            finished_at = now(),
+            updated_at = now()
+        where source_name = :source_name
+          and dataset_name = :dataset_name
+          and region = :region
+          and window_start_date = :window_start_date
+          and window_end_date = :window_end_date
+        """
+    )
+    _execute_checkpoint_statement(
+        engine,
+        statement,
+        source_name,
+        dataset_name,
+        region,
+        window_start_date,
+        window_end_date,
+        rows_loaded=rows_loaded,
+    )
+
+
+def fail_ingestion_window(
+    engine: Engine,
+    source_name: str,
+    dataset_name: str,
+    region: str,
+    window_start_date: date,
+    window_end_date: date,
+    error_message: str,
+) -> None:
+    """Mark a source/date window as failed."""
+    statement = text(
+        """
+        insert into ingestion_checkpoints (
+            source_name,
+            dataset_name,
+            region,
+            window_start_date,
+            window_end_date,
+            status,
+            rows_loaded,
+            error_message,
+            started_at,
+            finished_at,
+            updated_at
+        )
+        values (
+            :source_name,
+            :dataset_name,
+            :region,
+            :window_start_date,
+            :window_end_date,
+            'failed',
+            0,
+            :error_message,
+            now(),
+            now(),
+            now()
+        )
+        on conflict (source_name, dataset_name, region, window_start_date, window_end_date)
+        do update set
+            status = 'failed',
+            error_message = :error_message,
+            finished_at = now(),
+            updated_at = now()
+        where ingestion_checkpoints.status != 'completed'
+        """
+    )
+    _execute_checkpoint_statement(
+        engine,
+        statement,
+        source_name,
+        dataset_name,
+        region,
+        window_start_date,
+        window_end_date,
+        error_message=error_message[:2_000],
+    )
+
+
 def upsert_electricity_prices(
     engine: Engine,
     observations: Sequence[ElectricityPriceObservation],
@@ -258,3 +450,27 @@ def _batched(rows: Sequence[dict[str, Any]], batch_size: int) -> Iterable[list[d
 def _validate_identifier(identifier: str) -> None:
     if not identifier.replace("_", "").isalnum() or identifier[0].isdigit():
         raise ValueError(f"Unsafe SQL identifier: {identifier}")
+
+
+def _execute_checkpoint_statement(
+    engine: Engine,
+    statement: Any,
+    source_name: str,
+    dataset_name: str,
+    region: str,
+    window_start_date: date,
+    window_end_date: date,
+    rows_loaded: int | None = None,
+    error_message: str | None = None,
+) -> None:
+    params = {
+        "source_name": source_name,
+        "dataset_name": dataset_name,
+        "region": region,
+        "window_start_date": window_start_date,
+        "window_end_date": window_end_date,
+        "rows_loaded": rows_loaded,
+        "error_message": error_message,
+    }
+    with engine.begin() as connection:
+        connection.execute(statement, params)

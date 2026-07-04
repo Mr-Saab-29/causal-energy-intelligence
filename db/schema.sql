@@ -12,6 +12,26 @@ create table if not exists raw_api_pages (
 create index if not exists idx_raw_api_pages_source_ingested_at
     on raw_api_pages (source_name, ingested_at desc);
 
+create table if not exists ingestion_checkpoints (
+    id uuid primary key default gen_random_uuid(),
+    source_name text not null,
+    dataset_name text not null,
+    region text not null,
+    window_start_date date not null,
+    window_end_date date not null,
+    status text not null check (status in ('running', 'completed', 'failed')),
+    rows_loaded integer not null default 0 check (rows_loaded >= 0),
+    error_message text,
+    started_at timestamptz not null default now(),
+    finished_at timestamptz,
+    updated_at timestamptz not null default now(),
+    unique (source_name, dataset_name, region, window_start_date, window_end_date),
+    check (window_end_date >= window_start_date)
+);
+
+create index if not exists idx_ingestion_checkpoints_lookup
+    on ingestion_checkpoints (source_name, dataset_name, region, window_start_date, window_end_date, status);
+
 create table if not exists electricity_prices (
     id uuid primary key default gen_random_uuid(),
     source text not null,

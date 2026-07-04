@@ -7,6 +7,7 @@ Apply `db/schema.sql` in the Supabase SQL editor before running loaders.
 Required tables:
 
 - `raw_api_pages`
+- `ingestion_checkpoints`
 - `electricity_prices`
 - `hourly_electricity_mix`
 - `weather_observations`
@@ -105,6 +106,27 @@ All canonical loaders use `ON CONFLICT (source, source_record_id) DO UPDATE`.
 This makes the load idempotent as long as each adapter emits stable `source_record_id` values.
 
 The loaders are designed to be safely rerunnable after API timeouts, rate limits, or local terminal interruptions.
+
+## Checkpointed Resume Behavior
+
+Each source is loaded in date windows. After a window is loaded successfully, the loader writes a `completed` row to `ingestion_checkpoints`.
+
+On rerun:
+
+- windows marked `completed` are skipped
+- windows marked `failed` are retried
+- windows marked `running` from an interrupted process are retried
+- newly discovered windows are loaded normally
+
+Checkpoint keys:
+
+- `source_name`
+- `dataset_name`
+- `region`
+- `window_start_date`
+- `window_end_date`
+
+If you loaded data before `ingestion_checkpoints` existed, those earlier windows do not yet have checkpoint rows. The next rerun may re-fetch those windows once, but upserts prevent duplicates. After that run writes checkpoint rows, future reruns skip completed windows.
 
 ## Recommended Order
 
