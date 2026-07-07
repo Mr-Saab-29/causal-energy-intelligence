@@ -99,6 +99,38 @@ print(summary)
 PY
 ```
 
+## 7. Refresh May-June 2026 Gap
+
+ODRE historical `*-cons-def` datasets currently end before the requested `2026-06-30` target. Use ODRE real-time/provisional datasets for May-June 2026.
+
+This helper refreshes all three sources for `2026-05-01` through `2026-06-30`:
+
+```bash
+python - <<'PY'
+import os
+from src.data.pipelines.supabase_load import load_france_may_june_2026_refresh
+
+summary = load_france_may_june_2026_refresh(os.environ["DATABASE_URL"])
+print(summary)
+PY
+```
+
+If prices and weather are already complete and you only want ODRE electricity mix:
+
+```bash
+python - <<'PY'
+import os
+from src.data.load import create_database_engine
+from src.data.pipelines.supabase_load import load_france_electricity_mix_realtime
+
+engine = create_database_engine(os.environ["DATABASE_URL"])
+rows = load_france_electricity_mix_realtime(engine)
+print(f"upserted realtime electricity mix rows: {rows}")
+PY
+```
+
+The ODRE realtime/provisional loader is checkpointed and idempotent.
+
 ## Upsert Behavior
 
 All canonical loaders use `ON CONFLICT (source, source_record_id) DO UPDATE`.

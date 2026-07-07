@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from datetime import UTC, date, datetime
+from collections import defaultdict
 from decimal import Decimal
 from typing import Any
 
@@ -100,11 +101,20 @@ def parse_energy_charts_day_ahead_prices(
     if len(timestamps) != len(prices):
         raise ValueError("Energy-Charts timestamp and price arrays have different lengths")
 
-    observations: list[ElectricityPriceObservation] = []
+    hourly_prices: dict[datetime, list[Decimal]] = defaultdict(list)
     for timestamp_value, price_value in zip(timestamps, prices, strict=True):
         if price_value is None:
             continue
-        timestamp = datetime.fromtimestamp(int(timestamp_value), tz=UTC)
+        timestamp = datetime.fromtimestamp(int(timestamp_value), tz=UTC).replace(
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+        hourly_prices[timestamp].append(Decimal(str(price_value)))
+
+    observations: list[ElectricityPriceObservation] = []
+    for timestamp, hourly_values in hourly_prices.items():
+        price_eur_mwh = sum(hourly_values) / Decimal(len(hourly_values))
         observations.append(
             ElectricityPriceObservation(
                 source=EnergySource.API,
@@ -113,12 +123,12 @@ def parse_energy_charts_day_ahead_prices(
                 timestamp_utc=timestamp,
                 granularity=Granularity.HOURLY,
                 market="day_ahead",
-                price_eur_mwh=Decimal(str(price_value)),
+                price_eur_mwh=price_eur_mwh,
                 currency="EUR",
             )
         )
 
-    return observations
+    return sorted(observations, key=lambda observation: observation.timestamp_utc)
 
 
 def _deduplicate_price_observations(

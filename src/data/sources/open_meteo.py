@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
@@ -17,6 +18,9 @@ from src.data.source_config import (
 )
 
 OPEN_METEO_WINDOW_DAYS = 31
+OPEN_METEO_MAX_RETRIES = 5
+OPEN_METEO_BACKOFF_SECONDS = 30.0
+OPEN_METEO_RETRY_STATUS_CODES = {429, 500, 502, 503, 504}
 
 WEATHER_FIELD_MAP = {
     "temperature_2m": "temperature_c",
@@ -53,21 +57,46 @@ def fetch_open_meteo_weather(
 ) -> list[WeatherObservation]:
     """Fetch hourly weather observations for one location."""
     with httpx.Client(base_url=base_url, timeout=60.0) as client:
-        response = client.get(
-            OPEN_METEO_HISTORICAL_ENDPOINT,
-            params={
-                "latitude": latitude,
-                "longitude": longitude,
-                "start_date": start_date.isoformat(),
-                "end_date": end_date.isoformat(),
-                "hourly": ",".join(OPEN_METEO_HOURLY_FEATURES),
-                "timezone": "UTC",
-                "wind_speed_unit": "ms",
-                "precipitation_unit": "mm",
-            },
+        payload = _get_open_meteo_payload(
+            client=client,
+            latitude=latitude,
+            longitude=longitude,
+            start_date=start_date,
+            end_date=end_date,
         )
-        response.raise_for_status()
-        return parse_open_meteo_weather(region=region, payload=response.json())
+        return parse_open_meteo_weather(region=region, payload=payload)
+
+
+def _get_open_meteo_payload(
+    client: httpx.Client,
+    latitude: float,
+    longitude: float,
+    start_date: date,
+    end_date: date,
+) -> dict[str, Any]:
+    params = {
+        "latitude": latitude,
+        "longitude": longitude,
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+        "hourly": ",".join(OPEN_METEO_HOURLY_FEATURES),
+        "timezone": "UTC",
+        "wind_speed_unit": "ms",
+        "precipitation_unit": "mm",
+    }
+    for attempt in range(OPEN_METEO_MAX_RETRIES + 1):
+        response = client.get(OPEN_METEO_HISTORICAL_ENDPOINT, params=params)
+        if response.status_code not in OPEN_METEO_RETRY_STATUS_CODES:
+            response.raise_for_status()
+            return response.json()
+
+        retry_after = response.headers.get("retry-after")
+        wait_seconds = float(retry_after) if retry_after else OPEN_METEO_BACKOFF_SECONDS * (attempt + 1)
+        if attempt == OPEN_METEO_MAX_RETRIES:
+            response.raise_for_status()
+        time.sleep(wait_seconds)
+
+    raise RuntimeError("Open-Meteo request failed after retries")
 
 
 def parse_open_meteo_weather(region: str, payload: dict[str, Any]) -> list[WeatherObservation]:

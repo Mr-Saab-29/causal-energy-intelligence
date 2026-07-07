@@ -62,3 +62,7 @@ Source-specific extraction notes are documented in `docs/data_sources.md`.
 France electricity spot-price provider tradeoffs are documented in `docs/price_source_options.md`. The default spot-price source is Energy-Charts, with ENTSO-E kept as a fallback.
 
 Supabase loading instructions are documented in `docs/supabase_load.md`.
+
+Post-ingestion validation is documented in `docs/data_validation.md`.
+
+Modeling dataset construction is documented in `docs/modeling_dataset.md`.

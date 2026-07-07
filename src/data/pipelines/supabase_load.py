@@ -28,7 +28,9 @@ from src.data.sources.energy_charts import (
     iter_energy_charts_price_windows,
 )
 from src.data.sources.odre import (
+    ODRE_NATIONAL_DATASET,
     ODRE_NATIONAL_HISTORICAL_DATASET,
+    ODRE_REGIONAL_DATASET,
     ODRE_REGIONAL_HISTORICAL_DATASET,
     aggregate_odre_to_hourly_mwh,
     fetch_odre_records,
@@ -36,6 +38,8 @@ from src.data.sources.odre import (
 from src.data.sources.open_meteo import fetch_open_meteo_weather
 
 OPEN_METEO_MIN_INTERVAL_SECONDS = 0.2
+MAY_JUNE_2026_START_DATE = date(2026, 5, 1)
+MAY_JUNE_2026_END_DATE = date(2026, 6, 30)
 
 
 @dataclass(frozen=True)
@@ -125,6 +129,69 @@ def load_france_electricity_mix_history(
     return total_rows
 
 
+def load_france_electricity_mix_realtime(
+    engine: Engine,
+    start_date: date = MAY_JUNE_2026_START_DATE,
+    end_date: date = MAY_JUNE_2026_END_DATE,
+    batch_size: int = 1_000,
+) -> int:
+    """Fetch ODRE real-time/provisional electricity mix and upsert into Supabase."""
+    return _load_france_electricity_mix_from_datasets(
+        engine=engine,
+        start_date=start_date,
+        end_date=end_date,
+        national_dataset=ODRE_NATIONAL_DATASET,
+        regional_dataset=ODRE_REGIONAL_DATASET,
+        batch_size=batch_size,
+    )
+
+
+def _load_france_electricity_mix_from_datasets(
+    engine: Engine,
+    start_date: date,
+    end_date: date,
+    national_dataset: str,
+    regional_dataset: str,
+    batch_size: int,
+) -> int:
+    total_rows = 0
+    from src.data.sources.odre import ODRE_WINDOW_DAYS
+    from src.data.date_windows import iter_date_windows
+
+    for window in iter_date_windows(start_date, end_date, ODRE_WINDOW_DAYS):
+        national_checkpoint = _Checkpoint(
+            source_name="odre",
+            dataset_name=national_dataset,
+            region="FR",
+            window_start_date=window.start_date,
+            window_end_date=window.end_date,
+        )
+        total_rows += _load_odre_mix_window(
+            engine=engine,
+            checkpoint=national_checkpoint,
+            dataset_name=national_dataset,
+            scope="national",
+            batch_size=batch_size,
+        )
+
+        regional_checkpoint = _Checkpoint(
+            source_name="odre",
+            dataset_name=regional_dataset,
+            region="ALL_REGIONS",
+            window_start_date=window.start_date,
+            window_end_date=window.end_date,
+        )
+        total_rows += _load_odre_mix_window(
+            engine=engine,
+            checkpoint=regional_checkpoint,
+            dataset_name=regional_dataset,
+            scope="regional",
+            batch_size=batch_size,
+        )
+
+    return total_rows
+
+
 def load_france_weather_history(
     engine: Engine,
     start_date: date = FRANCE_START_DATE,
@@ -167,6 +234,52 @@ def load_france_weather_history(
                 raise
             time.sleep(OPEN_METEO_MIN_INTERVAL_SECONDS)
     return total_rows
+
+
+def load_france_may_june_2026_refresh(
+    database_url: str,
+    include_prices: bool = True,
+    include_electricity_mix: bool = True,
+    include_weather: bool = True,
+    batch_size: int = 1_000,
+) -> LoadSummary:
+    """Load/refresh May-June 2026 across all three sources."""
+    engine = create_database_engine(database_url)
+    electricity_price_rows = (
+        load_france_price_history(
+            engine,
+            MAY_JUNE_2026_START_DATE,
+            MAY_JUNE_2026_END_DATE,
+            batch_size,
+        )
+        if include_prices
+        else 0
+    )
+    hourly_electricity_mix_rows = (
+        load_france_electricity_mix_realtime(
+            engine,
+            MAY_JUNE_2026_START_DATE,
+            MAY_JUNE_2026_END_DATE,
+            batch_size,
+        )
+        if include_electricity_mix
+        else 0
+    )
+    weather_rows = (
+        load_france_weather_history(
+            engine,
+            MAY_JUNE_2026_START_DATE,
+            MAY_JUNE_2026_END_DATE,
+            batch_size=batch_size,
+        )
+        if include_weather
+        else 0
+    )
+    return LoadSummary(
+        electricity_price_rows=electricity_price_rows,
+        hourly_electricity_mix_rows=hourly_electricity_mix_rows,
+        weather_rows=weather_rows,
+    )
 
 
 def load_france_history_to_supabase(
