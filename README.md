@@ -66,3 +66,5 @@ Supabase loading instructions are documented in `docs/supabase_load.md`.
 Post-ingestion validation is documented in `docs/data_validation.md`.
 
 Modeling dataset construction is documented in `docs/modeling_dataset.md`.
+
+Forecasting baselines are documented in `docs/forecasting_baseline.md`.

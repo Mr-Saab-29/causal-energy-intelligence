@@ -19,12 +19,21 @@ The strict forecasting feature set includes time features and lagged/rolling pre
 
 - `price_lag_1h`
 - `price_lag_24h`
+- `price_lag_48h`
+- `price_lag_72h`
 - `price_lag_168h`
+- `price_lag_336h`
 - `price_rolling_mean_24h`
 - `price_rolling_mean_168h`
+- `price_rolling_std_24h`
+- `price_rolling_min_24h`
+- `price_rolling_max_24h`
 - `consumption_lag_24h`
+- `consumption_lag_168h`
 - `wind_lag_24h`
+- `wind_lag_168h`
 - `solar_lag_24h`
+- `solar_lag_168h`
 - calendar features: `hour`, `day_of_week`, `month`, `is_weekend`, `is_peak_hour`, cyclic encodings
 
 ## Causal-Ready Features

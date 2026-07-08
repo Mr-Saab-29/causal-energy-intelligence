@@ -55,12 +55,21 @@ MODELING_FEATURE_COLUMNS = [
     "day_of_year_cos",
     "price_lag_1h",
     "price_lag_24h",
+    "price_lag_48h",
+    "price_lag_72h",
     "price_lag_168h",
+    "price_lag_336h",
     "price_rolling_mean_24h",
     "price_rolling_mean_168h",
+    "price_rolling_std_24h",
+    "price_rolling_min_24h",
+    "price_rolling_max_24h",
     "consumption_lag_24h",
+    "consumption_lag_168h",
     "wind_lag_24h",
+    "wind_lag_168h",
     "solar_lag_24h",
+    "solar_lag_168h",
 ]
 
 
@@ -134,10 +143,14 @@ def build_price_modeling_features(base_frame: pd.DataFrame) -> pd.DataFrame:
             "consumption_mwh",
             "total_production_mwh",
             "price_lag_168h",
+            "price_lag_336h",
             "price_rolling_mean_168h",
             "consumption_lag_24h",
+            "consumption_lag_168h",
             "wind_lag_24h",
+            "wind_lag_168h",
             "solar_lag_24h",
+            "solar_lag_168h",
         ]
     )
     return frame[MODELING_FEATURE_COLUMNS]
@@ -231,12 +244,21 @@ def _add_time_features(frame: pd.DataFrame) -> None:
 def _add_lag_features(frame: pd.DataFrame) -> None:
     frame["price_lag_1h"] = frame["price_eur_mwh"].shift(1)
     frame["price_lag_24h"] = frame["price_eur_mwh"].shift(24)
+    frame["price_lag_48h"] = frame["price_eur_mwh"].shift(48)
+    frame["price_lag_72h"] = frame["price_eur_mwh"].shift(72)
     frame["price_lag_168h"] = frame["price_eur_mwh"].shift(168)
+    frame["price_lag_336h"] = frame["price_eur_mwh"].shift(336)
     frame["price_rolling_mean_24h"] = frame["price_eur_mwh"].shift(1).rolling(24).mean()
     frame["price_rolling_mean_168h"] = frame["price_eur_mwh"].shift(1).rolling(168).mean()
+    frame["price_rolling_std_24h"] = frame["price_eur_mwh"].shift(1).rolling(24).std()
+    frame["price_rolling_min_24h"] = frame["price_eur_mwh"].shift(1).rolling(24).min()
+    frame["price_rolling_max_24h"] = frame["price_eur_mwh"].shift(1).rolling(24).max()
     frame["consumption_lag_24h"] = frame["consumption_mwh"].shift(24)
+    frame["consumption_lag_168h"] = frame["consumption_mwh"].shift(168)
     frame["wind_lag_24h"] = frame["wind_mwh"].shift(24)
+    frame["wind_lag_168h"] = frame["wind_mwh"].shift(168)
     frame["solar_lag_24h"] = frame["solar_mwh"].shift(24)
+    frame["solar_lag_168h"] = frame["solar_mwh"].shift(168)
 
 
 def _safe_divide(numerator: pd.Series, denominator: pd.Series) -> pd.Series:

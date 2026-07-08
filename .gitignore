@@ -8,6 +8,8 @@ mlruns/
 .data/
 data/*
 !data/.keep
+models/*.joblib
+reports/predictions/*.csv
 .env
 .DS_Store
 *.jsonl

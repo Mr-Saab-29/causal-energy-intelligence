@@ -43,15 +43,33 @@ create table if not exists modeling_price_features (
     day_of_year_cos numeric not null,
     price_lag_1h numeric,
     price_lag_24h numeric,
+    price_lag_48h numeric,
+    price_lag_72h numeric,
     price_lag_168h numeric,
+    price_lag_336h numeric,
     price_rolling_mean_24h numeric,
     price_rolling_mean_168h numeric,
+    price_rolling_std_24h numeric,
+    price_rolling_min_24h numeric,
+    price_rolling_max_24h numeric,
     consumption_lag_24h numeric,
+    consumption_lag_168h numeric,
     wind_lag_24h numeric,
+    wind_lag_168h numeric,
     solar_lag_24h numeric,
+    solar_lag_168h numeric,
     created_at timestamptz not null default now()
 );
 
+alter table modeling_price_features add column if not exists price_lag_48h numeric;
+alter table modeling_price_features add column if not exists price_lag_72h numeric;
+alter table modeling_price_features add column if not exists price_lag_336h numeric;
+alter table modeling_price_features add column if not exists price_rolling_std_24h numeric;
+alter table modeling_price_features add column if not exists price_rolling_min_24h numeric;
+alter table modeling_price_features add column if not exists price_rolling_max_24h numeric;
+alter table modeling_price_features add column if not exists consumption_lag_168h numeric;
+alter table modeling_price_features add column if not exists wind_lag_168h numeric;
+alter table modeling_price_features add column if not exists solar_lag_168h numeric;
+
 create index if not exists idx_modeling_price_features_timestamp
     on modeling_price_features (timestamp_utc);
-
