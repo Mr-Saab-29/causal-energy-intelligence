@@ -8,6 +8,7 @@ from typing import Any
 from src.models.baseline_price import (
     PRODUCTION_SIGNAL_TARGETS,
     run_price_baselines,
+    run_price_ranking_from_predictions,
     run_supply_demand_baselines,
 )
 
@@ -27,7 +28,7 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
     parser = argparse.ArgumentParser(description="Train forecasting baselines.")
     parser.add_argument(
         "--target",
-        choices=["all", "price", "consumption", "production", "supply-demand"],
+        choices=["all", "price", "ranking", "consumption", "production", "supply-demand"],
         default="all",
         help=(
             "Training block to run. 'production' trains total production plus source-level "
@@ -48,6 +49,8 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
         )
     elif args.target == "price":
         result = run_price_baselines()
+    elif args.target == "ranking":
+        result = run_price_ranking_from_predictions()
     elif args.target == "supply-demand":
         result = run_supply_demand_baselines()
     elif args.target == "production":

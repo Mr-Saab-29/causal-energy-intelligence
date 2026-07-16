@@ -390,6 +390,8 @@ def run_price_baselines(
     diagnostics_path: str | Path = "reports/metrics/price_baseline_error_diagnostics.csv",
     top_errors_path: str | Path = "reports/metrics/price_baseline_top_errors.csv",
     feature_importance_path: str | Path = "reports/metrics/price_baseline_feature_importance.csv",
+    ranking_path: str | Path = "reports/rankings/price_decision_rankings.csv",
+    ranking_metrics_path: str | Path = "reports/metrics/price_ranking_metrics.json",
     supply_demand_metrics_path: str | Path = "reports/metrics/supply_demand_baseline_metrics.json",
     supply_demand_predictions_path: str | Path = "reports/predictions/supply_demand_baseline_predictions.csv",
     supply_demand_feature_importance_path: str | Path = (
@@ -468,12 +470,16 @@ def run_price_baselines(
     predictions_frame = pd.concat(all_predictions, ignore_index=True)
     diagnostics = build_error_diagnostics(predictions_frame)
     top_errors = build_top_error_periods(predictions_frame)
+    rankings = build_price_decision_rankings(predictions_frame)
+    ranking_metrics = summarize_ranking_metrics(rankings)
     feature_importance = combine_feature_importance(all_feature_importance)
     write_json(metrics_path, {"metrics": all_metrics, "summary": metrics_summary})
     write_predictions(predictions_path, predictions_frame)
     write_diagnostics(diagnostics_path, diagnostics)
     write_diagnostics(top_errors_path, top_errors)
     write_diagnostics(feature_importance_path, feature_importance)
+    write_predictions(ranking_path, rankings)
+    write_json(ranking_metrics_path, {"summary": ranking_metrics})
     signal_summary = summarize_signal_metrics(all_signal_metrics)
     write_json(
         supply_demand_metrics_path,
@@ -486,6 +492,20 @@ def run_price_baselines(
     signal_feature_importance_frame = combine_feature_importance(all_signal_feature_importance)
     write_diagnostics(supply_demand_feature_importance_path, signal_feature_importance_frame)
     return {"metrics": all_metrics, "summary": metrics_summary}
+
+
+def run_price_ranking_from_predictions(
+    predictions_path: str | Path = "reports/predictions/price_baseline_predictions.csv",
+    ranking_path: str | Path = "reports/rankings/price_decision_rankings.csv",
+    ranking_metrics_path: str | Path = "reports/metrics/price_ranking_metrics.json",
+) -> dict[str, Any]:
+    """Build decision rankings from saved price predictions."""
+    predictions = pd.read_csv(predictions_path, parse_dates=[TIMESTAMP_COLUMN])
+    rankings = build_price_decision_rankings(predictions)
+    ranking_metrics = summarize_ranking_metrics(rankings)
+    write_predictions(ranking_path, rankings)
+    write_json(ranking_metrics_path, {"summary": ranking_metrics})
+    return {"summary": ranking_metrics}
 
 
 def split_window(frame: pd.DataFrame, window: ForecastWindow) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -899,6 +919,83 @@ def summarize_signal_metrics(metrics: list[dict[str, Any]]) -> list[dict[str, An
         .sort_values("mae")
     )
     return summary.to_dict(orient="records")
+
+
+def build_price_decision_rankings(predictions: pd.DataFrame) -> pd.DataFrame:
+    """Rank candidate hours by predicted price within each day/window/model."""
+    frame = predictions.copy()
+    frame[TIMESTAMP_COLUMN] = pd.to_datetime(frame[TIMESTAMP_COLUMN], utc=True)
+    frame["decision_date"] = frame[TIMESTAMP_COLUMN].dt.date.astype(str)
+    group_columns = ["window", "model", "decision_date"]
+
+    frame["predicted_price_rank"] = (
+        frame.groupby(group_columns)["predicted_price_eur_mwh"]
+        .rank(method="first", ascending=True)
+        .astype(int)
+    )
+    frame["actual_price_rank"] = (
+        frame.groupby(group_columns)["actual_price_eur_mwh"]
+        .rank(method="first", ascending=True)
+        .astype(int)
+    )
+    frame["candidate_count"] = frame.groupby(group_columns)[TIMESTAMP_COLUMN].transform("size")
+    frame["actual_best_price_eur_mwh"] = (
+        frame.groupby(group_columns)["actual_price_eur_mwh"].transform("min")
+    )
+    frame["regret_vs_best_eur_mwh"] = (
+        frame["actual_price_eur_mwh"] - frame["actual_best_price_eur_mwh"]
+    )
+    frame["is_predicted_best"] = frame["predicted_price_rank"] == 1
+    frame["is_actual_best"] = frame["actual_price_rank"] == 1
+    frame["is_predicted_top_3"] = frame["predicted_price_rank"] <= 3
+    frame["is_actual_top_3"] = frame["actual_price_rank"] <= 3
+    return frame.sort_values(group_columns + ["predicted_price_rank"]).reset_index(drop=True)
+
+
+def summarize_ranking_metrics(rankings: pd.DataFrame) -> list[dict[str, Any]]:
+    """Summarize ranking quality by model across decision dates."""
+    summaries: list[dict[str, Any]] = []
+    for model_name, model_frame in rankings.groupby("model", observed=True):
+        decision_groups = model_frame.groupby(["window", "decision_date"], observed=True)
+        top_1_rows = model_frame[model_frame["predicted_price_rank"] == 1]
+        top_3_rows = model_frame[model_frame["predicted_price_rank"] <= 3]
+        actual_best_rows = model_frame[model_frame["actual_price_rank"] == 1]
+
+        top_1_hit_rate = float(top_1_rows["is_actual_best"].mean())
+        top_3_capture_rate = float(
+            actual_best_rows.groupby(["window", "decision_date"], observed=True)
+            .apply(lambda group: bool(group["is_predicted_top_3"].iloc[0]), include_groups=False)
+            .mean()
+        )
+        mean_top_1_regret = float(top_1_rows["regret_vs_best_eur_mwh"].mean())
+        median_top_1_regret = float(top_1_rows["regret_vs_best_eur_mwh"].median())
+        mean_actual_rank_of_predicted_best = float(top_1_rows["actual_price_rank"].mean())
+        mean_spearman = float(
+            decision_groups.apply(
+                lambda group: group["predicted_price_eur_mwh"].corr(
+                    group["actual_price_eur_mwh"],
+                    method="spearman",
+                ),
+                include_groups=False,
+            ).mean()
+        )
+        top_3_average_actual_rank = float(top_3_rows["actual_price_rank"].mean())
+
+        summaries.append(
+            {
+                "model": model_name,
+                "decision_groups": int(decision_groups.ngroups),
+                "top_1_hit_rate": top_1_hit_rate,
+                "top_3_capture_rate": top_3_capture_rate,
+                "mean_top_1_regret_eur_mwh": mean_top_1_regret,
+                "median_top_1_regret_eur_mwh": median_top_1_regret,
+                "mean_actual_rank_of_predicted_best": mean_actual_rank_of_predicted_best,
+                "top_3_average_actual_rank": top_3_average_actual_rank,
+                "mean_spearman_rank_corr": mean_spearman,
+            }
+        )
+
+    return sorted(summaries, key=lambda row: row["mean_top_1_regret_eur_mwh"])
 
 
 def write_json(path: str | Path, payload: dict[str, Any]) -> None:

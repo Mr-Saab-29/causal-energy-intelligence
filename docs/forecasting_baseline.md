@@ -1,14 +1,18 @@
 # Forecasting Baseline
 
-This baseline forecasts France day-ahead electricity spot prices using the stable modeling dataset.
+This baseline ranks candidate workload hours using France day-ahead electricity price signals from
+the stable modeling dataset. Exact spot-price prediction is kept as an internal signal, not the final
+decision objective.
 It also trains upstream consumption and total-production forecasters, then feeds those forecasted
 supply/demand signals into the price models.
 Separate source-level generation forecasters are trained for nuclear, gas, coal, oil, wind, solar,
 hydro, and bioenergy so those forecasts can feed later carbon-footprint estimates.
 
-## Target
+## Decision Target
 
-- `price_eur_mwh`
+- rank candidate hours from cheapest to most expensive within each decision day
+- minimize regret versus the actual cheapest hour
+- capture the actual cheapest hour in the model's top-k recommendations
 
 ## Strict Forecasting Features
 
@@ -65,6 +69,16 @@ Expanding-window validation:
 
 ## Metrics
 
+Ranking metrics:
+
+- top-1 hit rate
+- top-3 capture rate
+- mean/median top-1 regret in EUR/MWh
+- mean actual rank of the predicted-best hour
+- Spearman rank correlation
+
+Point-forecast diagnostics are still retained as supporting signals:
+
 - MAE
 - RMSE
 - sMAPE
@@ -97,6 +111,17 @@ Current aggregate price performance after adding forecasted consumption and prod
 | `ridge` | 10.512 | 14.753 | 0.407 | 0.727 |
 | `naive_lag_24h` | 25.481 | 35.838 | 0.661 | 0.782 |
 
+Current aggregate ranking performance:
+
+| Model | Top-1 Hit | Top-3 Capture | Mean Top-1 Regret | Spearman |
+| --- | ---: | ---: | ---: | ---: |
+| `random_forest` | 0.306 | 0.769 | 3.341 EUR/MWh | 0.906 |
+| `xgboost` | 0.300 | 0.769 | 3.443 EUR/MWh | 0.915 |
+| `lightgbm` | 0.288 | 0.769 | 3.506 EUR/MWh | 0.915 |
+| `hist_gradient_boosting` | 0.281 | 0.769 | 4.032 EUR/MWh | 0.915 |
+| `ridge` | 0.188 | 0.688 | 4.762 EUR/MWh | 0.883 |
+| `naive_lag_24h` | 0.344 | 0.663 | 8.237 EUR/MWh | 0.745 |
+
 Current aggregate upstream signal performance:
 
 | Target | Best Model | MAE | RMSE | sMAPE | Directional Accuracy |
@@ -122,11 +147,13 @@ make forecast-consumption
 make forecast-production
 make forecast-supply-demand
 make forecast-price
+make forecast-ranking
 make forecast-all
 ```
 
 `forecast-price` and `forecast-all` train upstream consumption/production forecasts first, then train
 the price models with those forecasted values.
+`forecast-ranking` rebuilds decision rankings from saved price predictions without retraining.
 `forecast-production` trains total production plus the individual source-level production targets.
 
 Equivalent direct Python commands:
@@ -136,6 +163,7 @@ python -m src.models.train_forecast --target consumption
 python -m src.models.train_forecast --target production
 python -m src.models.train_forecast --target supply-demand
 python -m src.models.train_forecast --target price
+python -m src.models.train_forecast --target ranking
 python -m src.models.train_forecast --target all
 ```
 
@@ -146,6 +174,8 @@ python -m src.models.train_forecast --target all
 - Error diagnostics: `reports/metrics/price_baseline_error_diagnostics.csv`
 - Top forecast misses: `reports/metrics/price_baseline_top_errors.csv`
 - Feature importance: `reports/metrics/price_baseline_feature_importance.csv`
+- Decision rankings: `reports/rankings/price_decision_rankings.csv`
+- Ranking metrics: `reports/metrics/price_ranking_metrics.json`
 - Supply/demand metrics: `reports/metrics/supply_demand_baseline_metrics.json`
 - Supply/demand predictions: `reports/predictions/supply_demand_baseline_predictions.csv`
 - Supply/demand feature importance: `reports/metrics/supply_demand_baseline_feature_importance.csv`

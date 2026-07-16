@@ -1,6 +1,6 @@
 PYTHON ?= python
 
-.PHONY: help forecast-all forecast-price forecast-consumption forecast-production forecast-supply-demand
+.PHONY: help forecast-all forecast-price forecast-ranking forecast-consumption forecast-production forecast-supply-demand
 
 help:
 	@echo "Forecast training targets:"
@@ -8,6 +8,7 @@ help:
 	@echo "  make forecast-production     Train/evaluate total + source production baselines"
 	@echo "  make forecast-supply-demand  Train/evaluate consumption + all production baselines"
 	@echo "  make forecast-price          Train/evaluate supply/demand + price baselines"
+	@echo "  make forecast-ranking        Build decision rankings from saved price predictions"
 	@echo "  make forecast-all            Train price plus source-level production baselines"
 
 forecast-all:
@@ -15,6 +16,9 @@ forecast-all:
 
 forecast-price:
 	$(PYTHON) -m src.models.train_forecast --target price
+
+forecast-ranking:
+	$(PYTHON) -m src.models.train_forecast --target ranking
 
 forecast-consumption:
 	$(PYTHON) -m src.models.train_forecast --target consumption

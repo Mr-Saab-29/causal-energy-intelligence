@@ -1,6 +1,6 @@
 # Causal Energy Intelligence Platform
 
-Forecasting, causal inference, and what-if optimization for electricity price forecasting and carbon-aware workload shifting.
+Forecasting, causal inference, and what-if optimization for ranked energy decisions and carbon-aware workload shifting.
 
 ## Architecture
 
@@ -9,7 +9,7 @@ External APIs / CSV sources
   -> Airflow ETL
   -> Cloud Postgres
   -> Feature Engineering
-  -> Forecasting Model
+  -> Forecasting + Ranking Models
   -> Causal Inference Engine
   -> What-if Simulator
   -> FastAPI
@@ -51,14 +51,16 @@ curl http://localhost:8000/health
 
 ## Current Status
 
-The platform now has a working France electricity forecasting baseline:
+The platform now has a working France electricity decision-support baseline:
 
 - Canonical ETL contracts and Supabase/Postgres schemas are in place.
 - France day-ahead spot prices, electricity mix, production, consumption, and weather-derived modeling features are supported.
 - The modeling dataset is built at `data/processed/modeling_price_features.csv`.
-- Price baselines use strict forecast-time features: calendar features, lagged prices, lagged/rolling supply-demand signals, and upstream forecasted consumption/production.
+- Price models are treated as internal scoring signals rather than the final objective.
+- The primary decision output is an hourly ranking of candidate workload times, evaluated by top-k capture, rank correlation, and regret versus the actual best hour.
+- Ranking currently uses strict forecast-time features: calendar features, lagged prices, lagged/rolling supply-demand signals, and upstream forecasted consumption/production.
 - Upstream baselines forecast consumption, total production, and source-level production for nuclear, gas, coal, oil, wind, solar, hydro, and bioenergy.
-- Forecast diagnostics include MAE, RMSE, sMAPE, directional accuracy, top-error periods, grouped error diagnostics, and feature importance.
+- Forecast diagnostics include MAE, RMSE, sMAPE, directional accuracy, top-error periods, grouped error diagnostics, ranking metrics, regret metrics, and feature importance.
 - Notebook `notebooks/02_forecasting.ipynb` reads the generated metrics and diagnostics.
 
 Common forecast commands:
@@ -68,6 +70,7 @@ make forecast-consumption
 make forecast-production
 make forecast-supply-demand
 make forecast-price
+make forecast-ranking
 make forecast-all
 ```
 
@@ -75,6 +78,8 @@ Current key artifacts:
 
 - Price metrics: `reports/metrics/price_baseline_metrics.json`
 - Price predictions: `reports/predictions/price_baseline_predictions.csv`
+- Decision rankings: `reports/rankings/price_decision_rankings.csv`
+- Ranking metrics: `reports/metrics/price_ranking_metrics.json`
 - Supply/demand metrics: `reports/metrics/supply_demand_baseline_metrics.json`
 - Supply/demand predictions: `reports/predictions/supply_demand_baseline_predictions.csv`
 - Feature importance: `reports/metrics/*feature_importance.csv`

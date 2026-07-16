@@ -1,0 +1,70 @@
+{
+  "summary": [
+    {
+      "model": "random_forest",
+      "decision_groups": 160,
+      "top_1_hit_rate": 0.30625,
+      "top_3_capture_rate": 0.76875,
+      "mean_top_1_regret_eur_mwh": 3.341046875000001,
+      "median_top_1_regret_eur_mwh": 0.15375000000000086,
+      "mean_actual_rank_of_predicted_best": 2.6125,
+      "top_3_average_actual_rank": 3.097916666666667,
+      "mean_spearman_rank_corr": 0.9055193634551211
+    },
+    {
+      "model": "xgboost",
+      "decision_groups": 160,
+      "top_1_hit_rate": 0.3,
+      "top_3_capture_rate": 0.76875,
+      "mean_top_1_regret_eur_mwh": 3.44309375,
+      "median_top_1_regret_eur_mwh": 0.6074999999999999,
+      "mean_actual_rank_of_predicted_best": 2.78125,
+      "top_3_average_actual_rank": 2.9875,
+      "mean_spearman_rank_corr": 0.9152342334080142
+    },
+    {
+      "model": "lightgbm",
+      "decision_groups": 160,
+      "top_1_hit_rate": 0.2875,
+      "top_3_capture_rate": 0.76875,
+      "mean_top_1_regret_eur_mwh": 3.5061875000000007,
+      "median_top_1_regret_eur_mwh": 0.655,
+      "mean_actual_rank_of_predicted_best": 2.65625,
+      "top_3_average_actual_rank": 3.01875,
+      "mean_spearman_rank_corr": 0.9154929933101457
+    },
+    {
+      "model": "hist_gradient_boosting",
+      "decision_groups": 160,
+      "top_1_hit_rate": 0.28125,
+      "top_3_capture_rate": 0.76875,
+      "mean_top_1_regret_eur_mwh": 4.03165625,
+      "median_top_1_regret_eur_mwh": 0.8475000000000011,
+      "mean_actual_rank_of_predicted_best": 2.94375,
+      "top_3_average_actual_rank": 3.06875,
+      "mean_spearman_rank_corr": 0.9149041355533101
+    },
+    {
+      "model": "ridge",
+      "decision_groups": 160,
+      "top_1_hit_rate": 0.1875,
+      "top_3_capture_rate": 0.6875,
+      "mean_top_1_regret_eur_mwh": 4.7620000000000005,
+      "median_top_1_regret_eur_mwh": 1.8050000000000002,
+      "mean_actual_rank_of_predicted_best": 3.5875,
+      "top_3_average_actual_rank": 3.6,
+      "mean_spearman_rank_corr": 0.8828068805701692
+    },
+    {
+      "model": "naive_lag_24h",
+      "decision_groups": 160,
+      "top_1_hit_rate": 0.34375,
+      "top_3_capture_rate": 0.6625,
+      "mean_top_1_regret_eur_mwh": 8.236984375,
+      "median_top_1_regret_eur_mwh": 0.08250000000000002,
+      "mean_actual_rank_of_predicted_best": 3.70625,
+      "top_3_average_actual_rank": 4.295833333333333,
+      "mean_spearman_rank_corr": 0.7447621672204686
+    }
+  ]
+}
