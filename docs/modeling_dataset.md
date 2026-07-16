@@ -28,13 +28,33 @@ The strict forecasting feature set includes time features and lagged/rolling pre
 - `price_rolling_std_24h`
 - `price_rolling_min_24h`
 - `price_rolling_max_24h`
+- `price_rolling_range_24h`
+- `price_lag_1h_to_24h`
+- `price_lag_24h_to_168h`
+- `price_lag_168h_to_336h`
+- `price_vs_rolling_mean_24h`
 - `consumption_lag_24h`
+- `consumption_lag_48h`
+- `consumption_lag_72h`
 - `consumption_lag_168h`
+- `consumption_lag_336h`
+- consumption rolling and momentum features
+- `consumption_lag_24h_to_168h`
+- total-production lag, rolling, and momentum features
+- source-level production lag, rolling, and momentum features for nuclear, gas, coal, oil, wind, solar, hydro, and bioenergy
 - `wind_lag_24h`
 - `wind_lag_168h`
+- `wind_lag_24h_to_168h`
 - `solar_lag_24h`
 - `solar_lag_168h`
-- calendar features: `hour`, `day_of_week`, `month`, `is_weekend`, `is_peak_hour`, cyclic encodings
+- `solar_lag_24h_to_168h`
+- `residual_demand_lag_24h`
+- `residual_demand_lag_168h`
+- `residual_demand_lag_24h_to_168h`
+- `variable_renewable_lag_24h`
+- `variable_renewable_lag_168h`
+- `variable_renewable_lag_24h_to_168h`
+- calendar features: `hour`, `day_of_week`, `month`, `is_weekend`, `is_peak_hour`, `is_morning_ramp`, `is_evening_peak`, `is_overnight`, cyclic encodings
 
 ## Causal-Ready Features
 

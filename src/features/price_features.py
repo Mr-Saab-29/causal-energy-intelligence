@@ -49,6 +49,9 @@ MODELING_FEATURE_COLUMNS = [
     "day_of_year",
     "is_weekend",
     "is_peak_hour",
+    "is_morning_ramp",
+    "is_evening_peak",
+    "is_overnight",
     "hour_sin",
     "hour_cos",
     "day_of_year_sin",
@@ -64,13 +67,85 @@ MODELING_FEATURE_COLUMNS = [
     "price_rolling_std_24h",
     "price_rolling_min_24h",
     "price_rolling_max_24h",
+    "price_rolling_range_24h",
+    "price_lag_1h_to_24h",
+    "price_lag_24h_to_168h",
+    "price_lag_168h_to_336h",
+    "price_vs_rolling_mean_24h",
+    "consumption_lag_1h",
     "consumption_lag_24h",
+    "consumption_lag_48h",
+    "consumption_lag_72h",
     "consumption_lag_168h",
+    "consumption_lag_336h",
+    "consumption_rolling_mean_24h",
+    "consumption_rolling_mean_168h",
+    "consumption_rolling_std_24h",
+    "consumption_rolling_min_24h",
+    "consumption_rolling_max_24h",
+    "consumption_rolling_range_24h",
+    "consumption_lag_1h_to_24h",
+    "consumption_lag_24h_to_168h",
+    "total_production_lag_1h",
+    "total_production_lag_24h",
+    "total_production_lag_48h",
+    "total_production_lag_72h",
+    "total_production_lag_168h",
+    "total_production_lag_336h",
+    "total_production_rolling_mean_24h",
+    "total_production_rolling_mean_168h",
+    "total_production_rolling_std_24h",
+    "total_production_rolling_min_24h",
+    "total_production_rolling_max_24h",
+    "total_production_rolling_range_24h",
+    "total_production_lag_1h_to_24h",
+    "total_production_lag_24h_to_168h",
     "wind_lag_24h",
     "wind_lag_168h",
+    "wind_lag_24h_to_168h",
     "solar_lag_24h",
     "solar_lag_168h",
+    "solar_lag_24h_to_168h",
+    "residual_demand_lag_24h",
+    "residual_demand_lag_168h",
+    "residual_demand_lag_24h_to_168h",
+    "variable_renewable_lag_24h",
+    "variable_renewable_lag_168h",
+    "variable_renewable_lag_24h_to_168h",
 ]
+
+PRODUCTION_SOURCE_FEATURE_PREFIXES = [
+    ("nuclear_mwh", "nuclear"),
+    ("gas_mwh", "gas"),
+    ("coal_mwh", "coal"),
+    ("oil_mwh", "oil"),
+    ("wind_mwh", "wind"),
+    ("solar_mwh", "solar"),
+    ("hydro_mwh", "hydro"),
+    ("bioenergy_mwh", "bioenergy"),
+]
+
+TARGET_LAG_FEATURE_SUFFIXES = [
+    "lag_1h",
+    "lag_24h",
+    "lag_48h",
+    "lag_72h",
+    "lag_168h",
+    "lag_336h",
+    "rolling_mean_24h",
+    "rolling_mean_168h",
+    "rolling_std_24h",
+    "rolling_min_24h",
+    "rolling_max_24h",
+    "rolling_range_24h",
+    "lag_1h_to_24h",
+    "lag_24h_to_168h",
+]
+
+for _, feature_prefix in PRODUCTION_SOURCE_FEATURE_PREFIXES:
+    MODELING_FEATURE_COLUMNS.extend(
+        f"{feature_prefix}_{suffix}" for suffix in TARGET_LAG_FEATURE_SUFFIXES
+    )
 
 
 def fetch_base_price_frame(engine: Engine) -> pd.DataFrame:
@@ -235,6 +310,9 @@ def _add_time_features(frame: pd.DataFrame) -> None:
     frame["day_of_year"] = index.dayofyear
     frame["is_weekend"] = frame["day_of_week"].isin([5, 6])
     frame["is_peak_hour"] = frame["hour"].between(8, 20)
+    frame["is_morning_ramp"] = frame["hour"].between(6, 9)
+    frame["is_evening_peak"] = frame["hour"].between(17, 20)
+    frame["is_overnight"] = frame["hour"].isin([0, 1, 2, 3, 4, 5])
     frame["hour_sin"] = np.sin(2 * np.pi * frame["hour"] / 24)
     frame["hour_cos"] = np.cos(2 * np.pi * frame["hour"] / 24)
     frame["day_of_year_sin"] = np.sin(2 * np.pi * frame["day_of_year"] / 365.25)
@@ -253,12 +331,67 @@ def _add_lag_features(frame: pd.DataFrame) -> None:
     frame["price_rolling_std_24h"] = frame["price_eur_mwh"].shift(1).rolling(24).std()
     frame["price_rolling_min_24h"] = frame["price_eur_mwh"].shift(1).rolling(24).min()
     frame["price_rolling_max_24h"] = frame["price_eur_mwh"].shift(1).rolling(24).max()
+    frame["price_rolling_range_24h"] = frame["price_rolling_max_24h"] - frame["price_rolling_min_24h"]
+    frame["price_lag_1h_to_24h"] = frame["price_lag_1h"] - frame["price_lag_24h"]
+    frame["price_lag_24h_to_168h"] = frame["price_lag_24h"] - frame["price_lag_168h"]
+    frame["price_lag_168h_to_336h"] = frame["price_lag_168h"] - frame["price_lag_336h"]
+    frame["price_vs_rolling_mean_24h"] = frame["price_lag_1h"] - frame["price_rolling_mean_24h"]
+    _add_target_lag_features(frame, "consumption_mwh", "consumption")
+    _add_target_lag_features(frame, "total_production_mwh", "total_production")
+    for source_column, feature_prefix in PRODUCTION_SOURCE_FEATURE_PREFIXES:
+        _add_target_lag_features(frame, source_column, feature_prefix)
     frame["consumption_lag_24h"] = frame["consumption_mwh"].shift(24)
     frame["consumption_lag_168h"] = frame["consumption_mwh"].shift(168)
+    frame["consumption_lag_24h_to_168h"] = frame["consumption_lag_24h"] - frame["consumption_lag_168h"]
     frame["wind_lag_24h"] = frame["wind_mwh"].shift(24)
     frame["wind_lag_168h"] = frame["wind_mwh"].shift(168)
+    frame["wind_lag_24h_to_168h"] = frame["wind_lag_24h"] - frame["wind_lag_168h"]
     frame["solar_lag_24h"] = frame["solar_mwh"].shift(24)
     frame["solar_lag_168h"] = frame["solar_mwh"].shift(168)
+    frame["solar_lag_24h_to_168h"] = frame["solar_lag_24h"] - frame["solar_lag_168h"]
+    frame["residual_demand_lag_24h"] = (
+        frame["consumption_lag_24h"]
+        - frame["wind_lag_24h"].fillna(0)
+        - frame["solar_lag_24h"].fillna(0)
+    )
+    frame["residual_demand_lag_168h"] = (
+        frame["consumption_lag_168h"]
+        - frame["wind_lag_168h"].fillna(0)
+        - frame["solar_lag_168h"].fillna(0)
+    )
+    frame["residual_demand_lag_24h_to_168h"] = (
+        frame["residual_demand_lag_24h"] - frame["residual_demand_lag_168h"]
+    )
+    frame["variable_renewable_lag_24h"] = (
+        frame["wind_lag_24h"].fillna(0) + frame["solar_lag_24h"].fillna(0)
+    )
+    frame["variable_renewable_lag_168h"] = (
+        frame["wind_lag_168h"].fillna(0) + frame["solar_lag_168h"].fillna(0)
+    )
+    frame["variable_renewable_lag_24h_to_168h"] = (
+        frame["variable_renewable_lag_24h"] - frame["variable_renewable_lag_168h"]
+    )
+
+
+def _add_target_lag_features(frame: pd.DataFrame, source_column: str, prefix: str) -> None:
+    frame[f"{prefix}_lag_1h"] = frame[source_column].shift(1)
+    frame[f"{prefix}_lag_24h"] = frame[source_column].shift(24)
+    frame[f"{prefix}_lag_48h"] = frame[source_column].shift(48)
+    frame[f"{prefix}_lag_72h"] = frame[source_column].shift(72)
+    frame[f"{prefix}_lag_168h"] = frame[source_column].shift(168)
+    frame[f"{prefix}_lag_336h"] = frame[source_column].shift(336)
+    frame[f"{prefix}_rolling_mean_24h"] = frame[source_column].shift(1).rolling(24).mean()
+    frame[f"{prefix}_rolling_mean_168h"] = frame[source_column].shift(1).rolling(168).mean()
+    frame[f"{prefix}_rolling_std_24h"] = frame[source_column].shift(1).rolling(24).std()
+    frame[f"{prefix}_rolling_min_24h"] = frame[source_column].shift(1).rolling(24).min()
+    frame[f"{prefix}_rolling_max_24h"] = frame[source_column].shift(1).rolling(24).max()
+    frame[f"{prefix}_rolling_range_24h"] = (
+        frame[f"{prefix}_rolling_max_24h"] - frame[f"{prefix}_rolling_min_24h"]
+    )
+    frame[f"{prefix}_lag_1h_to_24h"] = frame[f"{prefix}_lag_1h"] - frame[f"{prefix}_lag_24h"]
+    frame[f"{prefix}_lag_24h_to_168h"] = (
+        frame[f"{prefix}_lag_24h"] - frame[f"{prefix}_lag_168h"]
+    )
 
 
 def _safe_divide(numerator: pd.Series, denominator: pd.Series) -> pd.Series:

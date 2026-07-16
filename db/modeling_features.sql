@@ -37,6 +37,9 @@ create table if not exists modeling_price_features (
     day_of_year integer not null,
     is_weekend boolean not null,
     is_peak_hour boolean not null,
+    is_morning_ramp boolean,
+    is_evening_peak boolean,
+    is_overnight boolean,
     hour_sin numeric not null,
     hour_cos numeric not null,
     day_of_year_sin numeric not null,
@@ -52,24 +55,146 @@ create table if not exists modeling_price_features (
     price_rolling_std_24h numeric,
     price_rolling_min_24h numeric,
     price_rolling_max_24h numeric,
+    price_rolling_range_24h numeric,
+    price_lag_1h_to_24h numeric,
+    price_lag_24h_to_168h numeric,
+    price_lag_168h_to_336h numeric,
+    price_vs_rolling_mean_24h numeric,
+    consumption_lag_1h numeric,
     consumption_lag_24h numeric,
+    consumption_lag_48h numeric,
+    consumption_lag_72h numeric,
     consumption_lag_168h numeric,
+    consumption_lag_336h numeric,
+    consumption_rolling_mean_24h numeric,
+    consumption_rolling_mean_168h numeric,
+    consumption_rolling_std_24h numeric,
+    consumption_rolling_min_24h numeric,
+    consumption_rolling_max_24h numeric,
+    consumption_rolling_range_24h numeric,
+    consumption_lag_1h_to_24h numeric,
+    consumption_lag_24h_to_168h numeric,
+    total_production_lag_1h numeric,
+    total_production_lag_24h numeric,
+    total_production_lag_48h numeric,
+    total_production_lag_72h numeric,
+    total_production_lag_168h numeric,
+    total_production_lag_336h numeric,
+    total_production_rolling_mean_24h numeric,
+    total_production_rolling_mean_168h numeric,
+    total_production_rolling_std_24h numeric,
+    total_production_rolling_min_24h numeric,
+    total_production_rolling_max_24h numeric,
+    total_production_rolling_range_24h numeric,
+    total_production_lag_1h_to_24h numeric,
+    total_production_lag_24h_to_168h numeric,
     wind_lag_24h numeric,
     wind_lag_168h numeric,
+    wind_lag_24h_to_168h numeric,
     solar_lag_24h numeric,
     solar_lag_168h numeric,
+    solar_lag_24h_to_168h numeric,
+    residual_demand_lag_24h numeric,
+    residual_demand_lag_168h numeric,
+    residual_demand_lag_24h_to_168h numeric,
+    variable_renewable_lag_24h numeric,
+    variable_renewable_lag_168h numeric,
+    variable_renewable_lag_24h_to_168h numeric,
     created_at timestamptz not null default now()
 );
 
+alter table modeling_price_features add column if not exists is_morning_ramp boolean;
+alter table modeling_price_features add column if not exists is_evening_peak boolean;
+alter table modeling_price_features add column if not exists is_overnight boolean;
 alter table modeling_price_features add column if not exists price_lag_48h numeric;
 alter table modeling_price_features add column if not exists price_lag_72h numeric;
 alter table modeling_price_features add column if not exists price_lag_336h numeric;
 alter table modeling_price_features add column if not exists price_rolling_std_24h numeric;
 alter table modeling_price_features add column if not exists price_rolling_min_24h numeric;
 alter table modeling_price_features add column if not exists price_rolling_max_24h numeric;
+alter table modeling_price_features add column if not exists price_rolling_range_24h numeric;
+alter table modeling_price_features add column if not exists price_lag_1h_to_24h numeric;
+alter table modeling_price_features add column if not exists price_lag_24h_to_168h numeric;
+alter table modeling_price_features add column if not exists price_lag_168h_to_336h numeric;
+alter table modeling_price_features add column if not exists price_vs_rolling_mean_24h numeric;
+alter table modeling_price_features add column if not exists consumption_lag_1h numeric;
+alter table modeling_price_features add column if not exists consumption_lag_48h numeric;
+alter table modeling_price_features add column if not exists consumption_lag_72h numeric;
 alter table modeling_price_features add column if not exists consumption_lag_168h numeric;
+alter table modeling_price_features add column if not exists consumption_lag_336h numeric;
+alter table modeling_price_features add column if not exists consumption_rolling_mean_24h numeric;
+alter table modeling_price_features add column if not exists consumption_rolling_mean_168h numeric;
+alter table modeling_price_features add column if not exists consumption_rolling_std_24h numeric;
+alter table modeling_price_features add column if not exists consumption_rolling_min_24h numeric;
+alter table modeling_price_features add column if not exists consumption_rolling_max_24h numeric;
+alter table modeling_price_features add column if not exists consumption_rolling_range_24h numeric;
+alter table modeling_price_features add column if not exists consumption_lag_1h_to_24h numeric;
+alter table modeling_price_features add column if not exists consumption_lag_24h_to_168h numeric;
+alter table modeling_price_features add column if not exists total_production_lag_1h numeric;
+alter table modeling_price_features add column if not exists total_production_lag_24h numeric;
+alter table modeling_price_features add column if not exists total_production_lag_48h numeric;
+alter table modeling_price_features add column if not exists total_production_lag_72h numeric;
+alter table modeling_price_features add column if not exists total_production_lag_168h numeric;
+alter table modeling_price_features add column if not exists total_production_lag_336h numeric;
+alter table modeling_price_features add column if not exists total_production_rolling_mean_24h numeric;
+alter table modeling_price_features add column if not exists total_production_rolling_mean_168h numeric;
+alter table modeling_price_features add column if not exists total_production_rolling_std_24h numeric;
+alter table modeling_price_features add column if not exists total_production_rolling_min_24h numeric;
+alter table modeling_price_features add column if not exists total_production_rolling_max_24h numeric;
+alter table modeling_price_features add column if not exists total_production_rolling_range_24h numeric;
+alter table modeling_price_features add column if not exists total_production_lag_1h_to_24h numeric;
+alter table modeling_price_features add column if not exists total_production_lag_24h_to_168h numeric;
 alter table modeling_price_features add column if not exists wind_lag_168h numeric;
+alter table modeling_price_features add column if not exists wind_lag_24h_to_168h numeric;
 alter table modeling_price_features add column if not exists solar_lag_168h numeric;
+alter table modeling_price_features add column if not exists solar_lag_24h_to_168h numeric;
+alter table modeling_price_features add column if not exists residual_demand_lag_24h numeric;
+alter table modeling_price_features add column if not exists residual_demand_lag_168h numeric;
+alter table modeling_price_features add column if not exists residual_demand_lag_24h_to_168h numeric;
+alter table modeling_price_features add column if not exists variable_renewable_lag_24h numeric;
+alter table modeling_price_features add column if not exists variable_renewable_lag_168h numeric;
+alter table modeling_price_features add column if not exists variable_renewable_lag_24h_to_168h numeric;
+
+do $$
+declare
+    feature_prefix text;
+    feature_suffix text;
+begin
+    foreach feature_prefix in array array[
+        'nuclear',
+        'gas',
+        'coal',
+        'oil',
+        'wind',
+        'solar',
+        'hydro',
+        'bioenergy'
+    ]
+    loop
+        foreach feature_suffix in array array[
+            'lag_1h',
+            'lag_24h',
+            'lag_48h',
+            'lag_72h',
+            'lag_168h',
+            'lag_336h',
+            'rolling_mean_24h',
+            'rolling_mean_168h',
+            'rolling_std_24h',
+            'rolling_min_24h',
+            'rolling_max_24h',
+            'rolling_range_24h',
+            'lag_1h_to_24h',
+            'lag_24h_to_168h'
+        ]
+        loop
+            execute format(
+                'alter table modeling_price_features add column if not exists %I numeric',
+                feature_prefix || '_' || feature_suffix
+            );
+        end loop;
+    end loop;
+end $$;
 
 create index if not exists idx_modeling_price_features_timestamp
     on modeling_price_features (timestamp_utc);

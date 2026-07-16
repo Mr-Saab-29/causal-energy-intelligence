@@ -51,7 +51,35 @@ curl http://localhost:8000/health
 
 ## Current Status
 
-This repository currently contains the platform scaffold. Implementation will proceed module by module: ETL contracts, feature schema, forecasting baseline, causal DAG, counterfactual simulation, optimization, API endpoints, and monitoring.
+The platform now has a working France electricity forecasting baseline:
+
+- Canonical ETL contracts and Supabase/Postgres schemas are in place.
+- France day-ahead spot prices, electricity mix, production, consumption, and weather-derived modeling features are supported.
+- The modeling dataset is built at `data/processed/modeling_price_features.csv`.
+- Price baselines use strict forecast-time features: calendar features, lagged prices, lagged/rolling supply-demand signals, and upstream forecasted consumption/production.
+- Upstream baselines forecast consumption, total production, and source-level production for nuclear, gas, coal, oil, wind, solar, hydro, and bioenergy.
+- Forecast diagnostics include MAE, RMSE, sMAPE, directional accuracy, top-error periods, grouped error diagnostics, and feature importance.
+- Notebook `notebooks/02_forecasting.ipynb` reads the generated metrics and diagnostics.
+
+Common forecast commands:
+
+```bash
+make forecast-consumption
+make forecast-production
+make forecast-supply-demand
+make forecast-price
+make forecast-all
+```
+
+Current key artifacts:
+
+- Price metrics: `reports/metrics/price_baseline_metrics.json`
+- Price predictions: `reports/predictions/price_baseline_predictions.csv`
+- Supply/demand metrics: `reports/metrics/supply_demand_baseline_metrics.json`
+- Supply/demand predictions: `reports/predictions/supply_demand_baseline_predictions.csv`
+- Feature importance: `reports/metrics/*feature_importance.csv`
+
+Remaining work includes productionizing the API, adding carbon-intensity estimation from source-level production forecasts, improving price-regime/direction models, causal effect estimation, and workload-shifting optimization.
 
 ## Data Contracts
 

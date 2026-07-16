@@ -1,6 +1,10 @@
 # Forecasting Baseline
 
 This baseline forecasts France day-ahead electricity spot prices using the stable modeling dataset.
+It also trains upstream consumption and total-production forecasters, then feeds those forecasted
+supply/demand signals into the price models.
+Separate source-level generation forecasters are trained for nuclear, gas, coal, oil, wind, solar,
+hydro, and bioenergy so those forecasts can feed later carbon-footprint estimates.
 
 ## Target
 
@@ -12,16 +16,30 @@ Only time-derived and lagged/rolling features are used:
 
 - `hour`, `day_of_week`, `month`, `day_of_year`
 - `is_weekend`, `is_peak_hour`
+- `is_morning_ramp`, `is_evening_peak`, `is_overnight`
 - `hour_sin`, `hour_cos`
 - `day_of_year_sin`, `day_of_year_cos`
 - `price_lag_1h`
 - `price_lag_24h`
+- `price_lag_48h`
+- `price_lag_72h`
 - `price_lag_168h`
+- `price_lag_336h`
 - `price_rolling_mean_24h`
 - `price_rolling_mean_168h`
+- `price_rolling_std_24h`
+- `price_rolling_min_24h`
+- `price_rolling_max_24h`
+- `price_rolling_range_24h`
+- price momentum/spread features from lagged prices
 - `consumption_lag_24h`
+- `consumption_lag_168h`
 - `wind_lag_24h`
+- `wind_lag_168h`
 - `solar_lag_24h`
+- `solar_lag_168h`
+- lagged residual demand and variable-renewable features
+- forecasted consumption, total production, residual demand, and supply-demand gap
 
 The contemporaneous electricity/weather columns remain in the dataset for causal analysis, but they are not used by the strict baseline forecasters.
 
@@ -54,21 +72,71 @@ Expanding-window validation:
 
 The pipeline also writes error diagnostics by:
 
+- walk-forward window
 - hour of day
 - day of week
+- month
+- weekend flag
+- peak-hour flag
+- morning ramp flag
+- evening peak flag
 - actual price regime
+
+Diagnostics include raw-error fields (`mae`, `rmse`, `mean_error`, `max_abs_error`) and
+relative-error fields (`smape`, `max_smape`). The top-error artifact also includes row-level
+`smape_pct`, which is `100 * sMAPE`.
+
+Current aggregate price performance after adding forecasted consumption and production signals:
+
+| Model | MAE | RMSE | sMAPE | Directional Accuracy |
+| --- | ---: | ---: | ---: | ---: |
+| `hist_gradient_boosting` | 8.198 | 12.917 | 0.352 | 0.755 |
+| `lightgbm` | 8.229 | 12.931 | 0.352 | 0.761 |
+| `xgboost` | 8.356 | 12.942 | 0.353 | 0.760 |
+| `random_forest` | 8.900 | 13.989 | 0.365 | 0.745 |
+| `ridge` | 10.512 | 14.753 | 0.407 | 0.727 |
+| `naive_lag_24h` | 25.481 | 35.838 | 0.661 | 0.782 |
+
+Current aggregate upstream signal performance:
+
+| Target | Best Model | MAE | RMSE | sMAPE | Directional Accuracy |
+| --- | --- | ---: | ---: | ---: | ---: |
+| consumption | `ridge` | 658.820 | 1020.692 | 0.020 | 0.801 |
+| production | `ridge` | 594.487 | 1025.238 | 0.015 | 0.793 |
+
+## Current Error Findings
+
+For the best MAE model, `hist_gradient_boosting`, the largest errors remain concentrated in two situations:
+
+- Extreme negative prices around 2026-04-25 and 2026-04-26. The model predicts negative prices but underestimates the depth of the event, with absolute errors above 300 EUR/MWh at 2026-04-26 11:00-12:00 UTC.
+- Evening price spikes around 17:00-18:00 UTC. The tree models tend to underpredict these high-price periods.
+
+The feature-importance artifact shows that `price_lag_1h`, hour-of-day effects, `price_lag_24h`, and lagged price momentum features dominate the current tree models.
 
 ## Run
 
 From the repository root:
 
 ```bash
-python3 - <<'PY'
-from src.models.baseline_price import run_price_baselines
+make forecast-consumption
+make forecast-production
+make forecast-supply-demand
+make forecast-price
+make forecast-all
+```
 
-result = run_price_baselines()
-print(result["summary"])
-PY
+`forecast-price` and `forecast-all` train upstream consumption/production forecasts first, then train
+the price models with those forecasted values.
+`forecast-production` trains total production plus the individual source-level production targets.
+
+Equivalent direct Python commands:
+
+```bash
+python -m src.models.train_forecast --target consumption
+python -m src.models.train_forecast --target production
+python -m src.models.train_forecast --target supply-demand
+python -m src.models.train_forecast --target price
+python -m src.models.train_forecast --target all
 ```
 
 ## Outputs
@@ -76,6 +144,20 @@ PY
 - Metrics: `reports/metrics/price_baseline_metrics.json`
 - Predictions: `reports/predictions/price_baseline_predictions.csv`
 - Error diagnostics: `reports/metrics/price_baseline_error_diagnostics.csv`
+- Top forecast misses: `reports/metrics/price_baseline_top_errors.csv`
+- Feature importance: `reports/metrics/price_baseline_feature_importance.csv`
+- Supply/demand metrics: `reports/metrics/supply_demand_baseline_metrics.json`
+- Supply/demand predictions: `reports/predictions/supply_demand_baseline_predictions.csv`
+- Supply/demand feature importance: `reports/metrics/supply_demand_baseline_feature_importance.csv`
+- Consumption-only metrics: `reports/metrics/consumption_baseline_metrics.json`
+- Consumption-only predictions: `reports/predictions/consumption_baseline_predictions.csv`
+- Consumption-only feature importance: `reports/metrics/consumption_baseline_feature_importance.csv`
+- Production-only metrics: `reports/metrics/production_baseline_metrics.json`
+- Production-only predictions: `reports/predictions/production_baseline_predictions.csv`
+- Production-only feature importance: `reports/metrics/production_baseline_feature_importance.csv`
+- Production-source metrics from `forecast-all`: `reports/metrics/production_sources_baseline_metrics.json`
+- Production-source predictions from `forecast-all`: `reports/predictions/production_sources_baseline_predictions.csv`
+- Production-source feature importance from `forecast-all`: `reports/metrics/production_sources_baseline_feature_importance.csv`
 - Model artifacts:
   - `models/ridge_price_baseline.joblib`
   - `models/random_forest_price_baseline.joblib`
