@@ -57,7 +57,9 @@ The platform now has a working France electricity decision-support baseline:
 - France day-ahead spot prices, electricity mix, production, consumption, and weather-derived modeling features are supported.
 - The modeling dataset is built at `data/processed/modeling_price_features.csv`.
 - Price models are treated as internal scoring signals rather than the final objective.
-- The primary decision output is an hourly ranking of candidate workload times, evaluated by top-k capture, rank correlation, and regret versus the actual best hour.
+- The primary decision output is a top-5 list of recommended workload start hours from the combined price/carbon ranking.
+- The ranking layer is evaluated by top-k capture, rank correlation, regret versus the actual best hour, and savings versus running immediately.
+- Workload recommendations support duration, earliest start, latest end, max-delay, price-weight, and carbon-weight constraints.
 - Ranking currently uses strict forecast-time features: calendar features, lagged prices, lagged/rolling supply-demand signals, and upstream forecasted consumption/production.
 - Upstream baselines forecast consumption, total production, and source-level production for nuclear, gas, coal, oil, wind, solar, hydro, and bioenergy.
 - Forecast diagnostics include MAE, RMSE, sMAPE, directional accuracy, top-error periods, grouped error diagnostics, ranking metrics, regret metrics, and feature importance.
@@ -71,6 +73,8 @@ make forecast-production
 make forecast-supply-demand
 make forecast-price
 make forecast-ranking
+make forecast-decision
+make forecast-recommendations
 make forecast-all
 ```
 
@@ -80,11 +84,14 @@ Current key artifacts:
 - Price predictions: `reports/predictions/price_baseline_predictions.csv`
 - Decision rankings: `reports/rankings/price_decision_rankings.csv`
 - Ranking metrics: `reports/metrics/price_ranking_metrics.json`
+- Combined workload rankings: `reports/rankings/workload_decision_rankings.csv`
+- Top 5 workload recommendations: `reports/recommendations/top5_workload_recommendations.csv`
+- Combined workload metrics: `reports/metrics/workload_decision_metrics.json`
 - Supply/demand metrics: `reports/metrics/supply_demand_baseline_metrics.json`
 - Supply/demand predictions: `reports/predictions/supply_demand_baseline_predictions.csv`
 - Feature importance: `reports/metrics/*feature_importance.csv`
 
-Remaining work includes productionizing the API, adding carbon-intensity estimation from source-level production forecasts, improving price-regime/direction models, causal effect estimation, and workload-shifting optimization.
+Remaining work includes productionizing the API, improving ranking models, adding scenario-based reranking, causal effect estimation, and richer workload-shifting constraints.
 
 ## Data Contracts
 

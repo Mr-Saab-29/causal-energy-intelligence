@@ -122,6 +122,17 @@ Current aggregate ranking performance:
 | `ridge` | 0.188 | 0.688 | 4.762 EUR/MWh | 0.883 |
 | `naive_lag_24h` | 0.344 | 0.663 | 8.237 EUR/MWh | 0.745 |
 
+Current aggregate combined price/carbon decision performance with equal weights:
+
+| Model | Top-1 Hit | Top-3 Capture | Cost Savings vs Run Now | Carbon Savings vs Run Now |
+| --- | ---: | ---: | ---: | ---: |
+| `hist_gradient_boosting` | 0.319 | 0.725 | 40.372 EUR/MWh | 3.643 gCO2e/kWh |
+| `lightgbm` | 0.319 | 0.725 | 40.683 EUR/MWh | 3.638 gCO2e/kWh |
+| `random_forest` | 0.206 | 0.725 | 39.890 EUR/MWh | 3.519 gCO2e/kWh |
+| `xgboost` | 0.256 | 0.769 | 41.122 EUR/MWh | 3.628 gCO2e/kWh |
+| `ridge` | 0.250 | 0.669 | 40.239 EUR/MWh | 3.610 gCO2e/kWh |
+| `naive_lag_24h` | 0.194 | 0.438 | 32.325 EUR/MWh | 1.974 gCO2e/kWh |
+
 Current aggregate upstream signal performance:
 
 | Target | Best Model | MAE | RMSE | sMAPE | Directional Accuracy |
@@ -148,12 +159,19 @@ make forecast-production
 make forecast-supply-demand
 make forecast-price
 make forecast-ranking
+make forecast-decision
+make forecast-recommendations
 make forecast-all
 ```
 
 `forecast-price` and `forecast-all` train upstream consumption/production forecasts first, then train
 the price models with those forecasted values.
 `forecast-ranking` rebuilds decision rankings from saved price predictions without retraining.
+`forecast-decision` combines saved price rankings and carbon-intensity estimates into workload
+recommendations. Optional constraints include `--duration-hours`, `--earliest-start-utc`,
+`--latest-end-utc`, `--max-delay-hours`, `--price-weight`, and `--carbon-weight`.
+`forecast-recommendations` exports the top 5 recommended workload start hours from the combined
+decision ranking.
 `forecast-production` trains total production plus the individual source-level production targets.
 
 Equivalent direct Python commands:
@@ -164,7 +182,21 @@ python -m src.models.train_forecast --target production
 python -m src.models.train_forecast --target supply-demand
 python -m src.models.train_forecast --target price
 python -m src.models.train_forecast --target ranking
+python -m src.models.train_forecast --target decision
+python -m src.models.train_forecast --target decision --top-n-recommendations 5
 python -m src.models.train_forecast --target all
+```
+
+Example constrained workload ranking:
+
+```bash
+python -m src.models.train_forecast \
+  --target decision \
+  --duration-hours 3 \
+  --earliest-start-utc 2026-04-01T08:00:00+00:00 \
+  --latest-end-utc 2026-04-01T22:00:00+00:00 \
+  --price-weight 0.5 \
+  --carbon-weight 0.5
 ```
 
 ## Outputs
@@ -176,6 +208,9 @@ python -m src.models.train_forecast --target all
 - Feature importance: `reports/metrics/price_baseline_feature_importance.csv`
 - Decision rankings: `reports/rankings/price_decision_rankings.csv`
 - Ranking metrics: `reports/metrics/price_ranking_metrics.json`
+- Combined workload rankings: `reports/rankings/workload_decision_rankings.csv`
+- Top 5 workload recommendations: `reports/recommendations/top5_workload_recommendations.csv`
+- Combined workload metrics: `reports/metrics/workload_decision_metrics.json`
 - Supply/demand metrics: `reports/metrics/supply_demand_baseline_metrics.json`
 - Supply/demand predictions: `reports/predictions/supply_demand_baseline_predictions.csv`
 - Supply/demand feature importance: `reports/metrics/supply_demand_baseline_feature_importance.csv`

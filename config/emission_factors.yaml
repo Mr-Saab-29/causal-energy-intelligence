@@ -1,0 +1,23 @@
+methodologies:
+  direct_operational_emissions:
+    description: "Operational stack emissions from generation, excluding upstream lifecycle impacts."
+    emission_factors_kg_co2e_per_mwh:
+      nuclear: 0.0
+      gas: 370.0
+      coal: 820.0
+      oil: 650.0
+      wind: 0.0
+      solar: 0.0
+      hydro: 0.0
+      bioenergy: 230.0
+  lifecycle_emissions:
+    description: "Lifecycle emissions including construction, fuel supply, operations, and decommissioning."
+    emission_factors_kg_co2e_per_mwh:
+      nuclear: 12.0
+      gas: 490.0
+      coal: 820.0
+      oil: 650.0
+      wind: 11.0
+      solar: 45.0
+      hydro: 24.0
+      bioenergy: 230.0
