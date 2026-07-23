@@ -240,7 +240,7 @@ def smape(actuals: pd.Series, predictions: pd.Series) -> float:
 
 
 def run_carbon_accounting(
-    predictions_path: str | Path = "reports/predictions/production_sources_baseline_predictions.csv",
+    predictions_path: str | Path = "reports/predictions/production_baseline_predictions.csv",
     emission_factors_path: str | Path = "config/emission_factors.yaml",
     hourly_output_path: str | Path = "reports/carbon/hourly_carbon_intensity.csv",
     contributions_output_path: str | Path = "reports/carbon/technology_emission_contributions.csv",

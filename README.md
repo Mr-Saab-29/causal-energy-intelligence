@@ -1,6 +1,6 @@
 # Causal Energy Intelligence Platform
 
-Forecasting, causal inference, and what-if optimization for ranked energy decisions and carbon-aware workload shifting.
+Clean-hour scheduling, causal inference, and what-if optimization for carbon-aware workload shifting.
 
 ## Architecture
 
@@ -9,7 +9,7 @@ External APIs / CSV sources
   -> Airflow ETL
   -> Cloud Postgres
   -> Feature Engineering
-  -> Forecasting + Ranking Models
+  -> Clean-Hour Forecasting + Ranking Models
   -> Causal Inference Engine
   -> What-if Simulator
   -> FastAPI
@@ -23,7 +23,7 @@ External APIs / CSV sources
 - `dags/` — Airflow ETL orchestration.
 - `src/data/` — Extract, transform, and load utilities.
 - `src/features/` — Feature engineering.
-- `src/models/` — Forecast training, evaluation, and prediction.
+- `src/models/` — Forecast training, evaluation, and clean-hour scoring signals.
 - `src/causal/` — Causal DAGs, effect estimation, and counterfactuals.
 - `src/optimization/` — Carbon-aware workload shifting.
 - `src/monitoring/` — Metrics and observability helpers.
@@ -49,6 +49,24 @@ Health check:
 curl http://localhost:8000/health
 ```
 
+## Clean-Hour Dashboard
+
+The frontend lives in `frontend/` and is Vercel-ready. It reads the generated static data contract at
+`frontend/public/data/dashboard.json`, which can later be replaced by a live API once Airflow refreshes
+the source data daily.
+
+```bash
+make forecast-recommendations
+make frontend-install
+make frontend-dev
+```
+
+Production build:
+
+```bash
+make frontend-build
+```
+
 ## Current Status
 
 The platform now has a working France electricity decision-support baseline:
@@ -56,10 +74,13 @@ The platform now has a working France electricity decision-support baseline:
 - Canonical ETL contracts and Supabase/Postgres schemas are in place.
 - France day-ahead spot prices, electricity mix, production, consumption, and weather-derived modeling features are supported.
 - The modeling dataset is built at `data/processed/modeling_price_features.csv`.
-- Price models are treated as internal scoring signals rather than the final objective.
-- The primary decision output is a top-5 list of recommended workload start hours from the combined price/carbon ranking.
-- The ranking layer is evaluated by top-k capture, rank correlation, regret versus the actual best hour, and savings versus running immediately.
+- Price models are treated as supporting signals only; the project is no longer framed around point spot-price prediction.
+- The primary decision output is a top-5 list of recommended clean workload start hours from the combined scheduling ranking.
+- Recommendations show price direction versus the previous day at the same time instead of presenting price as the main dashboard forecast.
+- The champion model is selected from generated metrics with a carbon-first score: 45% carbon-intensity error, 25% carbon regret, 20% top-5 ranking loss, and 10% price-direction error.
+- The ranking layer is evaluated by top-k capture, pairwise ranking loss, top-5 classification metrics, regret by day/window, and savings versus running immediately.
 - Workload recommendations support duration, earliest start, latest end, max-delay, price-weight, and carbon-weight constraints.
+- Scenario reranking is available for clean-first, balanced, and cost-aware-clean preferences.
 - Ranking currently uses strict forecast-time features: calendar features, lagged prices, lagged/rolling supply-demand signals, and upstream forecasted consumption/production.
 - Upstream baselines forecast consumption, total production, and source-level production for nuclear, gas, coal, oil, wind, solar, hydro, and bioenergy.
 - Forecast diagnostics include MAE, RMSE, sMAPE, directional accuracy, top-error periods, grouped error diagnostics, ranking metrics, regret metrics, and feature importance.
@@ -75,6 +96,7 @@ make forecast-price
 make forecast-ranking
 make forecast-decision
 make forecast-recommendations
+make forecast-scenarios
 make forecast-all
 ```
 
@@ -86,7 +108,13 @@ Current key artifacts:
 - Ranking metrics: `reports/metrics/price_ranking_metrics.json`
 - Combined workload rankings: `reports/rankings/workload_decision_rankings.csv`
 - Top 5 workload recommendations: `reports/recommendations/top5_workload_recommendations.csv`
+- Champion-only recommendations: `reports/recommendations/champion_workload_recommendations.csv`
 - Combined workload metrics: `reports/metrics/workload_decision_metrics.json`
+- Ranking-specific metrics: `reports/metrics/ranking_specific_metrics.json`
+- Champion model selection: `reports/metrics/champion_model_selection.json`
+- Scenario rerankings: `reports/scenarios/workload_scenario_recommendations.csv`
+- Scenario metrics: `reports/metrics/scenario_reranking_metrics.json`
+- Dashboard data contract: `frontend/public/data/dashboard.json`
 - Supply/demand metrics: `reports/metrics/supply_demand_baseline_metrics.json`
 - Supply/demand predictions: `reports/predictions/supply_demand_baseline_predictions.csv`
 - Feature importance: `reports/metrics/*feature_importance.csv`

@@ -18,3 +18,5 @@ codex_session_to_pdf.py
 *.tmp.yml
 *.tmp.yaml
 .DS_Store
+frontend/node_modules/
+frontend/dist/

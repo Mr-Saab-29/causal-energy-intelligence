@@ -1,8 +1,8 @@
 # Forecasting Baseline
 
-This baseline ranks candidate workload hours using France day-ahead electricity price signals from
-the stable modeling dataset. Exact spot-price prediction is kept as an internal signal, not the final
-decision objective.
+This baseline recommends clean workload start hours using France electricity mix, carbon-intensity,
+and supporting price-direction signals from the stable modeling dataset. Exact spot-price prediction
+is kept as an internal diagnostic only, not the final decision objective.
 It also trains upstream consumption and total-production forecasters, then feeds those forecasted
 supply/demand signals into the price models.
 Separate source-level generation forecasters are trained for nuclear, gas, coal, oil, wind, solar,
@@ -10,9 +10,11 @@ hydro, and bioenergy so those forecasts can feed later carbon-footprint estimate
 
 ## Decision Target
 
-- rank candidate hours from cheapest to most expensive within each decision day
-- minimize regret versus the actual cheapest hour
-- capture the actual cheapest hour in the model's top-k recommendations
+- recommend the cleanest feasible workload start hours within each decision day or constrained window
+- show whether price is expected to increase or decrease versus the previous day at the same time
+- attach recommendation confidence from rank position, score margin, and cross-model agreement
+- minimize clean-hour regret versus the actual best feasible hour
+- capture the actual best hour in the model's top-k recommendations
 
 ## Strict Forecasting Features
 
@@ -69,11 +71,15 @@ Expanding-window validation:
 
 ## Metrics
 
-Ranking metrics:
+Ranking and decision metrics:
 
 - top-1 hit rate
 - top-3 capture rate
+- top-5 precision, recall, and F1 for clean-hour classification
+- pairwise ranking loss
 - mean/median top-1 regret in EUR/MWh
+- carbon-intensity regret in gCO2e/kWh
+- regret-aware evaluation by day/window
 - mean actual rank of the predicted-best hour
 - Spearman rank correlation
 
@@ -122,7 +128,16 @@ Current aggregate ranking performance:
 | `ridge` | 0.188 | 0.688 | 4.762 EUR/MWh | 0.883 |
 | `naive_lag_24h` | 0.344 | 0.663 | 8.237 EUR/MWh | 0.745 |
 
-Current aggregate combined price/carbon decision performance with equal weights:
+Current champion-model rule:
+
+- 45% carbon-intensity MAE
+- 25% carbon regret from the recommended hour versus the actual cleanest feasible hour
+- 20% top-5 ranking loss, combining pairwise ranking loss and `1 - top_5_f1`
+- 10% price-direction error versus the previous day at the same time
+
+The champion model is selected dynamically from the generated metrics when the decision pipeline runs.
+
+Current aggregate combined clean-hour decision performance with equal weights:
 
 | Model | Top-1 Hit | Top-3 Capture | Cost Savings vs Run Now | Carbon Savings vs Run Now |
 | --- | ---: | ---: | ---: | ---: |
@@ -161,6 +176,7 @@ make forecast-price
 make forecast-ranking
 make forecast-decision
 make forecast-recommendations
+make forecast-scenarios
 make forecast-all
 ```
 
@@ -172,6 +188,8 @@ recommendations. Optional constraints include `--duration-hours`, `--earliest-st
 `--latest-end-utc`, `--max-delay-hours`, `--price-weight`, and `--carbon-weight`.
 `forecast-recommendations` exports the top 5 recommended workload start hours from the combined
 decision ranking.
+`forecast-scenarios` exports top-5 recommendations for clean-first, balanced, and cost-aware-clean
+scenario rerankings.
 `forecast-production` trains total production plus the individual source-level production targets.
 
 Equivalent direct Python commands:
@@ -210,7 +228,12 @@ python -m src.models.train_forecast \
 - Ranking metrics: `reports/metrics/price_ranking_metrics.json`
 - Combined workload rankings: `reports/rankings/workload_decision_rankings.csv`
 - Top 5 workload recommendations: `reports/recommendations/top5_workload_recommendations.csv`
+- Champion-only recommendations: `reports/recommendations/champion_workload_recommendations.csv`
 - Combined workload metrics: `reports/metrics/workload_decision_metrics.json`
+- Ranking-specific metrics: `reports/metrics/ranking_specific_metrics.json`
+- Champion model selection: `reports/metrics/champion_model_selection.json`
+- Scenario rerankings: `reports/scenarios/workload_scenario_recommendations.csv`
+- Scenario metrics: `reports/metrics/scenario_reranking_metrics.json`
 - Supply/demand metrics: `reports/metrics/supply_demand_baseline_metrics.json`
 - Supply/demand predictions: `reports/predictions/supply_demand_baseline_predictions.csv`
 - Supply/demand feature importance: `reports/metrics/supply_demand_baseline_feature_importance.csv`

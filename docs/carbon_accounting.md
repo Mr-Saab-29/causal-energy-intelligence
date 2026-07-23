@@ -21,7 +21,7 @@ Generate source-level production forecasts and carbon accounting outputs:
 python -m src.models.train_forecast --target production
 ```
 
-Recompute carbon outputs from an existing `reports/predictions/production_sources_baseline_predictions.csv` file:
+Recompute carbon outputs from an existing `reports/predictions/production_baseline_predictions.csv` file:
 
 ```bash
 python -m src.models.train_forecast --target carbon

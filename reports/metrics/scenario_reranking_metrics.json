@@ -1,0 +1,201 @@
+{
+  "scenarios": [
+    {
+      "scenario": "clean_first",
+      "price_weight": 0.2,
+      "carbon_weight": 0.8
+    },
+    {
+      "scenario": "balanced",
+      "price_weight": 0.5,
+      "carbon_weight": 0.5
+    },
+    {
+      "scenario": "cost_aware_clean",
+      "price_weight": 0.4,
+      "carbon_weight": 0.6
+    }
+  ],
+  "summary": [
+    {
+      "scenario": "clean_first",
+      "model": "lightgbm",
+      "decision_groups": 160,
+      "top_1_hit_rate": 0.29375,
+      "top_3_capture_rate": 0.63125,
+      "mean_scenario_regret": 0.08049430641821946,
+      "mean_carbon_regret_g_co2e_per_kwh": 0.3538901553974891,
+      "mean_carbon_savings_vs_run_now_g_co2e_per_kwh": 3.7649539620656043
+    },
+    {
+      "scenario": "clean_first",
+      "model": "xgboost",
+      "decision_groups": 160,
+      "top_1_hit_rate": 0.2875,
+      "top_3_capture_rate": 0.64375,
+      "mean_scenario_regret": 0.08375517598343686,
+      "mean_carbon_regret_g_co2e_per_kwh": 0.36068195487308014,
+      "mean_carbon_savings_vs_run_now_g_co2e_per_kwh": 3.758162162590014
+    },
+    {
+      "scenario": "clean_first",
+      "model": "hist_gradient_boosting",
+      "decision_groups": 160,
+      "top_1_hit_rate": 0.3125,
+      "top_3_capture_rate": 0.6375,
+      "mean_scenario_regret": 0.08734213250517599,
+      "mean_carbon_regret_g_co2e_per_kwh": 0.38048817124656964,
+      "mean_carbon_savings_vs_run_now_g_co2e_per_kwh": 3.7383559462165246
+    },
+    {
+      "scenario": "clean_first",
+      "model": "random_forest",
+      "decision_groups": 160,
+      "top_1_hit_rate": 0.3,
+      "top_3_capture_rate": 0.625,
+      "mean_scenario_regret": 0.09217650103519667,
+      "mean_carbon_regret_g_co2e_per_kwh": 0.3925764406669893,
+      "mean_carbon_savings_vs_run_now_g_co2e_per_kwh": 3.7262676767961045
+    },
+    {
+      "scenario": "clean_first",
+      "model": "ridge",
+      "decision_groups": 160,
+      "top_1_hit_rate": 0.25625,
+      "top_3_capture_rate": 0.55,
+      "mean_scenario_regret": 0.1133126293995859,
+      "mean_carbon_regret_g_co2e_per_kwh": 0.4269558104647606,
+      "mean_carbon_savings_vs_run_now_g_co2e_per_kwh": 3.691888306998333
+    },
+    {
+      "scenario": "clean_first",
+      "model": "naive_lag_24h",
+      "decision_groups": 160,
+      "top_1_hit_rate": 0.15625,
+      "top_3_capture_rate": 0.34375,
+      "mean_scenario_regret": 0.2464026915113872,
+      "mean_carbon_regret_g_co2e_per_kwh": 2.6369274775421245,
+      "mean_carbon_savings_vs_run_now_g_co2e_per_kwh": 1.4819166399209693
+    },
+    {
+      "scenario": "balanced",
+      "model": "hist_gradient_boosting",
+      "decision_groups": 160,
+      "top_1_hit_rate": 0.425,
+      "top_3_capture_rate": 0.76875,
+      "mean_scenario_regret": 0.059944358178053825,
+      "mean_carbon_regret_g_co2e_per_kwh": 0.47554366299783535,
+      "mean_carbon_savings_vs_run_now_g_co2e_per_kwh": 3.643300454465259
+    },
+    {
+      "scenario": "balanced",
+      "model": "lightgbm",
+      "decision_groups": 160,
+      "top_1_hit_rate": 0.4125,
+      "top_3_capture_rate": 0.78125,
+      "mean_scenario_regret": 0.06097308488612836,
+      "mean_carbon_regret_g_co2e_per_kwh": 0.4811969436108242,
+      "mean_carbon_savings_vs_run_now_g_co2e_per_kwh": 3.6376471738522698
+    },
+    {
+      "scenario": "balanced",
+      "model": "random_forest",
+      "decision_groups": 160,
+      "top_1_hit_rate": 0.33125,
+      "top_3_capture_rate": 0.80625,
+      "mean_scenario_regret": 0.06667960662525879,
+      "mean_carbon_regret_g_co2e_per_kwh": 0.6001507160744819,
+      "mean_carbon_savings_vs_run_now_g_co2e_per_kwh": 3.5186934013886124
+    },
+    {
+      "scenario": "balanced",
+      "model": "xgboost",
+      "decision_groups": 160,
+      "top_1_hit_rate": 0.3625,
+      "top_3_capture_rate": 0.825,
+      "mean_scenario_regret": 0.07006340579710145,
+      "mean_carbon_regret_g_co2e_per_kwh": 0.491115931145867,
+      "mean_carbon_savings_vs_run_now_g_co2e_per_kwh": 3.627728186317227
+    },
+    {
+      "scenario": "balanced",
+      "model": "ridge",
+      "decision_groups": 160,
+      "top_1_hit_rate": 0.38125,
+      "top_3_capture_rate": 0.71875,
+      "mean_scenario_regret": 0.07514233954451346,
+      "mean_carbon_regret_g_co2e_per_kwh": 0.5085187822690671,
+      "mean_carbon_savings_vs_run_now_g_co2e_per_kwh": 3.6103253351940268
+    },
+    {
+      "scenario": "balanced",
+      "model": "naive_lag_24h",
+      "decision_groups": 160,
+      "top_1_hit_rate": 0.225,
+      "top_3_capture_rate": 0.5,
+      "mean_scenario_regret": 0.14827898550724636,
+      "mean_carbon_regret_g_co2e_per_kwh": 2.1445424805400504,
+      "mean_carbon_savings_vs_run_now_g_co2e_per_kwh": 1.974301636923044
+    },
+    {
+      "scenario": "cost_aware_clean",
+      "model": "lightgbm",
+      "decision_groups": 160,
+      "top_1_hit_rate": 0.29375,
+      "top_3_capture_rate": 0.725,
+      "mean_scenario_regret": 0.06909679089026914,
+      "mean_carbon_regret_g_co2e_per_kwh": 0.46169961916260255,
+      "mean_carbon_savings_vs_run_now_g_co2e_per_kwh": 3.6571444983004917
+    },
+    {
+      "scenario": "cost_aware_clean",
+      "model": "hist_gradient_boosting",
+      "decision_groups": 160,
+      "top_1_hit_rate": 0.3125,
+      "top_3_capture_rate": 0.725,
+      "mean_scenario_regret": 0.07017857142857142,
+      "mean_carbon_regret_g_co2e_per_kwh": 0.4589879604267571,
+      "mean_carbon_savings_vs_run_now_g_co2e_per_kwh": 3.6598561570363364
+    },
+    {
+      "scenario": "cost_aware_clean",
+      "model": "xgboost",
+      "decision_groups": 160,
+      "top_1_hit_rate": 0.26875,
+      "top_3_capture_rate": 0.74375,
+      "mean_scenario_regret": 0.07271221532091096,
+      "mean_carbon_regret_g_co2e_per_kwh": 0.47412326476934485,
+      "mean_carbon_savings_vs_run_now_g_co2e_per_kwh": 3.644720852693749
+    },
+    {
+      "scenario": "cost_aware_clean",
+      "model": "random_forest",
+      "decision_groups": 160,
+      "top_1_hit_rate": 0.24375,
+      "top_3_capture_rate": 0.71875,
+      "mean_scenario_regret": 0.07860766045548653,
+      "mean_carbon_regret_g_co2e_per_kwh": 0.5401939326724184,
+      "mean_carbon_savings_vs_run_now_g_co2e_per_kwh": 3.5786501847906758
+    },
+    {
+      "scenario": "cost_aware_clean",
+      "model": "ridge",
+      "decision_groups": 160,
+      "top_1_hit_rate": 0.25,
+      "top_3_capture_rate": 0.65625,
+      "mean_scenario_regret": 0.08441511387163561,
+      "mean_carbon_regret_g_co2e_per_kwh": 0.48685185361490946,
+      "mean_carbon_savings_vs_run_now_g_co2e_per_kwh": 3.631992263848185
+    },
+    {
+      "scenario": "cost_aware_clean",
+      "model": "naive_lag_24h",
+      "decision_groups": 160,
+      "top_1_hit_rate": 0.1625,
+      "top_3_capture_rate": 0.375,
+      "mean_scenario_regret": 0.17626552795031056,
+      "mean_carbon_regret_g_co2e_per_kwh": 2.271265207412557,
+      "mean_carbon_savings_vs_run_now_g_co2e_per_kwh": 1.8475789100505366
+    }
+  ]
+}

@@ -139,7 +139,7 @@
       "model": "random_forest",
       "train_rows": 24501,
       "test_rows": 672,
-      "mae": 8.023866631785282,
+      "mae": 8.02386663178528,
       "rmse": 11.571371146203349,
       "smape": 0.45643296509483333,
       "directional_accuracy": 0.6959761549925484

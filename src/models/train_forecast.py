@@ -14,6 +14,11 @@ from src.models.baseline_price import (
 )
 from src.optimization.workload_shift import WorkloadConstraints, run_workload_decision_ranking
 
+PRODUCTION_BASELINE_PREDICTIONS_PATH = "reports/predictions/production_baseline_predictions.csv"
+PRODUCTION_SOURCES_BASELINE_PREDICTIONS_PATH = (
+    "reports/predictions/production_sources_baseline_predictions.csv"
+)
+
 
 def train_forecast_model(features: list[dict[str, object]]) -> dict[str, object]:
     """Train a price/carbon forecast model and return model metadata."""
@@ -61,12 +66,12 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
         run_supply_demand_baselines(
             target_names=PRODUCTION_SIGNAL_TARGETS[1:],
             metrics_path="reports/metrics/production_sources_baseline_metrics.json",
-            predictions_path="reports/predictions/production_sources_baseline_predictions.csv",
+            predictions_path=PRODUCTION_SOURCES_BASELINE_PREDICTIONS_PATH,
             feature_importance_path=(
                 "reports/metrics/production_sources_baseline_feature_importance.csv"
             ),
         )
-        run_carbon_accounting()
+        run_carbon_accounting(predictions_path=PRODUCTION_SOURCES_BASELINE_PREDICTIONS_PATH)
         result = run_workload_decision_ranking()
     elif args.target == "price":
         result = run_price_baselines()
@@ -88,14 +93,13 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
     elif args.target == "supply-demand":
         result = run_supply_demand_baselines()
     elif args.target == "production":
-        predictions_path = "reports/predictions/production_baseline_predictions.csv"
         result = run_supply_demand_baselines(
             target_names=PRODUCTION_SIGNAL_TARGETS,
             metrics_path="reports/metrics/production_baseline_metrics.json",
-            predictions_path=predictions_path,
+            predictions_path=PRODUCTION_BASELINE_PREDICTIONS_PATH,
             feature_importance_path="reports/metrics/production_baseline_feature_importance.csv",
         )
-        run_carbon_accounting(predictions_path=predictions_path)
+        run_carbon_accounting(predictions_path=PRODUCTION_BASELINE_PREDICTIONS_PATH)
     elif args.target == "carbon":
         result = run_carbon_accounting()
     else:
