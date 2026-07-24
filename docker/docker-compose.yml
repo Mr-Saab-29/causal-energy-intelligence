@@ -5,10 +5,79 @@ services:
       dockerfile: docker/Dockerfile
     env_file:
       - ../.env.example
+    environment:
+      DATABASE_URL: postgresql://user:password@postgres:5432/energy
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_EXPERIMENT_NAME: clean-hour-scheduling
     ports:
       - "8000:8000"
+    volumes:
+      - ../data:/app/data
+      - ../reports:/app/reports
+      - ../models:/app/models
     depends_on:
       - postgres
+      - mlflow
+
+  dashboard:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+
+  dagster:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command:
+      - dagster
+      - dev
+      - --host
+      - 0.0.0.0
+      - --port
+      - "3001"
+      - --workspace
+      - workspace.yaml
+    env_file:
+      - ../.env.example
+    environment:
+      DATABASE_URL: postgresql://user:password@postgres:5432/energy
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_EXPERIMENT_NAME: clean-hour-scheduling
+      DAGSTER_HOME: /app/.dagster
+    ports:
+      - "3001:3001"
+    volumes:
+      - ../data:/app/data
+      - ../reports:/app/reports
+      - ../models:/app/models
+      - dagster_home:/app/.dagster
+    depends_on:
+      - postgres
+      - mlflow
+
+  mlflow:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command:
+      - mlflow
+      - server
+      - --host
+      - 0.0.0.0
+      - --port
+      - "5000"
+      - --backend-store-uri
+      - sqlite:////mlflow/mlflow.db
+      - --default-artifact-root
+      - /mlflow/artifacts
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow_data:/mlflow
 
   postgres:
     image: postgres:16
@@ -23,16 +92,21 @@ services:
 
   prometheus:
     image: prom/prometheus:latest
+    profiles:
+      - observability
     ports:
       - "9090:9090"
 
   grafana:
     image: grafana/grafana:latest
+    profiles:
+      - observability
     ports:
-      - "3000:3000"
+      - "3002:3000"
     depends_on:
       - prometheus
 
 volumes:
   postgres_data:
-
+  mlflow_data:
+  dagster_home:

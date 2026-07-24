@@ -136,3 +136,6 @@ Post-ingestion validation is documented in `docs/data_validation.md`.
 Modeling dataset construction is documented in `docs/modeling_dataset.md`.
 
 Forecasting baselines are documented in `docs/forecasting_baseline.md`.
+
+MLOps, MLflow tracking, Docker Compose, and Dagster refresh notes are documented in
+`docs/mlops_orchestration.md`.

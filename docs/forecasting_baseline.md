@@ -246,9 +246,7 @@ python -m src.models.train_forecast \
 - Production-source metrics from `forecast-all`: `reports/metrics/production_sources_baseline_metrics.json`
 - Production-source predictions from `forecast-all`: `reports/predictions/production_sources_baseline_predictions.csv`
 - Production-source feature importance from `forecast-all`: `reports/metrics/production_sources_baseline_feature_importance.csv`
-- Model artifacts:
-  - `models/ridge_price_baseline.joblib`
-  - `models/random_forest_price_baseline.joblib`
-  - `models/hist_gradient_boosting_price_baseline.joblib`
-  - `models/lightgbm_price_baseline.joblib`
-  - `models/xgboost_price_baseline.joblib`
+- Model artifacts: only the selected best fitted model is retained for each target,
+  using the lowest aggregate MAE among non-naive models. Older artifacts for the
+  same target are pruned before the selected model is written, for example
+  `models/ridge_consumption_baseline.joblib`.

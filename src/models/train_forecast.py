@@ -13,6 +13,7 @@ from src.models.baseline_price import (
     run_supply_demand_baselines,
 )
 from src.optimization.workload_shift import WorkloadConstraints, run_workload_decision_ranking
+from src.tracking.mlflow_tracking import track_forecast_run
 
 PRODUCTION_BASELINE_PREDICTIONS_PATH = "reports/predictions/production_baseline_predictions.csv"
 PRODUCTION_SOURCES_BASELINE_PREDICTIONS_PATH = (
@@ -59,6 +60,7 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
     parser.add_argument("--max-delay-hours", type=int, default=None)
     parser.add_argument("--methodology", default="direct_operational_emissions")
     parser.add_argument("--top-n-recommendations", type=int, default=5)
+    parser.add_argument("--disable-mlflow", action="store_true")
     args = parser.parse_args(argv)
 
     if args.target == "all":
@@ -108,6 +110,22 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
             metrics_path=f"reports/metrics/{args.target}_baseline_metrics.json",
             predictions_path=f"reports/predictions/{args.target}_baseline_predictions.csv",
             feature_importance_path=f"reports/metrics/{args.target}_baseline_feature_importance.csv",
+        )
+
+    if not args.disable_mlflow:
+        track_forecast_run(
+            target=args.target,
+            result=result,
+            params={
+                "price_weight": args.price_weight,
+                "carbon_weight": args.carbon_weight,
+                "duration_hours": args.duration_hours,
+                "earliest_start_utc": args.earliest_start_utc,
+                "latest_end_utc": args.latest_end_utc,
+                "max_delay_hours": args.max_delay_hours,
+                "methodology": args.methodology,
+                "top_n_recommendations": args.top_n_recommendations,
+            },
         )
 
     print(result["summary"])

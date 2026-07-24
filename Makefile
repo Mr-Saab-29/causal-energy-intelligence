@@ -1,6 +1,6 @@
 PYTHON ?= python
 
-.PHONY: help forecast-all forecast-price forecast-ranking forecast-decision forecast-recommendations forecast-scenarios forecast-decision-example forecast-consumption forecast-production forecast-supply-demand forecast-carbon dashboard-data frontend-install frontend-dev frontend-build
+.PHONY: help forecast-all forecast-price forecast-ranking forecast-decision forecast-recommendations forecast-scenarios forecast-decision-example forecast-consumption forecast-production forecast-supply-demand forecast-carbon dashboard-data frontend-install frontend-dev frontend-build mlflow-ui dagster-dev docker-build docker-up docker-down docker-observability
 
 help:
 	@echo "Forecast training targets:"
@@ -18,6 +18,9 @@ help:
 	@echo "  make dashboard-data          Build frontend/public/data/dashboard.json"
 	@echo "  make frontend-dev            Start the dashboard dev server"
 	@echo "  make frontend-build          Build the Vercel-ready dashboard"
+	@echo "  make mlflow-ui               Start local MLflow tracking UI"
+	@echo "  make dagster-dev             Start local Dagster webserver"
+	@echo "  make docker-up               Start API, dashboard, MLflow, Dagster, Postgres"
 
 forecast-all:
 	$(PYTHON) -m src.models.train_forecast --target all
@@ -66,3 +69,21 @@ frontend-dev:
 
 frontend-build:
 	npm --prefix frontend run build
+
+mlflow-ui:
+	mlflow server --host 127.0.0.1 --port 5000 --backend-store-uri sqlite:///mlflow.db --default-artifact-root ./mlruns
+
+dagster-dev:
+	DAGSTER_HOME=$${DAGSTER_HOME:-.dagster} dagster dev --workspace workspace.yaml
+
+docker-build:
+	docker compose -f docker/docker-compose.yml build
+
+docker-up:
+	docker compose -f docker/docker-compose.yml up
+
+docker-down:
+	docker compose -f docker/docker-compose.yml down
+
+docker-observability:
+	docker compose -f docker/docker-compose.yml --profile observability up

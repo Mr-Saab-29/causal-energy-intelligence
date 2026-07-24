@@ -150,6 +150,8 @@ SUPPLY_DEMAND_TARGETS = {
     "hydro": ("hydro_mwh", "hydro"),
     "bioenergy": ("bioenergy_mwh", "bioenergy"),
 }
+NAIVE_MODEL_NAME = "naive_lag_24h"
+MODEL_SELECTION_METRIC = "mae"
 
 
 @dataclass(frozen=True)
@@ -410,6 +412,8 @@ def run_price_baselines(
     all_signal_metrics: list[dict[str, Any]] = []
     all_signal_predictions: list[pd.DataFrame] = []
     all_signal_feature_importance: list[pd.DataFrame] = []
+    final_signal_models: dict[str, dict[str, Any]] = {}
+    final_price_models: dict[str, Any] = {}
 
     for window in DEFAULT_WALK_FORWARD_WINDOWS:
         train_frame, test_frame = split_window(frame, window)
@@ -422,6 +426,7 @@ def run_price_baselines(
             signal_metrics,
             signal_predictions,
             signal_feature_importance,
+            signal_final_models,
         ) = add_supply_demand_forecasts(
             train_frame,
             test_frame,
@@ -431,6 +436,8 @@ def run_price_baselines(
         all_signal_metrics.extend(signal_metrics)
         all_signal_predictions.extend(signal_predictions)
         all_signal_feature_importance.extend(signal_feature_importance)
+        for signal_name, models in signal_final_models.items():
+            final_signal_models[signal_name] = models
 
         for model_name, model in build_models().items():
             fitted_model = fit_model(model_name, model, train_frame)
@@ -460,13 +467,25 @@ def run_price_baselines(
                 )
             )
 
-            if window.name == "test_2026_q2" and model_name != "naive_lag_24h":
-                joblib.dump(fitted_model, artifacts / f"{model_name}_price_baseline.joblib")
-                importance = extract_feature_importance(model_name, fitted_model, window.name)
-                if importance is not None:
-                    all_feature_importance.append(importance)
+            if window.name == "test_2026_q2" and model_name != NAIVE_MODEL_NAME:
+                final_price_models[model_name] = fitted_model
 
     metrics_summary = summarize_metrics(all_metrics)
+    selected_price_model = save_selected_model(
+        final_price_models,
+        metrics_summary,
+        artifacts,
+        artifact_suffix="price_baseline",
+    )
+    if selected_price_model is not None:
+        importance = extract_feature_importance(
+            selected_price_model,
+            final_price_models[selected_price_model],
+            "test_2026_q2",
+        )
+        if importance is not None:
+            all_feature_importance.append(importance)
+
     predictions_frame = pd.concat(all_predictions, ignore_index=True)
     diagnostics = build_error_diagnostics(predictions_frame)
     top_errors = build_top_error_periods(predictions_frame)
@@ -481,6 +500,24 @@ def run_price_baselines(
     write_predictions(ranking_path, rankings)
     write_json(ranking_metrics_path, {"summary": ranking_metrics})
     signal_summary = summarize_signal_metrics(all_signal_metrics)
+    for signal_name, models in final_signal_models.items():
+        selected_signal_model = save_selected_signal_model(
+            final_models=models,
+            summary=signal_summary,
+            artifacts=artifacts,
+            signal_name=signal_name,
+        )
+        if selected_signal_model is not None:
+            _, prefix = SUPPLY_DEMAND_TARGETS[signal_name]
+            importance = extract_feature_importance(
+                model_name=selected_signal_model,
+                model=models[selected_signal_model],
+                window_name="test_2026_q2",
+                feature_columns=supply_demand_feature_columns(prefix),
+                target=signal_name,
+            )
+            if importance is not None:
+                all_signal_feature_importance.append(importance)
     write_json(
         supply_demand_metrics_path,
         {"metrics": all_signal_metrics, "summary": signal_summary},
@@ -531,13 +568,21 @@ def add_supply_demand_forecasts(
     test_frame: pd.DataFrame,
     window: ForecastWindow,
     artifacts: Path,
-) -> tuple[pd.DataFrame, pd.DataFrame, list[dict[str, Any]], list[pd.DataFrame], list[pd.DataFrame]]:
+) -> tuple[
+    pd.DataFrame,
+    pd.DataFrame,
+    list[dict[str, Any]],
+    list[pd.DataFrame],
+    list[pd.DataFrame],
+    dict[str, dict[str, Any]],
+]:
     """Train supply/demand models and attach their forecasts for price modeling."""
     enriched_train = train_frame.copy()
     enriched_test = test_frame.copy()
     signal_metrics: list[dict[str, Any]] = []
     signal_predictions: list[pd.DataFrame] = []
     signal_feature_importance: list[pd.DataFrame] = []
+    final_signal_models: dict[str, dict[str, Any]] = {}
 
     for signal_name in ["consumption", "production"]:
         target_result = evaluate_supply_demand_target(
@@ -550,6 +595,8 @@ def add_supply_demand_forecasts(
         signal_metrics.extend(target_result["metrics"])
         signal_predictions.extend(target_result["predictions"])
         signal_feature_importance.extend(target_result["feature_importance"])
+        if target_result["final_models"]:
+            final_signal_models[signal_name] = target_result["final_models"]
         selected_train_predictions = target_result["selected_train_predictions"]
         selected_test_predictions = target_result["selected_test_predictions"]
 
@@ -571,7 +618,14 @@ def add_supply_demand_forecasts(
             enriched["forecast_total_production_mwh"] - enriched["forecast_consumption_mwh"]
         )
 
-    return enriched_train, enriched_test, signal_metrics, signal_predictions, signal_feature_importance
+    return (
+        enriched_train,
+        enriched_test,
+        signal_metrics,
+        signal_predictions,
+        signal_feature_importance,
+        final_signal_models,
+    )
 
 
 def evaluate_supply_demand_target(
@@ -594,6 +648,7 @@ def evaluate_supply_demand_target(
     target_metrics: list[dict[str, Any]] = []
     target_predictions: list[pd.DataFrame] = []
     target_feature_importance: list[pd.DataFrame] = []
+    final_models: dict[str, Any] = {}
 
     for model_name, model in models.items():
         fitted_model = fit_signal_model(model_name, model, train_frame, target_column, feature_columns)
@@ -639,17 +694,8 @@ def evaluate_supply_demand_target(
             )
         )
 
-        if window.name == "test_2026_q2" and model_name != "naive_lag_24h":
-            joblib.dump(fitted_model, artifacts / f"{model_name}_{signal_name}_baseline.joblib")
-            importance = extract_feature_importance(
-                model_name=model_name,
-                model=fitted_model,
-                window_name=window.name,
-                feature_columns=feature_columns,
-                target=signal_name,
-            )
-            if importance is not None:
-                target_feature_importance.append(importance)
+        if window.name == "test_2026_q2" and model_name != NAIVE_MODEL_NAME:
+            final_models[model_name] = fitted_model
 
         if model_name == selected_model_name:
             selected_train_predictions = train_predictions
@@ -659,6 +705,7 @@ def evaluate_supply_demand_target(
         "metrics": target_metrics,
         "predictions": target_predictions,
         "feature_importance": target_feature_importance,
+        "final_models": final_models,
         "selected_train_predictions": selected_train_predictions,
         "selected_test_predictions": selected_test_predictions,
     }
@@ -682,6 +729,7 @@ def run_supply_demand_baselines(
     all_metrics: list[dict[str, Any]] = []
     all_predictions: list[pd.DataFrame] = []
     all_feature_importance: list[pd.DataFrame] = []
+    final_signal_models: dict[str, dict[str, Any]] = {}
     for window in DEFAULT_WALK_FORWARD_WINDOWS:
         train_frame, test_frame = split_window(frame, window)
         if train_frame.empty or test_frame.empty:
@@ -698,12 +746,89 @@ def run_supply_demand_baselines(
             all_metrics.extend(target_result["metrics"])
             all_predictions.extend(target_result["predictions"])
             all_feature_importance.extend(target_result["feature_importance"])
+            if target_result["final_models"]:
+                final_signal_models[target_name] = target_result["final_models"]
 
     metrics_summary = summarize_signal_metrics(all_metrics)
+    for target_name, models in final_signal_models.items():
+        selected_model = save_selected_signal_model(
+            final_models=models,
+            summary=metrics_summary,
+            artifacts=artifacts,
+            signal_name=target_name,
+        )
+        if selected_model is not None:
+            _, prefix = SUPPLY_DEMAND_TARGETS[target_name]
+            importance = extract_feature_importance(
+                model_name=selected_model,
+                model=models[selected_model],
+                window_name="test_2026_q2",
+                feature_columns=supply_demand_feature_columns(prefix),
+                target=target_name,
+            )
+            if importance is not None:
+                all_feature_importance.append(importance)
     write_json(metrics_path, {"metrics": all_metrics, "summary": metrics_summary})
     write_predictions(predictions_path, pd.concat(all_predictions, ignore_index=True))
     write_diagnostics(feature_importance_path, combine_feature_importance(all_feature_importance))
     return {"metrics": all_metrics, "summary": metrics_summary}
+
+
+def save_selected_model(
+    final_models: dict[str, Any],
+    summary: list[dict[str, Any]],
+    artifacts: Path,
+    artifact_suffix: str,
+) -> str | None:
+    """Persist only the best fitted model for an artifact family."""
+    selected_model = select_persistable_model(summary, final_models)
+    prune_model_artifacts(artifacts, f"*_{artifact_suffix}.joblib")
+    if selected_model is None:
+        return None
+
+    joblib.dump(final_models[selected_model], artifacts / f"{selected_model}_{artifact_suffix}.joblib")
+    return selected_model
+
+
+def save_selected_signal_model(
+    final_models: dict[str, Any],
+    summary: list[dict[str, Any]],
+    artifacts: Path,
+    signal_name: str,
+) -> str | None:
+    """Persist only the best fitted final-window model for one signal target."""
+    if not final_models:
+        return None
+
+    target_summary = [row for row in summary if row.get("target") == signal_name]
+    return save_selected_model(
+        final_models,
+        target_summary,
+        artifacts,
+        artifact_suffix=f"{signal_name}_baseline",
+    )
+
+
+def select_persistable_model(
+    summary: list[dict[str, Any]],
+    final_models: dict[str, Any],
+) -> str | None:
+    """Select the lowest-error fitted model available for persistence."""
+    ranked = sorted(
+        (
+            row
+            for row in summary
+            if row.get("model") in final_models and pd.notna(row.get(MODEL_SELECTION_METRIC))
+        ),
+        key=lambda row: float(row[MODEL_SELECTION_METRIC]),
+    )
+    return str(ranked[0]["model"]) if ranked else None
+
+
+def prune_model_artifacts(artifacts: Path, pattern: str) -> None:
+    """Remove stale model artifacts for a target before writing the selected model."""
+    for path in artifacts.glob(pattern):
+        path.unlink()
 
 
 def supply_demand_feature_columns(prefix: str) -> list[str]:
@@ -716,7 +841,7 @@ def supply_demand_feature_columns(prefix: str) -> list[str]:
 
 def select_signal_model_name(models: dict[str, Any]) -> str:
     """Select a fixed signal model without peeking at the test target."""
-    for model_name in ["ridge", "lightgbm", "hist_gradient_boosting", "random_forest", "naive_lag_24h"]:
+    for model_name in ["ridge", "lightgbm", "hist_gradient_boosting", "random_forest", NAIVE_MODEL_NAME]:
         if model_name in models:
             return model_name
     raise ValueError("No supply/demand model is available")
@@ -730,7 +855,7 @@ def fit_signal_model(
     feature_columns: list[str],
 ) -> Any:
     """Fit one supply/demand model."""
-    if model_name == "naive_lag_24h":
+    if model_name == NAIVE_MODEL_NAME:
         return None
 
     model.fit(train_frame[feature_columns], train_frame[target_column])
@@ -745,7 +870,7 @@ def predict_signal_model(
     prefix: str,
 ) -> np.ndarray:
     """Predict one supply/demand target."""
-    if model_name == "naive_lag_24h":
+    if model_name == NAIVE_MODEL_NAME:
         return frame[f"{prefix}_lag_24h"].to_numpy(dtype=float)
 
     return model.predict(frame[feature_columns])
@@ -754,7 +879,7 @@ def predict_signal_model(
 def build_models() -> dict[str, Any]:
     """Build baseline forecasting models."""
     models: dict[str, Any] = {
-        "naive_lag_24h": None,
+        NAIVE_MODEL_NAME: None,
         "ridge": Pipeline(
             steps=[
                 ("imputer", SimpleImputer(strategy="median")),
@@ -864,7 +989,7 @@ def build_xgboost_model() -> Any | None:
 
 def fit_model(model_name: str, model: Any, train_frame: pd.DataFrame) -> Any:
     """Fit one model, handling naive baselines separately."""
-    if model_name == "naive_lag_24h":
+    if model_name == NAIVE_MODEL_NAME:
         return None
 
     model.fit(train_frame[STRICT_FORECAST_FEATURES], train_frame[TARGET_COLUMN])
@@ -873,7 +998,7 @@ def fit_model(model_name: str, model: Any, train_frame: pd.DataFrame) -> Any:
 
 def predict_model(model_name: str, model: Any, test_frame: pd.DataFrame) -> np.ndarray:
     """Predict spot prices for one test frame."""
-    if model_name == "naive_lag_24h":
+    if model_name == NAIVE_MODEL_NAME:
         return test_frame["price_lag_24h"].to_numpy(dtype=float)
 
     return model.predict(test_frame[STRICT_FORECAST_FEATURES])
