@@ -58,7 +58,7 @@ Expanding-window validation:
 | `wf_2026_01` | 2025-12-31 | 2026-01 |
 | `wf_2026_02` | 2026-01-31 | 2026-02 |
 | `wf_2026_03` | 2026-02-28 | 2026-03 |
-| `test_2026_q2` | 2026-03-31 | 2026-04-01 to 2026-06-30 |
+| `latest_test` | Dynamic | Last 90 days ending at the latest available modeling timestamp |
 
 ## Models
 

@@ -41,12 +41,82 @@ python -m src.models.train_forecast --target decision --disable-mlflow
 
 Dagster definitions live in `orchestration/definitions.py`.
 
-The daily refresh skeleton has four assets:
+The full daily refresh skeleton has seven assets:
 
+- `ingest_latest_source_data`: fetches missing source data and rebuilds modeling features.
 - `source_data_snapshot`: validates current local source artifacts.
-- `clean_hour_forecast_artifacts`: runs `make forecast-all`.
+- `clean_hour_forecast_artifacts`: runs `make train-all`.
+- `future_exogenous_data`: runs `make ingest-future`.
+- `future_recommendation_artifacts`: runs `make future-recommendations`.
 - `dashboard_data_contract`: runs `make dashboard-data`.
 - `frontend_static_build`: runs `make frontend-build`.
+
+The faster development refresh is available as the Dagster job
+`quick_recommendation_refresh`. It uses existing trained model artifacts and runs:
+
+- `ingest_latest_source_data`
+- `source_data_snapshot`
+- `quick_future_exogenous_data`: runs `make ingest-future`.
+- `quick_future_recommendation_artifacts`: runs `make future-recommendations`.
+- `quick_dashboard_data_contract`: runs `make dashboard-data`.
+- `quick_frontend_static_build`: runs `make frontend-build`.
+
+The equivalent local command is:
+
+```bash
+make quick-refresh
+```
+
+For live local data, run ingestion before refreshing recommendations:
+
+```bash
+make ingest-plan
+make ingest-latest
+make quick-refresh
+```
+
+Or run the combined path:
+
+```bash
+make daily-local-refresh
+```
+
+For the operational dashboard, build next-24-hour forward-looking recommendations
+from existing trained artifacts:
+
+```bash
+make operational-refresh
+```
+
+This fetches future exogenous weather, scores the next 24 hours with saved model
+artifacts, writes `reports/recommendations/future_champion_workload_recommendations.csv`,
+and rebuilds the dashboard JSON. Use `make train-all` when you only want to
+refresh historical validation artifacts and saved model artifacts.
+
+To retrain the entire project and refresh the future dashboard output in one command:
+
+```bash
+make forecast-all
+```
+
+This runs `make train-all`, fetches future exogenous data, builds future
+recommendations, rebuilds the dashboard data contract, and builds the frontend.
+
+`make ingest-latest` infers the refresh range from the latest timestamps in
+`data/processed/electricity_prices.csv`, `data/processed/hourly_electricity_mix.csv`,
+and `data/processed/weather_observations.csv`, then fetches through today's UTC date.
+
+Pipeline health is written to:
+
+```text
+reports/metrics/pipeline_health.json
+```
+
+The report checks file existence, row counts, latest timestamps, duplicate
+timestamps, missing hourly timestamps, required columns, null counts, negative
+production/consumption values, dashboard JSON presence, and recommendation count.
+By default, source data older than two days is a critical failure. Use
+`make pipeline-health-allow-stale` only when inspecting historical demo data.
 
 Start Dagster locally:
 

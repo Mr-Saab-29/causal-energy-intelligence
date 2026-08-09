@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import date
+import os
+from datetime import UTC, date, datetime
 
 FRANCE_START_DATE = date(2023, 1, 1)
-FRANCE_END_DATE = date(2026, 6, 30)
+FRANCE_END_DATE = date.fromisoformat(
+    os.getenv("FRANCE_END_DATE", datetime.now(UTC).date().isoformat())
+)
 
 FRANCE_ENTSOE_BIDDING_ZONE = "10YFR-RTE------C"
 

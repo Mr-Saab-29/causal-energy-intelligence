@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from src.data.pipeline_health import DEFAULT_OUTPUT_PATH, build_pipeline_health
+
 OUTPUT_PATH = ROOT / "frontend/public/data/dashboard.json"
 PRODUCTION_MODEL_LABEL = "Production Model V1"
 
@@ -19,14 +25,19 @@ def main() -> None:
     decision_metrics = read_json(ROOT / "reports/metrics/workload_decision_metrics.json")
     ranking_metrics = read_json(ROOT / "reports/metrics/ranking_specific_metrics.json")
     scenario_metrics = read_json(ROOT / "reports/metrics/scenario_reranking_metrics.json")
+    pipeline_health = build_pipeline_health(DEFAULT_OUTPUT_PATH)
     recommendations = read_csv(
         ROOT / "reports/recommendations/champion_workload_recommendations.csv"
     )
+    future_recommendations = read_csv(
+        ROOT / "reports/recommendations/future_champion_workload_recommendations.csv"
+    )
+    active_recommendations = future_recommendations if not future_recommendations.empty else recommendations
     scenario_recommendations = read_csv(
         ROOT / "reports/scenarios/workload_scenario_recommendations.csv"
     )
 
-    recommendation_rows = prepare_records(recommendations)
+    recommendation_rows = prepare_records(active_recommendations)
     scenario_rows = prepare_records(
         scenario_recommendations[
             scenario_recommendations["model"] == champion.get("champion_model")
@@ -35,7 +46,11 @@ def main() -> None:
     payload = {
         "generated_from": {
             "champion_model_selection": "reports/metrics/champion_model_selection.json",
-            "recommendations": "reports/recommendations/champion_workload_recommendations.csv",
+            "recommendations": (
+                "reports/recommendations/future_champion_workload_recommendations.csv"
+                if not future_recommendations.empty
+                else "reports/recommendations/champion_workload_recommendations.csv"
+            ),
             "scenario_recommendations": "reports/scenarios/workload_scenario_recommendations.csv",
         },
         "champion": {
@@ -46,26 +61,28 @@ def main() -> None:
             "models": champion.get("models", []),
         },
         "summary": {
+            "pipeline_health": summarize_pipeline_health(pipeline_health),
             "decision_metrics": decision_metrics.get("summary", []),
             "ranking_metrics": ranking_metrics.get("summary", []),
             "scenario_metrics": scenario_metrics.get("summary", []),
-            "date_count": int(recommendations["decision_group"].nunique())
-            if not recommendations.empty
+            "date_count": int(active_recommendations["decision_group"].nunique())
+            if not active_recommendations.empty
             else 0,
-            "recommendation_count": int(len(recommendations)),
+            "recommendation_count": int(len(active_recommendations)),
             "average_confidence_score": safe_float(
-                recommendations["confidence_score"].mean()
+                active_recommendations["confidence_score"].mean()
             )
-            if "confidence_score" in recommendations
+            if "confidence_score" in active_recommendations
             else None,
             "high_confidence_share": safe_float(
-                (recommendations["confidence_level"] == "high").mean()
+                (active_recommendations["confidence_level"] == "high").mean()
             )
-            if "confidence_level" in recommendations
+            if "confidence_level" in active_recommendations
             else None,
         },
+        "pipeline_health": pipeline_health,
         "filters": {
-            "dates": sorted(recommendations["decision_group"].dropna().unique().tolist()),
+            "dates": sorted(active_recommendations["decision_group"].dropna().unique().tolist()),
             "scenarios": sorted(
                 scenario_recommendations["scenario"].dropna().unique().tolist()
             ),
@@ -105,6 +122,22 @@ def safe_float(value: float) -> float | None:
     if pd.isna(value):
         return None
     return round(float(value), 4)
+
+
+def summarize_pipeline_health(report: dict[str, Any]) -> dict[str, Any]:
+    """Return the compact health summary shown in the dashboard."""
+    latest_timestamps = [
+        source.get("max_timestamp_utc")
+        for source in report.get("sources", {}).values()
+        if source.get("max_timestamp_utc")
+    ]
+    return {
+        "status": report.get("status"),
+        "generated_at_utc": report.get("generated_at_utc"),
+        "critical_issue_count": report.get("critical_issue_count", 0),
+        "warning_count": report.get("warning_count", 0),
+        "latest_data_timestamp_utc": max(latest_timestamps) if latest_timestamps else None,
+    }
 
 
 if __name__ == "__main__":

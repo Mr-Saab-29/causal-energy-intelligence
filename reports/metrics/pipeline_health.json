@@ -1,0 +1,226 @@
+{
+  "generated_at_utc": "2026-08-09T19:35:16.659206+00:00",
+  "status": "warn",
+  "critical_issue_count": 0,
+  "warning_count": 9,
+  "sources": {
+    "electricity_prices": {
+      "path": "data/processed/electricity_prices.csv",
+      "exists": true,
+      "size_bytes": 6322803,
+      "row_count": 31583,
+      "min_timestamp_utc": "2022-12-31T23:00:00+00:00",
+      "max_timestamp_utc": "2026-08-09T21:00:00+00:00",
+      "freshness_lag_days": -0.06,
+      "missing_hour_count": 24,
+      "duplicate_timestamp_count": 0,
+      "null_counts": {
+        "timestamp_utc": {
+          "count": 0,
+          "rate": 0.0
+        },
+        "price_eur_mwh": {
+          "count": 0,
+          "rate": 0.0
+        }
+      },
+      "negative_value_counts": {},
+      "critical_issues": [],
+      "warnings": [
+        "missing_hour_count:24"
+      ]
+    },
+    "hourly_electricity_mix": {
+      "path": "data/processed/hourly_electricity_mix.csv",
+      "exists": true,
+      "size_bytes": 117569131,
+      "row_count": 410815,
+      "min_timestamp_utc": "2023-01-01T00:00:00+00:00",
+      "max_timestamp_utc": "2026-08-09T23:00:00+00:00",
+      "freshness_lag_days": -0.14,
+      "missing_hour_count": 65,
+      "duplicate_timestamp_count": 0,
+      "null_counts": {
+        "timestamp_utc": {
+          "count": 0,
+          "rate": 0.0
+        },
+        "consumption_mwh": {
+          "count": 65,
+          "rate": 0.0002
+        },
+        "total_production_mwh": {
+          "count": 0,
+          "rate": 0.0
+        },
+        "nuclear_mwh": {
+          "count": 65,
+          "rate": 0.0002
+        },
+        "gas_mwh": {
+          "count": 379219,
+          "rate": 0.9231
+        },
+        "wind_mwh": {
+          "count": 65,
+          "rate": 0.0002
+        },
+        "solar_mwh": {
+          "count": 65,
+          "rate": 0.0002
+        },
+        "hydro_mwh": {
+          "count": 65,
+          "rate": 0.0002
+        },
+        "bioenergy_mwh": {
+          "count": 65,
+          "rate": 0.0002
+        }
+      },
+      "negative_value_counts": {
+        "consumption_mwh": 0,
+        "total_production_mwh": 0,
+        "nuclear_mwh": 0,
+        "gas_mwh": 0,
+        "coal_mwh": 0,
+        "oil_mwh": 0,
+        "wind_mwh": 0,
+        "solar_mwh": 0,
+        "hydro_mwh": 0,
+        "bioenergy_mwh": 0
+      },
+      "critical_issues": [],
+      "warnings": [
+        "missing_hour_count:65",
+        "null_count:consumption_mwh:65",
+        "null_count:nuclear_mwh:65",
+        "null_count:wind_mwh:65",
+        "null_count:solar_mwh:65",
+        "null_count:hydro_mwh:65",
+        "null_count:bioenergy_mwh:65"
+      ]
+    },
+    "weather_observations": {
+      "path": "data/processed/weather_observations.csv",
+      "exists": true,
+      "size_bytes": 115330684,
+      "row_count": 379296,
+      "min_timestamp_utc": "2023-01-01T00:00:00+00:00",
+      "max_timestamp_utc": "2026-08-09T23:00:00+00:00",
+      "freshness_lag_days": -0.14,
+      "missing_hour_count": 0,
+      "duplicate_timestamp_count": 0,
+      "null_counts": {
+        "timestamp_utc": {
+          "count": 0,
+          "rate": 0.0
+        },
+        "temperature_c": {
+          "count": 0,
+          "rate": 0.0
+        },
+        "wind_speed_mps": {
+          "count": 0,
+          "rate": 0.0
+        },
+        "shortwave_radiation_wm2": {
+          "count": 0,
+          "rate": 0.0
+        }
+      },
+      "negative_value_counts": {
+        "wind_speed_mps": 0,
+        "shortwave_radiation_wm2": 0,
+        "precipitation_mm": 0
+      },
+      "critical_issues": [],
+      "warnings": []
+    },
+    "modeling_price_features": {
+      "path": "data/processed/modeling_price_features.csv",
+      "exists": true,
+      "size_bytes": 59889110,
+      "row_count": 30367,
+      "min_timestamp_utc": "2023-01-15T00:00:00+00:00",
+      "max_timestamp_utc": "2026-08-09T16:00:00+00:00",
+      "freshness_lag_days": 0.15,
+      "missing_hour_count": 898,
+      "duplicate_timestamp_count": 0,
+      "null_counts": {
+        "timestamp_utc": {
+          "count": 0,
+          "rate": 0.0
+        },
+        "price_eur_mwh": {
+          "count": 0,
+          "rate": 0.0
+        },
+        "consumption_mwh": {
+          "count": 0,
+          "rate": 0.0
+        },
+        "total_production_mwh": {
+          "count": 0,
+          "rate": 0.0
+        },
+        "nuclear_mwh": {
+          "count": 0,
+          "rate": 0.0
+        },
+        "gas_mwh": {
+          "count": 0,
+          "rate": 0.0
+        },
+        "wind_mwh": {
+          "count": 0,
+          "rate": 0.0
+        },
+        "solar_mwh": {
+          "count": 0,
+          "rate": 0.0
+        },
+        "hydro_mwh": {
+          "count": 0,
+          "rate": 0.0
+        },
+        "bioenergy_mwh": {
+          "count": 0,
+          "rate": 0.0
+        }
+      },
+      "negative_value_counts": {
+        "consumption_mwh": 0,
+        "total_production_mwh": 0,
+        "nuclear_mwh": 0,
+        "gas_mwh": 0,
+        "coal_mwh": 0,
+        "oil_mwh": 0,
+        "wind_mwh": 0,
+        "solar_mwh": 0,
+        "hydro_mwh": 0,
+        "bioenergy_mwh": 0
+      },
+      "critical_issues": [],
+      "warnings": [
+        "missing_hour_count:898"
+      ]
+    }
+  },
+  "dashboard": {
+    "dashboard_json": {
+      "path": "frontend/public/data/dashboard.json",
+      "exists": true,
+      "size_bytes": 2589559
+    },
+    "recommendations": {
+      "path": "reports/recommendations/champion_workload_recommendations.csv",
+      "exists": true,
+      "size_bytes": 171548
+    },
+    "recommendation_count": 885,
+    "latest_recommendation_date": "2026-08-09",
+    "critical_issues": [],
+    "warnings": []
+  }
+}

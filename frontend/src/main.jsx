@@ -2,12 +2,14 @@ import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Activity,
+  AlertTriangle,
   ArrowDown,
   ArrowRight,
   ArrowUp,
   CalendarDays,
   CheckCircle2,
   Clock3,
+  Database,
   Gauge,
   Leaf,
   SlidersHorizontal,
@@ -103,6 +105,8 @@ function App() {
     model: shortModel(row.model),
     score: row.champion_score,
   }));
+  const health = payload.pipeline_health;
+  const healthSummary = payload.summary?.pipeline_health;
 
   return (
     <main className="app-shell">
@@ -144,6 +148,36 @@ function App() {
             ))}
           </select>
         </label>
+      </section>
+
+      <section className={`health-band ${healthStatusClass(healthSummary?.status)}`}>
+        <div className="health-title">
+          {healthSummary?.status === "pass" ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
+          <div>
+            <span>Data Status</span>
+            <strong>{formatHealthStatus(healthSummary?.status)}</strong>
+          </div>
+        </div>
+        <HealthItem
+          icon={<Database size={16} />}
+          label="Latest data"
+          value={formatDateTime(healthSummary?.latest_data_timestamp_utc)}
+        />
+        <HealthItem
+          icon={<Clock3 size={16} />}
+          label="Checked"
+          value={formatDateTime(healthSummary?.generated_at_utc)}
+        />
+        <HealthItem
+          icon={<Activity size={16} />}
+          label="Issues"
+          value={`${healthSummary?.critical_issue_count ?? 0} critical / ${healthSummary?.warning_count ?? 0} warnings`}
+        />
+        <HealthItem
+          icon={<Zap size={16} />}
+          label="Recommendations"
+          value={`${health?.dashboard?.recommendation_count ?? payload.summary.recommendation_count ?? 0}`}
+        />
       </section>
 
       <section className="kpi-grid">
@@ -189,11 +223,18 @@ function App() {
         <div className="panel recommendations-panel">
           <div className="panel-heading">
             <div>
-              <h2>Production Recommendations</h2>
-              <p>Top 5 clean start hours from the active production model.</p>
+              <h2>Clean-Hour Recommendations</h2>
+              <p>Top 5 future workload start hours. Carbon intensity is predicted operational gCO2e per kWh.</p>
             </div>
           </div>
           <div className="recommendation-list">
+            <div className="recommendation-header" aria-hidden="true">
+              <span>Rank</span>
+              <span>Start time</span>
+              <span>Carbon intensity</span>
+              <span>Price vs yesterday</span>
+              <span>Confidence</span>
+            </div>
             {recommendations.map((row) => (
               <RecommendationRow key={`${row.decision_group}-${row.recommendation_rank}`} row={row} />
             ))}
@@ -298,21 +339,70 @@ function Metric({ icon, label, value, detail }) {
   );
 }
 
+function HealthItem({ icon, label, value }) {
+  return (
+    <div className="health-item">
+      {icon}
+      <span>{label}</span>
+      <strong>{value || "-"}</strong>
+    </div>
+  );
+}
+
 function RecommendationRow({ row }) {
   return (
-    <article className="recommendation-row">
-      <div className="rank-cell">#{row.recommendation_rank}</div>
-      <div>
-        <strong>{formatHour(row.timestamp_utc)}</strong>
-        <span>{formatDateTime(row.timestamp_utc)} UTC</span>
+    <details className="recommendation-row">
+      <summary className="recommendation-summary">
+        <span className="rank-cell">#{row.recommendation_rank}</span>
+        <span className="time-cell">
+          <strong>{formatHour(row.timestamp_utc)}</strong>
+          <small>{formatDateTime(row.timestamp_utc)} UTC</small>
+        </span>
+        <span className="metric-cell">
+          <strong>{row.predicted_avg_carbon_intensity_g_co2e_per_kwh.toFixed(2)}</strong>
+          <small>gCO2e/kWh</small>
+        </span>
+        <span className="metric-cell">
+          <DirectionBadge value={row.predicted_price_direction_vs_previous_day} />
+          <small>same hour previous day</small>
+        </span>
+        <span className="metric-cell">
+          <ConfidenceBadge level={row.confidence_level} score={row.confidence_score} />
+          <small>rank and margin score</small>
+        </span>
+      </summary>
+      <div className="recommendation-details">
+        <DetailItem
+          label="Predicted total emissions"
+          value={`${formatNumber(row.predicted_total_emissions_kg_co2e)} kgCO2e`}
+        />
+        <DetailItem
+          label="Carbon rank"
+          value={`${row.predicted_carbon_rank} of ${row.candidate_count} candidate hours`}
+        />
+        <DetailItem
+          label="Price rank"
+          value={`${row.predicted_price_rank} of ${row.candidate_count} candidate hours`}
+        />
+        <DetailItem
+          label="Carbon saving vs run now"
+          value={`${row.carbon_savings_vs_run_now_g_co2e_per_kwh.toFixed(2)} gCO2e/kWh`}
+        />
+        <DetailItem
+          label="Cost saving vs run now"
+          value={`${row.cost_savings_vs_run_now_eur_mwh.toFixed(2)} EUR/MWh`}
+        />
       </div>
-      <div>
-        <span>Carbon</span>
-        <strong>{row.predicted_avg_carbon_intensity_g_co2e_per_kwh.toFixed(2)}</strong>
-      </div>
-      <DirectionBadge value={row.predicted_price_direction_vs_previous_day} />
-      <ConfidenceBadge level={row.confidence_level} score={row.confidence_score} />
-    </article>
+    </details>
+  );
+}
+
+function DetailItem({ label, value }) {
+  return (
+    <div className="detail-item">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
   );
 }
 
@@ -345,6 +435,7 @@ function formatHour(value) {
 }
 
 function formatDateTime(value) {
+  if (!value) return "-";
   return new Intl.DateTimeFormat("en-GB", {
     month: "short",
     day: "2-digit",
@@ -352,6 +443,20 @@ function formatDateTime(value) {
     minute: "2-digit",
     timeZone: "UTC",
   }).format(new Date(value));
+}
+
+function formatHealthStatus(value) {
+  if (value === "pass") return "Healthy";
+  if (value === "warn") return "Warnings";
+  if (value === "fail") return "Action needed";
+  return "Unknown";
+}
+
+function healthStatusClass(value) {
+  if (value === "pass") return "pass";
+  if (value === "warn") return "warn";
+  if (value === "fail") return "fail";
+  return "unknown";
 }
 
 function shortModel(value) {
@@ -366,6 +471,13 @@ function shortModel(value) {
 
 function formatScenario(value) {
   return value.split("_").map(titleCase).join(" ");
+}
+
+function formatNumber(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "-";
+  return new Intl.NumberFormat("en-GB", {
+    maximumFractionDigits: 2,
+  }).format(Number(value));
 }
 
 function titleCase(value) {

@@ -166,11 +166,11 @@ class ForecastWindow:
 
 
 DEFAULT_WALK_FORWARD_WINDOWS = [
-    ForecastWindow("wf_2026_01", "2023-01-01", "2025-12-31 23:00:00+00:00", "2026-01-01", "2026-01-31 23:00:00+00:00"),
-    ForecastWindow("wf_2026_02", "2023-01-01", "2026-01-31 23:00:00+00:00", "2026-02-01", "2026-02-28 23:00:00+00:00"),
-    ForecastWindow("wf_2026_03", "2023-01-01", "2026-02-28 23:00:00+00:00", "2026-03-01", "2026-03-31 23:00:00+00:00"),
-    ForecastWindow("test_2026_q2", "2023-01-01", "2026-03-31 23:00:00+00:00", "2026-04-01", "2026-06-30 23:00:00+00:00"),
 ]
+FINAL_TEST_WINDOW_NAME = "latest_test"
+FINAL_TEST_DAYS = 90
+VALIDATION_WINDOW_DAYS = 30
+VALIDATION_WINDOW_COUNT = 3
 
 
 def load_modeling_dataset(path: str | Path = "data/processed/modeling_price_features.csv") -> pd.DataFrame:
@@ -202,6 +202,51 @@ def prepare_modeling_dataset(frame: pd.DataFrame) -> pd.DataFrame:
         raise ValueError("Modeling dataset is empty after required-column null filtering")
 
     return prepared
+
+
+def build_walk_forward_windows(frame: pd.DataFrame) -> list[ForecastWindow]:
+    """Build validation windows relative to the latest ingested data."""
+    timestamps = pd.to_datetime(frame[TIMESTAMP_COLUMN], utc=True)
+    earliest_timestamp = timestamps.min()
+    latest_timestamp = timestamps.max()
+    final_test_start = latest_timestamp - pd.Timedelta(days=FINAL_TEST_DAYS) + pd.Timedelta(hours=1)
+    if final_test_start <= earliest_timestamp:
+        raise ValueError("Not enough history to create the dynamic 90-day validation window")
+
+    windows: list[ForecastWindow] = []
+    for index in range(VALIDATION_WINDOW_COUNT, 0, -1):
+        test_end = final_test_start - pd.Timedelta(hours=1) - pd.Timedelta(
+            days=VALIDATION_WINDOW_DAYS * (index - 1)
+        )
+        test_start = test_end - pd.Timedelta(days=VALIDATION_WINDOW_DAYS) + pd.Timedelta(hours=1)
+        train_end = test_start - pd.Timedelta(hours=1)
+        if test_start <= earliest_timestamp or train_end <= earliest_timestamp:
+            continue
+        windows.append(
+            ForecastWindow(
+                f"validation_{VALIDATION_WINDOW_COUNT - index + 1}",
+                earliest_timestamp.isoformat(),
+                train_end.isoformat(),
+                test_start.isoformat(),
+                test_end.isoformat(),
+            )
+        )
+
+    windows.append(
+        ForecastWindow(
+            FINAL_TEST_WINDOW_NAME,
+            earliest_timestamp.isoformat(),
+            (final_test_start - pd.Timedelta(hours=1)).isoformat(),
+            final_test_start.isoformat(),
+            latest_timestamp.isoformat(),
+        )
+    )
+    return windows
+
+
+def is_final_test_window(window: ForecastWindow) -> bool:
+    """Return whether a window is the final artifact-persistence window."""
+    return window.name == FINAL_TEST_WINDOW_NAME
 
 
 def add_missing_strict_features(frame: pd.DataFrame) -> pd.DataFrame:
@@ -415,7 +460,7 @@ def run_price_baselines(
     final_signal_models: dict[str, dict[str, Any]] = {}
     final_price_models: dict[str, Any] = {}
 
-    for window in DEFAULT_WALK_FORWARD_WINDOWS:
+    for window in build_walk_forward_windows(frame):
         train_frame, test_frame = split_window(frame, window)
         if train_frame.empty or test_frame.empty:
             raise ValueError(f"Empty train/test frame for window {window.name}")
@@ -467,7 +512,7 @@ def run_price_baselines(
                 )
             )
 
-            if window.name == "test_2026_q2" and model_name != NAIVE_MODEL_NAME:
+            if is_final_test_window(window) and model_name != NAIVE_MODEL_NAME:
                 final_price_models[model_name] = fitted_model
 
     metrics_summary = summarize_metrics(all_metrics)
@@ -481,7 +526,7 @@ def run_price_baselines(
         importance = extract_feature_importance(
             selected_price_model,
             final_price_models[selected_price_model],
-            "test_2026_q2",
+            FINAL_TEST_WINDOW_NAME,
         )
         if importance is not None:
             all_feature_importance.append(importance)
@@ -512,7 +557,7 @@ def run_price_baselines(
             importance = extract_feature_importance(
                 model_name=selected_signal_model,
                 model=models[selected_signal_model],
-                window_name="test_2026_q2",
+                window_name=FINAL_TEST_WINDOW_NAME,
                 feature_columns=supply_demand_feature_columns(prefix),
                 target=signal_name,
             )
@@ -694,7 +739,7 @@ def evaluate_supply_demand_target(
             )
         )
 
-        if window.name == "test_2026_q2" and model_name != NAIVE_MODEL_NAME:
+        if is_final_test_window(window) and model_name != NAIVE_MODEL_NAME:
             final_models[model_name] = fitted_model
 
         if model_name == selected_model_name:
@@ -730,7 +775,7 @@ def run_supply_demand_baselines(
     all_predictions: list[pd.DataFrame] = []
     all_feature_importance: list[pd.DataFrame] = []
     final_signal_models: dict[str, dict[str, Any]] = {}
-    for window in DEFAULT_WALK_FORWARD_WINDOWS:
+    for window in build_walk_forward_windows(frame):
         train_frame, test_frame = split_window(frame, window)
         if train_frame.empty or test_frame.empty:
             raise ValueError(f"Empty train/test frame for window {window.name}")
@@ -762,7 +807,7 @@ def run_supply_demand_baselines(
             importance = extract_feature_importance(
                 model_name=selected_model,
                 model=models[selected_model],
-                window_name="test_2026_q2",
+                window_name=FINAL_TEST_WINDOW_NAME,
                 feature_columns=supply_demand_feature_columns(prefix),
                 target=target_name,
             )

@@ -68,6 +68,7 @@ h2 {
 
 .champion-pill,
 .controls-band,
+.health-band,
 .metric,
 .panel {
   border: 1px solid #ded8ca;
@@ -98,6 +99,76 @@ h2 {
   padding: 12px;
   border-radius: 8px;
   margin-bottom: 16px;
+}
+
+.health-band {
+  display: grid;
+  grid-template-columns: minmax(190px, 1.1fr) repeat(4, minmax(150px, 1fr));
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.health-band.pass {
+  border-color: #b9dcca;
+}
+
+.health-band.warn {
+  border-color: #e0c36f;
+}
+
+.health-band.fail {
+  border-color: #d99a8f;
+}
+
+.health-title,
+.health-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.health-title {
+  color: #176851;
+}
+
+.health-band.warn .health-title {
+  color: #76580b;
+}
+
+.health-band.fail .health-title {
+  color: #8a2f21;
+}
+
+.health-title div,
+.health-item {
+  min-width: 0;
+}
+
+.health-title span,
+.health-item span {
+  display: block;
+  color: #69766f;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.health-title strong,
+.health-item strong {
+  display: block;
+  overflow: hidden;
+  color: #17201d;
+  font-size: 0.9rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.health-item svg {
+  flex: 0 0 auto;
+  color: #1f8a70;
 }
 
 .controls-band label {
@@ -191,16 +262,41 @@ select {
   gap: 8px;
 }
 
+.recommendation-header,
 .recommendation-row {
+  border-radius: 8px;
+}
+
+.recommendation-header,
+.recommendation-summary {
   display: grid;
-  grid-template-columns: 48px minmax(130px, 1.1fr) minmax(88px, 0.8fr) minmax(110px, 0.8fr) minmax(120px, 0.8fr);
+  grid-template-columns: 48px minmax(130px, 1.1fr) minmax(120px, 0.8fr) minmax(150px, 0.9fr) minmax(150px, 0.9fr);
   align-items: center;
   gap: 12px;
+}
+
+.recommendation-header {
+  min-height: 32px;
+  padding: 0 12px;
+  color: #69766f;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.recommendation-row {
+  border: 1px solid #e7e0d4;
+  background: #fffefa;
+}
+
+.recommendation-summary {
   min-height: 72px;
   padding: 10px 12px;
-  border: 1px solid #e7e0d4;
-  border-radius: 8px;
-  background: #fffefa;
+  cursor: pointer;
+  list-style: none;
+}
+
+.recommendation-summary::-webkit-details-marker {
+  display: none;
 }
 
 .rank-cell {
@@ -215,9 +311,45 @@ select {
   font-weight: 800;
 }
 
-.recommendation-row > div {
+.time-cell,
+.metric-cell {
   display: grid;
   gap: 3px;
+  min-width: 0;
+}
+
+.time-cell small,
+.metric-cell small {
+  color: #69766f;
+  font-size: 0.78rem;
+}
+
+.recommendation-details {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  padding: 0 12px 12px 72px;
+}
+
+.detail-item {
+  display: grid;
+  gap: 3px;
+  min-height: 58px;
+  align-content: center;
+  border: 1px solid #e8e0d3;
+  border-radius: 6px;
+  padding: 8px;
+  background: #f8f5ef;
+}
+
+.detail-item span {
+  color: #69766f;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.detail-item strong {
+  font-size: 0.86rem;
 }
 
 .direction-badge,
@@ -347,6 +479,10 @@ select {
     align-items: stretch;
   }
 
+  .health-band {
+    grid-template-columns: 1fr 1fr;
+  }
+
   .champion-pill {
     width: fit-content;
   }
@@ -357,14 +493,26 @@ select {
     grid-template-columns: 1fr;
   }
 
-  .recommendation-row {
+  .recommendation-header {
+    display: none;
+  }
+
+  .recommendation-summary {
     grid-template-columns: 42px minmax(0, 1fr);
   }
 
-  .recommendation-row > div:nth-child(3),
-  .recommendation-row > span {
+  .recommendation-row {
+    display: block;
+  }
+
+  .recommendation-summary .metric-cell {
     grid-column: 2;
     justify-self: start;
+  }
+
+  .recommendation-details {
+    grid-template-columns: 1fr;
+    padding: 0 10px 10px 64px;
   }
 
   .scenario-row {
@@ -390,5 +538,9 @@ select {
   .controls-band select {
     grid-column: 1 / -1;
     width: 100%;
+  }
+
+  .health-band {
+    grid-template-columns: 1fr;
   }
 }
