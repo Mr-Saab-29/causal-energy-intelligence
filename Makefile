@@ -1,4 +1,5 @@
-PYTHON ?= python
+PYTHON ?= .venv/bin/python
+DAGSTER ?= .venv/bin/dagster
 
 .PHONY: help forecast-all forecast-price forecast-ranking forecast-decision forecast-recommendations forecast-scenarios forecast-decision-example forecast-consumption forecast-production forecast-supply-demand forecast-carbon dashboard-data frontend-install frontend-dev frontend-build mlflow-ui dagster-dev docker-build docker-up docker-down docker-observability
 
@@ -74,7 +75,9 @@ mlflow-ui:
 	mlflow server --host 127.0.0.1 --port 5000 --backend-store-uri sqlite:///mlflow.db --default-artifact-root ./mlruns
 
 dagster-dev:
-	DAGSTER_HOME=$${DAGSTER_HOME:-.dagster} dagster dev --workspace workspace.yaml
+	mkdir -p "$${DAGSTER_HOME:-$(CURDIR)/.dagster}"
+	test -f "$${DAGSTER_HOME:-$(CURDIR)/.dagster}/dagster.yaml" || touch "$${DAGSTER_HOME:-$(CURDIR)/.dagster}/dagster.yaml"
+	DAGSTER_HOME="$${DAGSTER_HOME:-$(CURDIR)/.dagster}" $(DAGSTER) dev --workspace workspace.yaml
 
 docker-build:
 	docker compose -f docker/docker-compose.yml build

@@ -13,14 +13,14 @@
     {
       "model": "hist_gradient_boosting",
       "decision_groups": 160,
-      "top_1_hit_rate": 0.31875,
-      "top_3_capture_rate": 0.725,
-      "mean_combined_regret": 0.059944358178053825,
-      "mean_cost_regret_eur_mwh": 8.90390625,
-      "mean_carbon_regret_g_co2e_per_kwh": 0.47554366299783535,
-      "mean_cost_savings_vs_run_now_eur_mwh": 40.37190625,
-      "mean_carbon_savings_vs_run_now_g_co2e_per_kwh": 3.643300454465259,
-      "mean_actual_rank_of_recommendation": 2.9875
+      "top_1_hit_rate": 0.26875,
+      "top_3_capture_rate": 0.71875,
+      "mean_combined_regret": 0.059400879917184256,
+      "mean_cost_regret_eur_mwh": 9.249875,
+      "mean_carbon_regret_g_co2e_per_kwh": 0.46279709385564277,
+      "mean_cost_savings_vs_run_now_eur_mwh": 40.0259375,
+      "mean_carbon_savings_vs_run_now_g_co2e_per_kwh": 3.6560470236074516,
+      "mean_actual_rank_of_recommendation": 2.9625
     },
     {
       "model": "lightgbm",
@@ -38,13 +38,13 @@
       "model": "random_forest",
       "decision_groups": 160,
       "top_1_hit_rate": 0.20625,
-      "top_3_capture_rate": 0.725,
-      "mean_combined_regret": 0.06667960662525879,
-      "mean_cost_regret_eur_mwh": 9.38615625,
-      "mean_carbon_regret_g_co2e_per_kwh": 0.6001507160744819,
-      "mean_cost_savings_vs_run_now_eur_mwh": 39.88965625,
-      "mean_carbon_savings_vs_run_now_g_co2e_per_kwh": 3.5186934013886124,
-      "mean_actual_rank_of_recommendation": 3.25
+      "top_3_capture_rate": 0.7,
+      "mean_combined_regret": 0.06627199792960661,
+      "mean_cost_regret_eur_mwh": 9.508390625,
+      "mean_carbon_regret_g_co2e_per_kwh": 0.6011091853906345,
+      "mean_cost_savings_vs_run_now_eur_mwh": 39.767421875000004,
+      "mean_carbon_savings_vs_run_now_g_co2e_per_kwh": 3.5177349320724596,
+      "mean_actual_rank_of_recommendation": 3.21875
     },
     {
       "model": "xgboost",

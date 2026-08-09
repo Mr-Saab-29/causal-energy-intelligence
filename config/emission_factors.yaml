@@ -13,7 +13,7 @@ methodologies:
   lifecycle_emissions:
     description: "Lifecycle emissions including construction, fuel supply, operations, and decommissioning."
     emission_factors_kg_co2e_per_mwh:
-      nuclear: 12.0
+      nuclear: 6.0
       gas: 490.0
       coal: 820.0
       oil: 650.0

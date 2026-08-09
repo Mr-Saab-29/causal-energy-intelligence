@@ -54,6 +54,9 @@ Start Dagster locally:
 make dagster-dev
 ```
 
+The Make target creates `.dagster` and passes it to Dagster as an absolute path.
+If you override `DAGSTER_HOME`, use an existing absolute path.
+
 Open:
 
 ```text

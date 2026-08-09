@@ -11,19 +11,19 @@
   "models": [
     {
       "model": "hist_gradient_boosting",
-      "price_direction_error": 0.127647,
-      "carbon_intensity_mae_g_co2e_per_kwh": 1.160962,
-      "carbon_regret_g_co2e_per_kwh": 0.475544,
-      "top_5_ranking_loss": 0.181134,
-      "pairwise_ranking_loss": 0.139769,
-      "top_5_f1": 0.7775,
-      "mean_top_1_combined_regret": 0.059944,
-      "price_mae_eur_mwh_reference_only": 8.229967,
+      "price_direction_error": 0.127428,
+      "carbon_intensity_mae_g_co2e_per_kwh": 1.160116,
+      "carbon_regret_g_co2e_per_kwh": 0.462797,
+      "top_5_ranking_loss": 0.179798,
+      "pairwise_ranking_loss": 0.140846,
+      "top_5_f1": 0.78125,
+      "mean_top_1_combined_regret": 0.059401,
+      "price_mae_eur_mwh_reference_only": 8.197837,
       "carbon_error_component": 0.0,
       "carbon_regret_component": 0.0,
-      "ranking_component": 0.012868,
+      "ranking_component": 0.005061,
       "price_direction_error_component": 0.0,
-      "champion_score": 0.002574
+      "champion_score": 0.001012
     },
     {
       "model": "xgboost",
@@ -35,11 +35,11 @@
       "top_5_f1": 0.78125,
       "mean_top_1_combined_regret": 0.070063,
       "price_mae_eur_mwh_reference_only": 8.405612,
-      "carbon_error_component": 0.001481,
-      "carbon_regret_component": 0.00933,
+      "carbon_error_component": 0.001706,
+      "carbon_regret_component": 0.016839,
       "ranking_component": 0.0,
-      "price_direction_error_component": 0.005072,
-      "champion_score": 0.003506
+      "price_direction_error_component": 0.005325,
+      "champion_score": 0.00551
     },
     {
       "model": "lightgbm",
@@ -51,27 +51,27 @@
       "top_5_f1": 0.77625,
       "mean_top_1_combined_regret": 0.060973,
       "price_mae_eur_mwh_reference_only": 8.228614,
-      "carbon_error_component": 0.000658,
-      "carbon_regret_component": 0.003387,
+      "carbon_error_component": 0.000883,
+      "carbon_regret_component": 0.010941,
       "ranking_component": 0.014028,
-      "price_direction_error_component": 0.000902,
-      "champion_score": 0.004039
+      "price_direction_error_component": 0.001155,
+      "champion_score": 0.006053
     },
     {
       "model": "random_forest",
-      "price_direction_error": 0.134275,
-      "carbon_intensity_mae_g_co2e_per_kwh": 1.170601,
-      "carbon_regret_g_co2e_per_kwh": 0.600151,
-      "top_5_ranking_loss": 0.191186,
-      "pairwise_ranking_loss": 0.144872,
-      "top_5_f1": 0.7625,
-      "mean_top_1_combined_regret": 0.06668,
-      "price_mae_eur_mwh_reference_only": 8.898802,
-      "carbon_error_component": 0.002559,
-      "carbon_regret_component": 0.07466,
-      "ranking_component": 0.071604,
-      "price_direction_error_component": 0.007693,
-      "champion_score": 0.034907
+      "price_direction_error": 0.134567,
+      "carbon_intensity_mae_g_co2e_per_kwh": 1.16989,
+      "carbon_regret_g_co2e_per_kwh": 0.601109,
+      "top_5_ranking_loss": 0.191808,
+      "pairwise_ranking_loss": 0.144865,
+      "top_5_f1": 0.76125,
+      "mean_top_1_combined_regret": 0.066272,
+      "price_mae_eur_mwh_reference_only": 8.900432,
+      "carbon_error_component": 0.002594,
+      "carbon_regret_component": 0.082243,
+      "ranking_component": 0.075235,
+      "price_direction_error_component": 0.008283,
+      "champion_score": 0.037604
     },
     {
       "model": "ridge",
@@ -83,11 +83,11 @@
       "top_5_f1": 0.72625,
       "mean_top_1_combined_regret": 0.075142,
       "price_mae_eur_mwh_reference_only": 10.512187,
-      "carbon_error_component": 0.014242,
-      "carbon_regret_component": 0.019757,
+      "carbon_error_component": 0.014463,
+      "carbon_regret_component": 0.027187,
       "ranking_component": 0.275736,
-      "price_direction_error_component": 0.047144,
-      "champion_score": 0.07121
+      "price_direction_error_component": 0.047386,
+      "champion_score": 0.073191
     },
     {
       "model": "naive_lag_24h",
