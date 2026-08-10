@@ -29,8 +29,11 @@ from src.models.baseline_price import (
 from src.optimization.workload_shift import (
     WorkloadConstraints,
     add_recommendation_confidence,
+    apply_confidence_calibration,
+    apply_saved_ranking_model_overlay,
     build_top_workload_recommendations,
     build_workload_decision_rankings,
+    load_confidence_calibration,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -40,6 +43,10 @@ OUTPUT_PATH = ROOT / "reports/recommendations/future_champion_workload_recommend
 RANKING_OUTPUT_PATH = ROOT / "reports/rankings/future_workload_decision_rankings.csv"
 METADATA_OUTPUT_PATH = ROOT / "reports/metrics/future_recommendation_metadata.json"
 EMISSION_FACTORS_PATH = ROOT / "config/emission_factors.yaml"
+OPERATIONAL_RECOMMENDATION_HISTORY_PATH = (
+    ROOT / "reports/monitoring/operational_recommendation_history.csv"
+)
+OPERATIONAL_RANKING_HISTORY_PATH = ROOT / "reports/monitoring/operational_ranking_history.csv"
 
 
 @dataclass(frozen=True)
@@ -58,11 +65,12 @@ def build_future_recommendations(
     output_path: str | Path = OUTPUT_PATH,
     ranking_output_path: str | Path = RANKING_OUTPUT_PATH,
     metadata_output_path: str | Path = METADATA_OUTPUT_PATH,
+    as_of_utc: str | pd.Timestamp | None = None,
 ) -> FutureRecommendationSummary:
     """Score the next horizon using saved champion artifacts."""
     history = pd.read_csv(FEATURES_PATH, parse_dates=[TIMESTAMP_COLUMN])
     history[TIMESTAMP_COLUMN] = pd.to_datetime(history[TIMESTAMP_COLUMN], utc=True)
-    future = build_future_feature_frame(history, horizon_hours)
+    future = build_future_feature_frame(history, horizon_hours, as_of_utc=as_of_utc)
     future = add_future_signal_predictions(future)
     future = add_future_price_predictions(future)
     hourly = build_future_hourly_decision_inputs(history, future)
@@ -70,8 +78,13 @@ def build_future_recommendations(
         hourly,
         WorkloadConstraints(price_weight=0.5, carbon_weight=0.5),
     )
+    rankings = apply_saved_ranking_model_overlay(rankings)
     recommendations = build_top_workload_recommendations(rankings, top_n=5)
     recommendations = add_recommendation_confidence(recommendations, rankings, top_n=5)
+    recommendations = apply_confidence_calibration(
+        recommendations,
+        load_confidence_calibration(),
+    )
     recommendations["is_future_recommendation"] = True
     rankings["is_future_recommendation"] = True
 
@@ -84,20 +97,41 @@ def build_future_recommendations(
         first_decision_group=str(recommendations["decision_group"].min()) if not recommendations.empty else None,
         last_decision_group=str(recommendations["decision_group"].max()) if not recommendations.empty else None,
     )
+    append_operational_history(
+        recommendations,
+        OPERATIONAL_RECOMMENDATION_HISTORY_PATH,
+        summary.generated_at_utc,
+    )
+    append_operational_history(
+        rankings,
+        OPERATIONAL_RANKING_HISTORY_PATH,
+        summary.generated_at_utc,
+    )
     write_json(metadata_output_path, asdict(summary))
     return summary
 
 
-def build_future_feature_frame(history: pd.DataFrame, horizon_hours: int) -> pd.DataFrame:
+def build_future_feature_frame(
+    history: pd.DataFrame,
+    horizon_hours: int,
+    as_of_utc: str | pd.Timestamp | None = None,
+) -> pd.DataFrame:
     """Build model-ready rows for future timestamps."""
     latest = history[TIMESTAMP_COLUMN].max()
-    future_timestamps = pd.date_range(
-        latest + pd.Timedelta(hours=1),
+    forecast_start = calculate_future_forecast_start(latest, as_of_utc=as_of_utc)
+    scoring_timestamps = pd.date_range(
+        forecast_start,
         periods=horizon_hours,
         freq="h",
         tz="UTC",
     )
-    future_base = pd.DataFrame({TIMESTAMP_COLUMN: future_timestamps})
+    feature_timestamps = pd.date_range(
+        latest + pd.Timedelta(hours=1),
+        scoring_timestamps.max(),
+        freq="h",
+        tz="UTC",
+    )
+    future_base = pd.DataFrame({TIMESTAMP_COLUMN: feature_timestamps})
     future_base = future_base.merge(load_future_weather_aggregates(), on=TIMESTAMP_COLUMN, how="left")
     future_base = fill_missing_future_weather(future_base, history)
     for column in required_base_columns():
@@ -110,7 +144,28 @@ def build_future_feature_frame(history: pd.DataFrame, horizon_hours: int) -> pd.
         warnings.simplefilter("ignore", PerformanceWarning)
         features = build_price_modeling_features(combined)
     features = remove_duplicate_columns(features)
-    return features[features[TIMESTAMP_COLUMN].isin(future_timestamps)].reset_index(drop=True)
+    return features[features[TIMESTAMP_COLUMN].isin(scoring_timestamps)].reset_index(drop=True)
+
+
+def calculate_future_forecast_start(
+    latest_history_timestamp: pd.Timestamp,
+    as_of_utc: str | pd.Timestamp | None = None,
+) -> pd.Timestamp:
+    """Start future scoring after both latest data and current operational time."""
+    latest = pd.Timestamp(latest_history_timestamp)
+    if latest.tzinfo is None:
+        latest = latest.tz_localize("UTC")
+    else:
+        latest = latest.tz_convert("UTC")
+    as_of = pd.Timestamp.now(tz="UTC") if as_of_utc is None else pd.Timestamp(as_of_utc)
+    if as_of.tzinfo is None:
+        as_of = as_of.tz_localize("UTC")
+    else:
+        as_of = as_of.tz_convert("UTC")
+    return max(
+        latest + pd.Timedelta(hours=1),
+        as_of.floor("h") + pd.Timedelta(hours=1),
+    )
 
 
 def remove_duplicate_columns(frame: pd.DataFrame) -> pd.DataFrame:
@@ -316,12 +371,29 @@ def write_json(path: str | Path, payload: dict[str, Any]) -> None:
     output.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
+def append_operational_history(
+    frame: pd.DataFrame,
+    path: str | Path,
+    generated_at_utc: str,
+) -> None:
+    """Append operational forecast rows for later actual-vs-forecast monitoring."""
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    history = frame.copy()
+    history["forecast_generated_at_utc"] = generated_at_utc
+    history.to_csv(output, mode="a", index=False, header=not output.exists())
+
+
 def main(argv: list[str] | None = None) -> None:
     """Build future recommendations from the command line."""
     parser = argparse.ArgumentParser(description="Build next-24-hour clean-hour recommendations.")
     parser.add_argument("--horizon-hours", type=int, default=24)
+    parser.add_argument("--as-of-utc", default=None)
     args = parser.parse_args(argv)
-    summary = build_future_recommendations(horizon_hours=args.horizon_hours)
+    summary = build_future_recommendations(
+        horizon_hours=args.horizon_hours,
+        as_of_utc=args.as_of_utc,
+    )
     print(json.dumps(asdict(summary), indent=2))
 
 

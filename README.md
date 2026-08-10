@@ -94,6 +94,7 @@ The platform now has a working France electricity decision-support baseline:
 - Recommendations show price direction versus the previous day at the same time instead of presenting price as the main dashboard forecast.
 - The champion model is selected from generated metrics with a carbon-first score: 45% carbon-intensity error, 25% carbon regret, 20% top-5 ranking loss, and 10% price-direction error.
 - The ranking layer is evaluated by top-k capture, pairwise ranking loss, top-5 classification metrics, regret by day/window, and savings versus running immediately.
+- A ranking-specific top-5 classifier is trained on historical decision candidates and accepted only when out-of-window combined regret and carbon regret do not degrade versus the baseline ranking score.
 - Workload recommendations support duration, earliest start, latest end, max-delay, price-weight, and carbon-weight constraints.
 - Scenario reranking is available for clean-first, balanced, and cost-aware-clean preferences.
 - Ranking currently uses strict forecast-time features: calendar features, lagged prices, lagged/rolling supply-demand signals, and upstream forecasted consumption/production.
@@ -101,7 +102,8 @@ The platform now has a working France electricity decision-support baseline:
 - Forecast diagnostics include MAE, RMSE, sMAPE, directional accuracy, top-error periods, grouped error diagnostics, ranking metrics, regret metrics, and feature importance.
 - Historical validation windows are assigned dynamically from the ingested data. The final validation/test window is the latest 90 days ending at the latest modeling timestamp.
 - The dashboard shows a health/status band from `reports/metrics/pipeline_health.json`.
-- The dashboard recommendation rows now show explicit carbon intensity, price direction versus yesterday, confidence, and expandable details.
+- Recommendation confidence is calibrated from historical confidence bins, empirical top-5 hit rates, and observed regret.
+- The dashboard recommendation rows now show explicit carbon intensity, price direction versus yesterday, calibrated confidence, expected regret, and expandable details.
 - MLflow tracking hooks and a Dagster refresh skeleton are in place. Docker files exist, but Docker execution is currently optional and can be skipped during local development.
 - Notebook `notebooks/02_forecasting.ipynb` reads the generated metrics and diagnostics.
 
@@ -122,6 +124,8 @@ make forecast-scenarios
 make train-all
 make forecast-all
 make operational-refresh
+make ingest-monitor
+make forecast-monitor
 make pipeline-health
 make dagster-dev
 ```
@@ -131,7 +135,10 @@ Command intent:
 - `make train-all` retrains historical models and validation artifacts only.
 - `make operational-refresh` uses current saved model artifacts to build next-24-hour future recommendations and the dashboard.
 - `make forecast-all` retrains everything, rebuilds future recommendations, and builds the dashboard/frontend.
-- `make dagster-dev` starts the local Dagster UI. The main jobs are `daily_clean_hour_refresh` and `quick_recommendation_refresh`.
+- `make ingest-monitor` ingests latest API data, runs pipeline health, and writes the forecast monitoring report without retraining.
+- `make forecast-monitor` writes `reports/metrics/forecast_monitoring.json` from existing artifacts.
+- `make dagster-dev` starts the local Dagster UI. The main jobs are `ingestion_monitor_refresh`, `daily_clean_hour_refresh`, and `quick_recommendation_refresh`.
+- Dagster schedules `ingestion_monitor_refresh` for `02:00` Europe/Paris every day. This scheduled job does not retrain models.
 
 Current key artifacts:
 
@@ -144,6 +151,8 @@ Current key artifacts:
 - Champion-only recommendations: `reports/recommendations/champion_workload_recommendations.csv`
 - Combined workload metrics: `reports/metrics/workload_decision_metrics.json`
 - Ranking-specific metrics: `reports/metrics/ranking_specific_metrics.json`
+- Ranking model metrics: `reports/metrics/ranking_model_metrics.json`
+- Confidence calibration: `reports/metrics/recommendation_confidence_calibration.json`
 - Champion model selection: `reports/metrics/champion_model_selection.json`
 - Scenario rerankings: `reports/scenarios/workload_scenario_recommendations.csv`
 - Scenario metrics: `reports/metrics/scenario_reranking_metrics.json`
@@ -152,6 +161,8 @@ Current key artifacts:
 - Future champion recommendations: `reports/recommendations/future_champion_workload_recommendations.csv`
 - Future recommendation metadata: `reports/metrics/future_recommendation_metadata.json`
 - Pipeline health: `reports/metrics/pipeline_health.json`
+- Forecast monitoring: `reports/metrics/forecast_monitoring.json`
+- Operational forecast history: `reports/monitoring/operational_ranking_history.csv`
 - Dashboard data contract: `frontend/public/data/dashboard.json`
 - Supply/demand metrics: `reports/metrics/supply_demand_baseline_metrics.json`
 - Supply/demand predictions: `reports/predictions/supply_demand_baseline_predictions.csv`
@@ -161,8 +172,8 @@ Current key artifacts:
 
 Status: in progress.
 
-- Improve the ranking-specific modeling layer beyond baseline regression-derived scores.
-- Add stronger uncertainty and confidence calibration for operational recommendations.
+- Continue improving the ranking-specific model until it clears the guarded acceptance gate consistently.
+- Extend uncertainty calibration beyond confidence bins with prediction intervals or conformal-style bands.
 - Add real data freshness checks for future exogenous data, not only historical source files.
 - Move from local Dagster skeleton to a deployable daily orchestration setup.
 - Decide whether Docker should stay optional or be repaired for a full local compose workflow.

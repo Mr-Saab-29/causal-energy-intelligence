@@ -4,13 +4,37 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import joblib
 import numpy as np
 import pandas as pd
+from sklearn.base import clone
+from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.impute import SimpleImputer
+from sklearn.pipeline import Pipeline
 
 TIMESTAMP_COLUMN = "timestamp_utc"
+ROOT = Path(__file__).resolve().parents[2]
+RANKING_MODEL_PATH = ROOT / "models/ranking_top5_classifier.joblib"
+RANKING_MODEL_METRICS_PATH = ROOT / "reports/metrics/ranking_model_metrics.json"
+CONFIDENCE_CALIBRATION_PATH = ROOT / "reports/metrics/recommendation_confidence_calibration.json"
+RANKING_MODEL_FEATURES = [
+    "predicted_avg_price_eur_mwh",
+    "predicted_avg_carbon_intensity_g_co2e_per_kwh",
+    "predicted_total_emissions_kg_co2e",
+    "predicted_price_rank",
+    "predicted_carbon_rank",
+    "candidate_count",
+    "predicted_price_rank_pct",
+    "predicted_carbon_rank_pct",
+    "predicted_combined_score",
+    "predicted_price_change_vs_previous_day_eur_mwh",
+    "hour",
+    "day_of_week",
+]
 DEFAULT_SCENARIOS = [
     {"scenario": "clean_first", "price_weight": 0.2, "carbon_weight": 0.8},
     {"scenario": "balanced", "price_weight": 0.5, "carbon_weight": 0.5},
@@ -59,8 +83,11 @@ def run_workload_decision_ranking(
     constraints = constraints or WorkloadConstraints()
     hourly = load_hourly_decision_inputs(price_rankings_path, carbon_intensity_path, constraints)
     rankings = build_workload_decision_rankings(hourly, constraints)
+    rankings, ranking_model_report = apply_ranking_model_overlay(rankings)
     recommendations = build_top_workload_recommendations(rankings, top_n=top_n_recommendations)
     recommendations = add_recommendation_confidence(recommendations, rankings, top_n_recommendations)
+    calibration = build_confidence_calibration(recommendations, top_n=top_n_recommendations)
+    recommendations = apply_confidence_calibration(recommendations, calibration)
     metrics = summarize_workload_decision_metrics(rankings)
     ranking_specific_metrics = summarize_ranking_specific_metrics(rankings)
     champion = select_champion_model(
@@ -92,10 +119,13 @@ def run_workload_decision_ranking(
     write_json(ranking_specific_metrics_path, ranking_specific_metrics)
     write_json(champion_output_path, champion)
     write_json(scenario_metrics_output_path, scenario_metrics)
+    write_json(RANKING_MODEL_METRICS_PATH, ranking_model_report)
+    write_json(CONFIDENCE_CALIBRATION_PATH, calibration)
     return {
         "constraints": asdict(constraints),
         "summary": metrics,
         "champion_model": champion["champion_model"],
+        "ranking_model": ranking_model_report,
     }
 
 
@@ -221,6 +251,8 @@ def build_workload_decision_rankings(
 
     annotate_regret_and_savings(candidates, group_columns)
     annotate_price_direction(candidates)
+    candidates["baseline_predicted_combined_score"] = candidates["predicted_combined_score"]
+    candidates["baseline_predicted_decision_rank"] = candidates["predicted_decision_rank"]
     sort_columns = group_columns + ["predicted_decision_rank", TIMESTAMP_COLUMN]
     return candidates.sort_values(sort_columns).reset_index(drop=True)
 
@@ -406,6 +438,196 @@ def price_direction_label(change: float | None) -> str:
     return "flat"
 
 
+def apply_ranking_model_overlay(
+    rankings: pd.DataFrame,
+    model_path: str | Path = RANKING_MODEL_PATH,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Train an out-of-window top-5 ranker and use it to rerank candidates."""
+    frame = rankings.copy()
+    frame["ranking_model_target_top_5"] = (frame["actual_decision_rank"] <= 5).astype(int)
+    frame["ranking_model_score"] = np.nan
+    frame["ranking_model_score_source"] = "fallback_baseline_score"
+    model = build_ranking_model()
+    feature_frame = build_ranking_feature_frame(frame)
+    scored_rows = 0
+
+    for model_name, model_frame in frame.groupby("model", observed=True):
+        model_indices = model_frame.index
+        for window in model_frame["window"].dropna().unique():
+            validation_index = model_frame[model_frame["window"] == window].index
+            train_index = model_indices.difference(validation_index)
+            train_target = frame.loc[train_index, "ranking_model_target_top_5"]
+            if len(train_index) < 50 or train_target.nunique() < 2:
+                continue
+            fitted = clone(model).fit(feature_frame.loc[train_index], train_target)
+            frame.loc[validation_index, "ranking_model_score"] = fitted.predict_proba(
+                feature_frame.loc[validation_index]
+            )[:, 1]
+            frame.loc[validation_index, "ranking_model_score_source"] = "out_of_window_classifier"
+            scored_rows += len(validation_index)
+
+    frame["ranking_model_score"] = frame["ranking_model_score"].fillna(
+        1 - frame["predicted_combined_score"].clip(lower=0, upper=1)
+    )
+    frame["ranking_model_decision_score"] = 1 - frame["ranking_model_score"]
+    frame["predicted_decision_rank"] = rank_within_group(
+        frame,
+        ["window", "model", "decision_group"],
+        "ranking_model_decision_score",
+    )
+    refresh_predicted_rank_flags(frame)
+    report = summarize_ranking_model_overlay(frame, scored_rows)
+    report["accepted_for_recommendations"] = ranking_model_improves_objective(report)
+    report["acceptance_rule"] = (
+        "Apply the learned ranker only when out-of-window combined regret and "
+        "carbon regret are both no worse than the baseline rank score."
+    )
+    if report["accepted_for_recommendations"]:
+        target = frame["ranking_model_target_top_5"]
+        if len(frame) >= 50 and target.nunique() >= 2:
+            fitted_final = clone(model).fit(feature_frame, target)
+            write_ranking_model_artifact(
+                model_path,
+                {
+                    "model_name": "global_top5_ranker",
+                    "model": fitted_final,
+                    "feature_columns": RANKING_MODEL_FEATURES,
+                    "accepted_for_recommendations": True,
+                    "trained_at_utc": datetime.now(UTC).isoformat(),
+                },
+            )
+    else:
+        remove_ranking_model_artifact(model_path)
+        frame["predicted_decision_rank"] = frame["baseline_predicted_decision_rank"]
+        frame["ranking_model_score_source"] = "guarded_fallback_baseline_score"
+        refresh_predicted_rank_flags(frame)
+
+    return frame.sort_values(
+        ["window", "model", "decision_group", "predicted_decision_rank", TIMESTAMP_COLUMN]
+    ).reset_index(drop=True), report
+
+
+def apply_saved_ranking_model_overlay(
+    rankings: pd.DataFrame,
+    model_path: str | Path = RANKING_MODEL_PATH,
+) -> pd.DataFrame:
+    """Apply the persisted ranking model to operational candidate rankings."""
+    frame = rankings.copy()
+    artifact = load_ranking_model_artifact(model_path)
+    if artifact is None or not artifact.get("accepted_for_recommendations", False):
+        frame["ranking_model_score"] = 1 - frame["predicted_combined_score"].clip(lower=0, upper=1)
+        frame["ranking_model_score_source"] = "fallback_baseline_score"
+    else:
+        feature_columns = artifact.get("feature_columns", RANKING_MODEL_FEATURES)
+        features = build_ranking_feature_frame(frame, feature_columns)
+        frame["ranking_model_score"] = artifact["model"].predict_proba(features)[:, 1]
+        frame["ranking_model_score_source"] = "saved_classifier"
+    frame["ranking_model_decision_score"] = 1 - frame["ranking_model_score"]
+    frame["predicted_decision_rank"] = rank_within_group(
+        frame,
+        ["window", "model", "decision_group"],
+        "ranking_model_decision_score",
+    )
+    refresh_predicted_rank_flags(frame)
+    return frame.sort_values(
+        ["window", "model", "decision_group", "predicted_decision_rank", TIMESTAMP_COLUMN]
+    ).reset_index(drop=True)
+
+
+def build_ranking_model() -> Pipeline:
+    """Build the ranking-specific classifier used for candidate reranking."""
+    return Pipeline(
+        steps=[
+            ("imputer", SimpleImputer(strategy="median")),
+            (
+                "model",
+                HistGradientBoostingClassifier(
+                    learning_rate=0.05,
+                    max_iter=120,
+                    max_leaf_nodes=15,
+                    l2_regularization=0.1,
+                    random_state=42,
+                ),
+            ),
+        ]
+    )
+
+
+def build_ranking_feature_frame(
+    frame: pd.DataFrame,
+    feature_columns: list[str] | tuple[str, ...] = RANKING_MODEL_FEATURES,
+) -> pd.DataFrame:
+    """Return model-ready ranking features."""
+    output = frame.copy()
+    timestamps = pd.to_datetime(output[TIMESTAMP_COLUMN], utc=True)
+    output["hour"] = timestamps.dt.hour
+    output["day_of_week"] = timestamps.dt.dayofweek
+    for column in feature_columns:
+        if column not in output:
+            output[column] = np.nan
+    return output[list(feature_columns)].apply(pd.to_numeric, errors="coerce")
+
+
+def summarize_ranking_model_overlay(frame: pd.DataFrame, scored_rows: int) -> dict[str, Any]:
+    """Summarize ranking-model quality against the base score."""
+    predicted_best = frame[frame["predicted_decision_rank"] == 1]
+    baseline_best = frame[frame["baseline_predicted_decision_rank"] == 1]
+    return {
+        "generated_at_utc": datetime.now(UTC).isoformat(),
+        "model_type": "hist_gradient_boosting_top5_classifier",
+        "feature_columns": RANKING_MODEL_FEATURES,
+        "out_of_window_scored_rows": int(scored_rows),
+        "rows": int(len(frame)),
+        "learned_top_1_hit_rate": safe_float_mean(predicted_best["is_actual_best"]),
+        "baseline_top_1_hit_rate": safe_float_mean(baseline_best["is_actual_best"]),
+        "learned_mean_combined_regret": safe_float_mean(predicted_best["combined_regret"]),
+        "baseline_mean_combined_regret": safe_float_mean(baseline_best["combined_regret"]),
+        "learned_mean_carbon_regret_g_co2e_per_kwh": safe_float_mean(
+            predicted_best["carbon_regret_g_co2e_per_kwh"]
+        ),
+        "baseline_mean_carbon_regret_g_co2e_per_kwh": safe_float_mean(
+            baseline_best["carbon_regret_g_co2e_per_kwh"]
+        ),
+    }
+
+
+def ranking_model_improves_objective(report: dict[str, Any]) -> bool:
+    """Return whether the learned ranker clears the carbon-aware acceptance gate."""
+    return (
+        report["learned_mean_combined_regret"] <= report["baseline_mean_combined_regret"]
+        and report["learned_mean_carbon_regret_g_co2e_per_kwh"]
+        <= report["baseline_mean_carbon_regret_g_co2e_per_kwh"]
+    )
+
+
+def refresh_predicted_rank_flags(frame: pd.DataFrame) -> None:
+    """Refresh boolean rank annotations after learned reranking."""
+    frame["is_predicted_best"] = frame["predicted_decision_rank"] == 1
+    frame["is_predicted_top_3"] = frame["predicted_decision_rank"] <= 3
+
+
+def write_ranking_model_artifact(path: str | Path, artifact: dict[str, Any]) -> None:
+    """Persist a ranking model artifact."""
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(artifact, output)
+
+
+def remove_ranking_model_artifact(path: str | Path) -> None:
+    """Remove a stale accepted ranking model artifact when the gate fails."""
+    artifact_path = Path(path)
+    if artifact_path.exists():
+        artifact_path.unlink()
+
+
+def load_ranking_model_artifact(path: str | Path) -> dict[str, Any] | None:
+    """Load a persisted ranking model artifact if available."""
+    artifact_path = Path(path)
+    if not artifact_path.exists():
+        return None
+    return joblib.load(artifact_path)
+
+
 def summarize_workload_decision_metrics(rankings: pd.DataFrame) -> list[dict[str, Any]]:
     """Summarize decision-ranking quality by model."""
     summaries: list[dict[str, Any]] = []
@@ -462,6 +684,10 @@ def build_top_workload_recommendations(rankings: pd.DataFrame, top_n: int = 5) -
         "workload_end_utc",
         "duration_hours",
         "predicted_combined_score",
+        "baseline_predicted_decision_rank",
+        "ranking_model_score",
+        "ranking_model_decision_score",
+        "ranking_model_score_source",
         "predicted_price_direction_vs_previous_day",
         "predicted_avg_carbon_intensity_g_co2e_per_kwh",
         "predicted_total_emissions_kg_co2e",
@@ -524,6 +750,126 @@ def add_recommendation_confidence(
     float_columns = output.select_dtypes(include=["float"]).columns
     output[float_columns] = output[float_columns].round(2)
     return output
+
+
+def build_confidence_calibration(recommendations: pd.DataFrame, top_n: int = 5) -> dict[str, Any]:
+    """Build empirical confidence calibration from historical recommendations."""
+    if recommendations.empty or "actual_decision_rank" not in recommendations:
+        return {
+            "generated_at_utc": datetime.now(UTC).isoformat(),
+            "top_n": top_n,
+            "bins": [],
+            "fallback": default_confidence_fallback(),
+        }
+    frame = recommendations.copy()
+    frame["actual_top_n"] = frame["actual_decision_rank"] <= top_n
+    frame["actual_top_1"] = frame["actual_decision_rank"] == 1
+    bins: list[dict[str, Any]] = []
+    for label, low, high in [
+        ("low", 0.0, 0.5),
+        ("medium", 0.5, 0.75),
+        ("high", 0.75, 1.01),
+    ]:
+        bin_frame = frame[(frame["confidence_score"] >= low) & (frame["confidence_score"] < high)]
+        if bin_frame.empty:
+            continue
+        bins.append(
+            {
+                "bin": label,
+                "min_score": low,
+                "max_score": high,
+                "rows": int(len(bin_frame)),
+                "empirical_top_n_hit_rate": safe_float_mean(bin_frame["actual_top_n"]),
+                "empirical_top_1_hit_rate": safe_float_mean(bin_frame["actual_top_1"]),
+                "mean_combined_regret": safe_float_mean(bin_frame["combined_regret"]),
+                "mean_carbon_regret_g_co2e_per_kwh": safe_float_mean(
+                    bin_frame["carbon_regret_g_co2e_per_kwh"]
+                ),
+                "mean_cost_regret_eur_mwh": safe_float_mean(bin_frame["cost_regret_eur_mwh"]),
+            }
+        )
+    return {
+        "generated_at_utc": datetime.now(UTC).isoformat(),
+        "method": (
+            "Confidence is calibrated by mapping heuristic confidence bins to "
+            "historical top-N hit rates and observed regret."
+        ),
+        "top_n": top_n,
+        "bins": bins,
+        "fallback": default_confidence_fallback(frame),
+    }
+
+
+def apply_confidence_calibration(
+    recommendations: pd.DataFrame,
+    calibration: dict[str, Any] | None,
+) -> pd.DataFrame:
+    """Apply empirical confidence calibration to recommendation rows."""
+    output = recommendations.copy()
+    if output.empty:
+        return output
+    output["heuristic_confidence_score"] = output["confidence_score"]
+    output["heuristic_confidence_level"] = output["confidence_level"]
+    rows = [
+        calibration_row_for_score(float(score), calibration)
+        for score in output["heuristic_confidence_score"]
+    ]
+    output["empirical_top_n_hit_rate"] = [row["empirical_top_n_hit_rate"] for row in rows]
+    output["empirical_top_1_hit_rate"] = [row["empirical_top_1_hit_rate"] for row in rows]
+    output["expected_combined_regret"] = [row["mean_combined_regret"] for row in rows]
+    output["expected_carbon_regret_g_co2e_per_kwh"] = [
+        row["mean_carbon_regret_g_co2e_per_kwh"] for row in rows
+    ]
+    output["expected_cost_regret_eur_mwh"] = [row["mean_cost_regret_eur_mwh"] for row in rows]
+    output["confidence_score"] = (
+        0.55 * output["heuristic_confidence_score"]
+        + 0.45 * output["empirical_top_n_hit_rate"]
+    ).clip(lower=0, upper=1)
+    output["confidence_level"] = output["confidence_score"].map(confidence_label)
+    float_columns = output.select_dtypes(include=["float"]).columns
+    output[float_columns] = output[float_columns].round(2)
+    return output
+
+
+def calibration_row_for_score(score: float, calibration: dict[str, Any] | None) -> dict[str, float]:
+    """Return the calibration bin that contains a heuristic score."""
+    if calibration:
+        for row in calibration.get("bins", []):
+            if score >= row["min_score"] and score < row["max_score"]:
+                return row
+    fallback = calibration.get("fallback", default_confidence_fallback()) if calibration else default_confidence_fallback()
+    return fallback
+
+
+def load_confidence_calibration(
+    path: str | Path = CONFIDENCE_CALIBRATION_PATH,
+) -> dict[str, Any] | None:
+    """Load confidence calibration metadata if available."""
+    calibration_path = Path(path)
+    if not calibration_path.exists():
+        return None
+    return load_json(calibration_path)
+
+
+def default_confidence_fallback(frame: pd.DataFrame | None = None) -> dict[str, float]:
+    """Return fallback confidence calibration values."""
+    if frame is None or frame.empty or "actual_decision_rank" not in frame:
+        return {
+            "empirical_top_n_hit_rate": 0.5,
+            "empirical_top_1_hit_rate": 0.2,
+            "mean_combined_regret": 0.0,
+            "mean_carbon_regret_g_co2e_per_kwh": 0.0,
+            "mean_cost_regret_eur_mwh": 0.0,
+        }
+    return {
+        "empirical_top_n_hit_rate": safe_float_mean(frame["actual_decision_rank"] <= 5),
+        "empirical_top_1_hit_rate": safe_float_mean(frame["actual_decision_rank"] == 1),
+        "mean_combined_regret": safe_float_mean(frame["combined_regret"]),
+        "mean_carbon_regret_g_co2e_per_kwh": safe_float_mean(
+            frame["carbon_regret_g_co2e_per_kwh"]
+        ),
+        "mean_cost_regret_eur_mwh": safe_float_mean(frame["cost_regret_eur_mwh"]),
+    }
 
 
 def calculate_score_margin_components(rankings: pd.DataFrame) -> pd.Series:
@@ -897,6 +1243,12 @@ def safe_mean(values: pd.Series) -> float:
     """Return mean as float, preserving NaN when all values are missing."""
     value = values.astype(float).mean()
     return float(value) if not pd.isna(value) else float("nan")
+
+
+def safe_float_mean(values: pd.Series) -> float:
+    """Return a JSON-safe mean, using zero when all values are missing."""
+    value = values.astype(float).mean()
+    return float(value) if not pd.isna(value) else 0.0
 
 
 def optimize_workload_shift(

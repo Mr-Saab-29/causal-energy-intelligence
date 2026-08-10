@@ -392,6 +392,18 @@ function RecommendationRow({ row }) {
           label="Cost saving vs run now"
           value={`${row.cost_savings_vs_run_now_eur_mwh.toFixed(2)} EUR/MWh`}
         />
+        <DetailItem
+          label="Historical top-5 hit rate"
+          value={`${Math.round((row.empirical_top_n_hit_rate ?? 0) * 100)}%`}
+        />
+        <DetailItem
+          label="Expected carbon regret"
+          value={`${(row.expected_carbon_regret_g_co2e_per_kwh ?? 0).toFixed(2)} gCO2e/kWh`}
+        />
+        <DetailItem
+          label="Confidence calibration"
+          value={`${titleCase(row.heuristic_confidence_level)} raw -> ${titleCase(row.confidence_level)} calibrated`}
+        />
       </div>
     </details>
   );

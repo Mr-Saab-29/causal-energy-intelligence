@@ -1,14 +1,16 @@
 PYTHON ?= .venv/bin/python
 DAGSTER ?= .venv/bin/dagster
 
-.PHONY: help ingest-latest ingest-plan ingest-repair ingest-future future-recommendations operational-refresh train-all forecast-all quick-refresh daily-local-refresh forecast-price forecast-ranking forecast-decision forecast-recommendations forecast-scenarios forecast-decision-example forecast-consumption forecast-production forecast-supply-demand forecast-carbon pipeline-health pipeline-health-allow-stale dashboard-data frontend-install frontend-dev frontend-build mlflow-ui dagster-dev docker-build docker-up docker-down docker-observability
+.PHONY: help ingest-latest ingest-plan ingest-repair ingest-future ingest-monitor forecast-monitor future-recommendations operational-refresh train-all forecast-all quick-refresh daily-local-refresh forecast-price forecast-ranking forecast-decision forecast-recommendations forecast-scenarios forecast-decision-example forecast-consumption forecast-production forecast-supply-demand forecast-carbon pipeline-health pipeline-health-allow-stale dashboard-data frontend-install frontend-dev frontend-build mlflow-ui dagster-dev docker-build docker-up docker-down docker-observability
 
 help:
 	@echo "Forecast training targets:"
 	@echo "  make ingest-plan             Show local ingestion date range without API calls"
 	@echo "  make ingest-repair           Repair local CSV timestamps and rebuild features"
 	@echo "  make ingest-latest           Fetch missing source data and rebuild local features"
+	@echo "  make ingest-monitor          Ingest latest data and monitor forecast drift"
 	@echo "  make ingest-future           Fetch next-24h future exogenous weather"
+	@echo "  make forecast-monitor        Build reports/metrics/forecast_monitoring.json"
 	@echo "  make future-recommendations  Build next-24h operational recommendations"
 	@echo "  make operational-refresh     Build future recommendations and dashboard"
 	@echo "  make forecast-consumption    Train/evaluate consumption baselines only"
@@ -42,8 +44,13 @@ ingest-latest:
 ingest-repair:
 	$(PYTHON) -m src.data.local_ingest --repair-only
 
+ingest-monitor: ingest-latest pipeline-health forecast-monitor
+
 ingest-future:
 	$(PYTHON) -m src.data.future_exogenous --horizon-hours 24
+
+forecast-monitor:
+	$(PYTHON) -m src.monitoring.forecast_monitor
 
 future-recommendations:
 	$(PYTHON) -m src.models.future_recommendations --horizon-hours 24

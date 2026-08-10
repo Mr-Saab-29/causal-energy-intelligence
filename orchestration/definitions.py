@@ -15,6 +15,10 @@ from dagster import (
 )
 
 from src.data.pipeline_health import DEFAULT_OUTPUT_PATH, build_pipeline_health
+from src.monitoring.forecast_monitor import (
+    DEFAULT_OUTPUT_PATH as FORECAST_MONITOR_OUTPUT_PATH,
+    build_forecast_monitoring_report,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -59,6 +63,21 @@ def quick_recommendation_artifacts(context) -> dict[str, Any]:
     result = run_command(["make", "forecast-decision"])
     context.add_output_metadata({"stdout_tail": MetadataValue.text(result[-2_000:])})
     return {"command": "make forecast-decision", "stdout_tail": result[-2_000:]}
+
+
+@asset(group_name="monitoring", deps=[source_data_snapshot])
+def forecast_monitoring_report(context) -> dict[str, Any]:
+    """Compare settled forecasts with actuals and flag retraining needs."""
+    report = build_forecast_monitoring_report(FORECAST_MONITOR_OUTPUT_PATH)
+    context.add_output_metadata(
+        {
+            "status": report["status"],
+            "retraining_recommended": report["retraining_recommended"],
+            "reason_count": len(report["reasons"]),
+            "forecast_monitoring": MetadataValue.path(str(FORECAST_MONITOR_OUTPUT_PATH)),
+        }
+    )
+    return report
 
 
 @asset(group_name="daily_refresh", deps=[clean_hour_forecast_artifacts])
@@ -202,9 +221,18 @@ quick_recommendation_refresh = define_asset_job(
     ],
 )
 
+ingestion_monitor_refresh = define_asset_job(
+    name="ingestion_monitor_refresh",
+    selection=[
+        "ingest_latest_source_data",
+        "source_data_snapshot",
+        "forecast_monitoring_report",
+    ],
+)
+
 daily_refresh_schedule = ScheduleDefinition(
-    job=daily_refresh_job,
-    cron_schedule="0 5 * * *",
+    job=ingestion_monitor_refresh,
+    cron_schedule="0 2 * * *",
     execution_timezone="Europe/Paris",
 )
 
@@ -212,6 +240,7 @@ defs = Definitions(
     assets=[
         ingest_latest_source_data,
         source_data_snapshot,
+        forecast_monitoring_report,
         clean_hour_forecast_artifacts,
         quick_recommendation_artifacts,
         future_exogenous_data,
@@ -223,7 +252,7 @@ defs = Definitions(
         frontend_static_build,
         quick_frontend_static_build,
     ],
-    jobs=[daily_refresh_job, quick_recommendation_refresh],
+    jobs=[daily_refresh_job, quick_recommendation_refresh, ingestion_monitor_refresh],
     schedules=[daily_refresh_schedule],
 )
 

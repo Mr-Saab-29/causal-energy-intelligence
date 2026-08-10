@@ -41,7 +41,25 @@ python -m src.models.train_forecast --target decision --disable-mlflow
 
 Dagster definitions live in `orchestration/definitions.py`.
 
-The full daily refresh skeleton has seven assets:
+The scheduled ingestion-monitor refresh runs at `02:00` Europe/Paris and has
+three assets:
+
+- `ingest_latest_source_data`: fetches missing source data and rebuilds modeling features.
+- `source_data_snapshot`: validates current local source artifacts.
+- `forecast_monitoring_report`: compares settled forecasts with actuals and flags retraining needs.
+
+The equivalent local command is:
+
+```bash
+make ingest-monitor
+```
+
+This path does not retrain models. It writes:
+
+- `reports/metrics/pipeline_health.json`
+- `reports/metrics/forecast_monitoring.json`
+
+The full manual retraining refresh has seven assets:
 
 - `ingest_latest_source_data`: fetches missing source data and rebuilds modeling features.
 - `source_data_snapshot`: validates current local source artifacts.
@@ -133,7 +151,7 @@ Open:
 http://127.0.0.1:3000
 ```
 
-The scheduled job is `daily_clean_hour_refresh`, configured for `05:00` Europe/Paris time.
+The scheduled job is `ingestion_monitor_refresh`, configured for `02:00` Europe/Paris time.
 
 ## Docker Compose
 
