@@ -1,0 +1,77 @@
+name: Daily ingestion monitor
+
+on:
+  schedule:
+    # GitHub cron is UTC-only. Trigger at both possible UTC offsets and
+    # run only when Europe/Paris local time is 02:00.
+    - cron: "0 0,1 * * *"
+  workflow_dispatch:
+
+jobs:
+  ingest-monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    env:
+      PRICE_SOURCE: energy_charts
+      ENERGY_CHARTS_BIDDING_ZONE: FR
+      FRANCE_START_DATE: "2023-01-01"
+      MLFLOW_TRACKING_ENABLED: "false"
+      ENTSOE_API_TOKEN: ${{ secrets.ENTSOE_API_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Keep only the 02:00 Europe/Paris run
+        id: schedule_guard
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$(TZ=Europe/Paris date +%H)" = "02" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping because local Europe/Paris time is not 02:00."
+          fi
+
+      - name: Set up Python
+        if: steps.schedule_guard.outputs.should_run == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Restore generated state cache
+        if: steps.schedule_guard.outputs.should_run == 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            data/processed
+            reports/monitoring
+            reports/metrics/pipeline_health.json
+            reports/metrics/forecast_monitoring.json
+          key: ingestion-state-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            ingestion-state-${{ runner.os }}-
+
+      - name: Install dependencies
+        if: steps.schedule_guard.outputs.should_run == 'true'
+        run: python -m pip install -r requirements.txt
+
+      - name: Run ingestion and monitoring
+        if: steps.schedule_guard.outputs.should_run == 'true'
+        run: make ingest-monitor-cloud
+
+      - name: Upload monitoring reports
+        if: always() && steps.schedule_guard.outputs.should_run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ingestion-monitor-reports
+          path: |
+            reports/metrics/pipeline_health.json
+            reports/metrics/forecast_monitoring.json
+            data/processed/future_weather_forecast.csv
+          if-no-files-found: warn

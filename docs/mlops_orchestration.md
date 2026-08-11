@@ -59,6 +59,62 @@ This path does not retrain models. It writes:
 - `reports/metrics/pipeline_health.json`
 - `reports/metrics/forecast_monitoring.json`
 
+## Deployable Free Schedule
+
+The deployable no-cost ingestion monitor lives at:
+
+```text
+.github/workflows/daily-ingestion-monitor.yml
+```
+
+It runs on GitHub Actions using:
+
+```text
+cron: 0 0,1 * * *
+```
+
+GitHub cron is UTC-only, so the workflow triggers at both possible Paris UTC
+offsets and then skips unless `Europe/Paris` local time is `02:00`. The workflow
+can also be run manually from the GitHub Actions UI.
+
+The workflow runs:
+
+```bash
+make ingest-monitor-cloud
+```
+
+This cloud variant caps historical API ingestion to a recent 45-day lookback so
+an empty GitHub Actions cache cannot accidentally trigger a full 2023-to-present
+backfill. Local `make ingest-monitor` still uses the normal incremental local
+refresh logic.
+
+It restores and saves a cache for generated local state:
+
+- `data/processed`
+- `reports/monitoring`
+- `reports/metrics/pipeline_health.json`
+- `reports/metrics/forecast_monitoring.json`
+
+It uploads these reports as workflow artifacts:
+
+- `reports/metrics/pipeline_health.json`
+- `reports/metrics/forecast_monitoring.json`
+- `data/processed/future_weather_forecast.csv`
+
+This workflow is intentionally ingestion/monitoring only. It does not run
+`make forecast-all` and does not retrain models. If the cache is empty on the
+first cloud run, it bootstraps only the bounded recent lookback window.
+
+Monitoring trigger thresholds are configured in:
+
+```text
+config/monitoring_thresholds.yaml
+```
+
+Tune this file to adjust the recent monitoring window, degradation ratios,
+top-5 hit-rate drop threshold, source-production sMAPE threshold, and minimum
+settled operational rows.
+
 The full manual retraining refresh has seven assets:
 
 - `ingest_latest_source_data`: fetches missing source data and rebuilds modeling features.

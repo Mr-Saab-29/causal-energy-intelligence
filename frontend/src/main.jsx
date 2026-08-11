@@ -54,7 +54,7 @@ function App() {
       .catch((loadError) => setError(loadError.message));
   }, []);
 
-  const recommendations = useMemo(() => {
+  const baseRecommendations = useMemo(() => {
     if (!payload || !selectedDate) return [];
     return payload.recommendations
       .filter((row) => row.decision_group === selectedDate)
@@ -70,6 +70,7 @@ function App() {
       )
       .sort((left, right) => left.recommendation_rank - right.recommendation_rank);
   }, [payload, selectedDate, selectedScenario]);
+  const recommendations = scenarioRecommendations.length > 0 ? scenarioRecommendations : baseRecommendations;
 
   const championMetrics = useMemo(() => {
     if (!payload?.champion?.model) return null;
@@ -99,14 +100,20 @@ function App() {
   const carbonChart = recommendations.map((row) => ({
     hour: formatHour(row.timestamp_utc),
     carbon: row.predicted_avg_carbon_intensity_g_co2e_per_kwh,
-    confidence: Math.round((row.confidence_score ?? 0) * 100),
+    confidence: row.confidence_score == null ? null : Math.round(row.confidence_score * 100),
   }));
   const modelScores = payload.champion.models.slice(0, 6).map((row) => ({
     model: shortModel(row.model),
     score: row.champion_score,
   }));
-  const health = payload.pipeline_health;
   const healthSummary = payload.summary?.pipeline_health;
+  const monitor = payload.forecast_monitoring ?? {};
+  const monitorSummary = payload.summary?.forecast_monitoring ?? {};
+  const staleFutureRecommendations = Boolean(payload.summary?.stale_future_recommendations);
+  const staleFutureScenarios = Boolean(payload.summary?.stale_future_scenarios);
+  const activeRecommendationCount = payload.summary?.active_future_scenario_count
+    ?? payload.summary?.active_future_recommendation_count
+    ?? 0;
 
   return (
     <main className="app-shell">
@@ -176,8 +183,39 @@ function App() {
         <HealthItem
           icon={<Zap size={16} />}
           label="Recommendations"
-          value={`${health?.dashboard?.recommendation_count ?? payload.summary.recommendation_count ?? 0}`}
+          value={`${activeRecommendationCount} future`}
         />
+      </section>
+
+      <section className={`monitor-band ${monitorStatusClass(monitorSummary)}`}>
+        <div className="monitor-title">
+          {monitorSummary.retraining_recommended || monitorSummary.stale ? <AlertTriangle size={18} /> : <CheckCircle2 size={18} />}
+          <div>
+            <span>Forecast Monitor</span>
+            <strong>{formatMonitorStatus(monitorSummary)}</strong>
+          </div>
+        </div>
+        <HealthItem
+          icon={<Clock3 size={16} />}
+          label="Checked"
+          value={formatDateTime(monitorSummary.generated_at_utc)}
+        />
+        <HealthItem
+          icon={<Database size={16} />}
+          label="Latest actual"
+          value={formatDateTime(monitorSummary.latest_actual_timestamp_utc)}
+        />
+        <HealthItem
+          icon={<Activity size={16} />}
+          label="Reasons"
+          value={`${monitorSummary.reason_count ?? 0} triggers / ${monitorSummary.warning_count ?? 0} warnings`}
+        />
+        <div className="monitor-reasons">
+          {(monitor.reasons ?? []).slice(0, 2).map((reason) => (
+            <span key={reason}>{formatReason(reason)}</span>
+          ))}
+          {(!monitor.reasons || monitor.reasons.length === 0) && <span>No retraining trigger</span>}
+        </div>
       </section>
 
       <section className="kpi-grid">
@@ -192,7 +230,7 @@ function App() {
           label="Carbon intensity"
           value={
             topRecommendation
-              ? `${topRecommendation.predicted_avg_carbon_intensity_g_co2e_per_kwh.toFixed(2)}`
+              ? formatFixed(topRecommendation.predicted_avg_carbon_intensity_g_co2e_per_kwh)
               : "-"
           }
           detail="gCO2e/kWh predicted"
@@ -202,7 +240,7 @@ function App() {
           label="Carbon saving"
           value={
             topRecommendation
-              ? `${topRecommendation.carbon_savings_vs_run_now_g_co2e_per_kwh.toFixed(2)}`
+              ? formatFixed(topRecommendation.carbon_savings_vs_run_now_g_co2e_per_kwh)
               : "-"
           }
           detail="gCO2e/kWh vs run now"
@@ -210,9 +248,9 @@ function App() {
         <Metric
           icon={<Gauge size={20} />}
           label="Confidence"
-          value={topRecommendation ? titleCase(topRecommendation.confidence_level) : "-"}
+          value={topRecommendation ? titleCase(topRecommendation.confidence_level) || "-" : "-"}
           detail={
-            topRecommendation
+            topRecommendation?.confidence_score != null
               ? `${Math.round(topRecommendation.confidence_score * 100)}% score`
               : "No confidence"
           }
@@ -235,8 +273,26 @@ function App() {
               <span>Price vs yesterday</span>
               <span>Confidence</span>
             </div>
+            {staleFutureRecommendations && (
+              <div className="empty-state">
+                Future recommendation file is stale. Run <code>make operational-refresh</code>.
+              </div>
+            )}
+            {staleFutureScenarios && (
+              <div className="empty-state">
+                Future scenario file is stale. Run <code>make operational-refresh</code>.
+              </div>
+            )}
+            {!staleFutureRecommendations && !staleFutureScenarios && recommendations.length === 0 && (
+              <div className="empty-state">
+                No future recommendation rows are available for the selected date.
+              </div>
+            )}
             {recommendations.map((row) => (
-              <RecommendationRow key={`${row.decision_group}-${row.recommendation_rank}`} row={row} />
+              <RecommendationRow
+                key={`${row.scenario ?? "base"}-${row.decision_group}-${row.recommendation_rank}`}
+                row={row}
+              />
             ))}
           </div>
         </div>
@@ -290,7 +346,7 @@ function App() {
               <div className="scenario-row" key={`${row.scenario}-${row.recommendation_rank}`}>
                 <span className="rank">#{row.recommendation_rank}</span>
                 <strong>{formatHour(row.timestamp_utc)}</strong>
-                <span>{row.predicted_avg_carbon_intensity_g_co2e_per_kwh.toFixed(2)} gCO2e/kWh</span>
+                <span>{formatFixed(row.predicted_avg_carbon_intensity_g_co2e_per_kwh)} gCO2e/kWh</span>
                 <DirectionBadge value={row.predicted_price_direction_vs_previous_day} />
               </div>
             ))}
@@ -350,6 +406,9 @@ function HealthItem({ icon, label, value }) {
 }
 
 function RecommendationRow({ row }) {
+  const confidenceAvailable = row.confidence_score != null && row.confidence_level;
+  const priceRank = row.predicted_price_rank ?? row.recommendation_rank;
+  const scenarioRank = row.predicted_scenario_rank ?? row.recommendation_rank;
   return (
     <details className="recommendation-row">
       <summary className="recommendation-summary">
@@ -359,7 +418,7 @@ function RecommendationRow({ row }) {
           <small>{formatDateTime(row.timestamp_utc)} UTC</small>
         </span>
         <span className="metric-cell">
-          <strong>{row.predicted_avg_carbon_intensity_g_co2e_per_kwh.toFixed(2)}</strong>
+          <strong>{formatFixed(row.predicted_avg_carbon_intensity_g_co2e_per_kwh)}</strong>
           <small>gCO2e/kWh</small>
         </span>
         <span className="metric-cell">
@@ -368,7 +427,7 @@ function RecommendationRow({ row }) {
         </span>
         <span className="metric-cell">
           <ConfidenceBadge level={row.confidence_level} score={row.confidence_score} />
-          <small>rank and margin score</small>
+          <small>{confidenceAvailable ? "rank and margin score" : "scenario rerank"}</small>
         </span>
       </summary>
       <div className="recommendation-details">
@@ -378,32 +437,52 @@ function RecommendationRow({ row }) {
         />
         <DetailItem
           label="Carbon rank"
-          value={`${row.predicted_carbon_rank} of ${row.candidate_count} candidate hours`}
+          value={`${row.predicted_carbon_rank ?? scenarioRank} of ${row.candidate_count ?? "-"} candidate hours`}
         />
         <DetailItem
           label="Price rank"
-          value={`${row.predicted_price_rank} of ${row.candidate_count} candidate hours`}
+          value={`${priceRank} of ${row.candidate_count ?? "-"} candidate hours`}
         />
+        {row.scenario && (
+          <DetailItem
+            label="Scenario weights"
+            value={`${Math.round((row.scenario_carbon_weight ?? 0) * 100)}% carbon / ${Math.round((row.scenario_price_weight ?? 0) * 100)}% price`}
+          />
+        )}
+        {row.predicted_scenario_score != null && (
+          <DetailItem
+            label="Scenario score"
+            value={formatFixed(row.predicted_scenario_score)}
+          />
+        )}
         <DetailItem
           label="Carbon saving vs run now"
-          value={`${row.carbon_savings_vs_run_now_g_co2e_per_kwh.toFixed(2)} gCO2e/kWh`}
+          value={`${formatFixed(row.carbon_savings_vs_run_now_g_co2e_per_kwh)} gCO2e/kWh`}
         />
-        <DetailItem
-          label="Cost saving vs run now"
-          value={`${row.cost_savings_vs_run_now_eur_mwh.toFixed(2)} EUR/MWh`}
-        />
-        <DetailItem
-          label="Historical top-5 hit rate"
-          value={`${Math.round((row.empirical_top_n_hit_rate ?? 0) * 100)}%`}
-        />
-        <DetailItem
-          label="Expected carbon regret"
-          value={`${(row.expected_carbon_regret_g_co2e_per_kwh ?? 0).toFixed(2)} gCO2e/kWh`}
-        />
-        <DetailItem
-          label="Confidence calibration"
-          value={`${titleCase(row.heuristic_confidence_level)} raw -> ${titleCase(row.confidence_level)} calibrated`}
-        />
+        {row.cost_savings_vs_run_now_eur_mwh != null && (
+          <DetailItem
+            label="Cost saving vs run now"
+            value={`${formatFixed(row.cost_savings_vs_run_now_eur_mwh)} EUR/MWh`}
+          />
+        )}
+        {row.empirical_top_n_hit_rate != null && (
+          <DetailItem
+            label="Historical top-5 hit rate"
+            value={`${Math.round(row.empirical_top_n_hit_rate * 100)}%`}
+          />
+        )}
+        {row.expected_carbon_regret_g_co2e_per_kwh != null && (
+          <DetailItem
+            label="Expected carbon regret"
+            value={`${formatFixed(row.expected_carbon_regret_g_co2e_per_kwh)} gCO2e/kWh`}
+          />
+        )}
+        {row.heuristic_confidence_level && row.confidence_level && (
+          <DetailItem
+            label="Confidence calibration"
+            value={`${titleCase(row.heuristic_confidence_level)} raw -> ${titleCase(row.confidence_level)} calibrated`}
+          />
+        )}
       </div>
     </details>
   );
@@ -430,6 +509,14 @@ function DirectionBadge({ value }) {
 }
 
 function ConfidenceBadge({ level, score }) {
+  if (score == null || !level) {
+    return (
+      <span className="confidence-badge unavailable">
+        <Activity size={14} />
+        Scenario
+      </span>
+    );
+  }
   return (
     <span className={`confidence-badge ${level}`}>
       <Activity size={14} />
@@ -471,6 +558,18 @@ function healthStatusClass(value) {
   return "unknown";
 }
 
+function monitorStatusClass(summary) {
+  if (summary?.stale) return "warn";
+  if (summary?.retraining_recommended) return "fail";
+  return healthStatusClass(summary?.status);
+}
+
+function formatMonitorStatus(summary) {
+  if (summary?.stale) return "Monitor stale";
+  if (summary?.retraining_recommended) return "Retraining recommended";
+  return formatHealthStatus(summary?.status);
+}
+
 function shortModel(value) {
   return value
     .replace("hist_gradient_boosting", "HGB")
@@ -485,11 +584,21 @@ function formatScenario(value) {
   return value.split("_").map(titleCase).join(" ");
 }
 
+function formatReason(value) {
+  if (!value) return "";
+  return value.split("_").map(titleCase).join(" ");
+}
+
 function formatNumber(value) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return "-";
   return new Intl.NumberFormat("en-GB", {
     maximumFractionDigits: 2,
   }).format(Number(value));
+}
+
+function formatFixed(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "-";
+  return Number(value).toFixed(2);
 }
 
 function titleCase(value) {

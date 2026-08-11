@@ -31,6 +31,7 @@ from src.optimization.workload_shift import (
     add_recommendation_confidence,
     apply_confidence_calibration,
     apply_saved_ranking_model_overlay,
+    build_scenario_rerankings,
     build_top_workload_recommendations,
     build_workload_decision_rankings,
     load_confidence_calibration,
@@ -41,6 +42,7 @@ FEATURES_PATH = ROOT / "data/processed/modeling_price_features.csv"
 FUTURE_WEATHER_PATH = ROOT / "data/processed/future_weather_forecast.csv"
 OUTPUT_PATH = ROOT / "reports/recommendations/future_champion_workload_recommendations.csv"
 RANKING_OUTPUT_PATH = ROOT / "reports/rankings/future_workload_decision_rankings.csv"
+SCENARIO_OUTPUT_PATH = ROOT / "reports/scenarios/future_workload_scenario_recommendations.csv"
 METADATA_OUTPUT_PATH = ROOT / "reports/metrics/future_recommendation_metadata.json"
 EMISSION_FACTORS_PATH = ROOT / "config/emission_factors.yaml"
 OPERATIONAL_RECOMMENDATION_HISTORY_PATH = (
@@ -56,6 +58,7 @@ class FutureRecommendationSummary:
     generated_at_utc: str
     horizon_hours: int
     recommendation_rows: int
+    scenario_recommendation_rows: int
     first_decision_group: str | None
     last_decision_group: str | None
 
@@ -64,6 +67,7 @@ def build_future_recommendations(
     horizon_hours: int = 24,
     output_path: str | Path = OUTPUT_PATH,
     ranking_output_path: str | Path = RANKING_OUTPUT_PATH,
+    scenario_output_path: str | Path = SCENARIO_OUTPUT_PATH,
     metadata_output_path: str | Path = METADATA_OUTPUT_PATH,
     as_of_utc: str | pd.Timestamp | None = None,
 ) -> FutureRecommendationSummary:
@@ -85,15 +89,19 @@ def build_future_recommendations(
         recommendations,
         load_confidence_calibration(),
     )
+    scenario_recommendations, _ = build_scenario_rerankings(rankings, top_n=5)
     recommendations["is_future_recommendation"] = True
     rankings["is_future_recommendation"] = True
+    scenario_recommendations["is_future_recommendation"] = True
 
     write_csv(ranking_output_path, rankings)
     write_csv(output_path, recommendations)
+    write_csv(scenario_output_path, scenario_recommendations)
     summary = FutureRecommendationSummary(
         generated_at_utc=datetime.now(UTC).isoformat(),
         horizon_hours=horizon_hours,
         recommendation_rows=int(len(recommendations)),
+        scenario_recommendation_rows=int(len(scenario_recommendations)),
         first_decision_group=str(recommendations["decision_group"].min()) if not recommendations.empty else None,
         last_decision_group=str(recommendations["decision_group"].max()) if not recommendations.empty else None,
     )

@@ -25,6 +25,9 @@ def main() -> None:
     decision_metrics = read_json(ROOT / "reports/metrics/workload_decision_metrics.json")
     ranking_metrics = read_json(ROOT / "reports/metrics/ranking_specific_metrics.json")
     scenario_metrics = read_json(ROOT / "reports/metrics/scenario_reranking_metrics.json")
+    forecast_monitoring_path = ROOT / "reports/metrics/forecast_monitoring.json"
+    forecast_monitoring = read_json(forecast_monitoring_path)
+    forecast_monitoring_stale = is_forecast_monitoring_stale(forecast_monitoring_path)
     pipeline_health = build_pipeline_health(DEFAULT_OUTPUT_PATH)
     recommendations = read_csv(
         ROOT / "reports/recommendations/champion_workload_recommendations.csv"
@@ -32,26 +35,43 @@ def main() -> None:
     future_recommendations = read_csv(
         ROOT / "reports/recommendations/future_champion_workload_recommendations.csv"
     )
-    active_recommendations = future_recommendations if not future_recommendations.empty else recommendations
+    active_future_recommendations = filter_future_recommendations(future_recommendations)
+    active_recommendations = (
+        active_future_recommendations
+        if not active_future_recommendations.empty
+        else pd.DataFrame()
+    )
     scenario_recommendations = read_csv(
         ROOT / "reports/scenarios/workload_scenario_recommendations.csv"
     )
+    future_scenario_recommendations = read_csv(
+        ROOT / "reports/scenarios/future_workload_scenario_recommendations.csv"
+    )
+    active_future_scenario_recommendations = filter_future_recommendations(
+        future_scenario_recommendations
+    )
+    active_scenario_recommendations = (
+        active_future_scenario_recommendations
+        if not active_future_scenario_recommendations.empty
+        else pd.DataFrame()
+    )
 
     recommendation_rows = prepare_records(active_recommendations)
-    scenario_rows = prepare_records(
-        scenario_recommendations[
-            scenario_recommendations["model"] == champion.get("champion_model")
-        ]
-    )
+    scenario_rows = prepare_records(active_scenario_recommendations)
     payload = {
         "generated_from": {
             "champion_model_selection": "reports/metrics/champion_model_selection.json",
             "recommendations": (
                 "reports/recommendations/future_champion_workload_recommendations.csv"
-                if not future_recommendations.empty
+                if not active_future_recommendations.empty
                 else "reports/recommendations/champion_workload_recommendations.csv"
             ),
             "scenario_recommendations": "reports/scenarios/workload_scenario_recommendations.csv",
+            "future_scenario_recommendations": (
+                "reports/scenarios/future_workload_scenario_recommendations.csv"
+                if not active_future_scenario_recommendations.empty
+                else None
+            ),
         },
         "champion": {
             "model": champion.get("champion_model"),
@@ -62,6 +82,10 @@ def main() -> None:
         },
         "summary": {
             "pipeline_health": summarize_pipeline_health(pipeline_health),
+            "forecast_monitoring": summarize_forecast_monitoring(
+                forecast_monitoring,
+                stale=forecast_monitoring_stale,
+            ),
             "decision_metrics": decision_metrics.get("summary", []),
             "ranking_metrics": ranking_metrics.get("summary", []),
             "scenario_metrics": scenario_metrics.get("summary", []),
@@ -69,6 +93,17 @@ def main() -> None:
             if not active_recommendations.empty
             else 0,
             "recommendation_count": int(len(active_recommendations)),
+            "future_recommendation_file_rows": int(len(future_recommendations)),
+            "active_future_recommendation_count": int(len(active_future_recommendations)),
+            "future_scenario_file_rows": int(len(future_scenario_recommendations)),
+            "active_future_scenario_count": int(len(active_future_scenario_recommendations)),
+            "stale_future_recommendations": bool(
+                not future_recommendations.empty and active_future_recommendations.empty
+            ),
+            "stale_future_scenarios": bool(
+                not future_scenario_recommendations.empty
+                and active_future_scenario_recommendations.empty
+            ),
             "average_confidence_score": safe_float(
                 active_recommendations["confidence_score"].mean()
             )
@@ -81,11 +116,13 @@ def main() -> None:
             else None,
         },
         "pipeline_health": pipeline_health,
+        "forecast_monitoring": {
+            **forecast_monitoring,
+            "stale": forecast_monitoring_stale,
+        },
         "filters": {
-            "dates": sorted(active_recommendations["decision_group"].dropna().unique().tolist()),
-            "scenarios": sorted(
-                scenario_recommendations["scenario"].dropna().unique().tolist()
-            ),
+            "dates": safe_unique(active_recommendations, "decision_group"),
+            "scenarios": safe_unique(active_scenario_recommendations, "scenario"),
         },
         "recommendations": recommendation_rows,
         "scenario_recommendations": scenario_rows,
@@ -98,6 +135,8 @@ def main() -> None:
 
 def read_json(path: Path) -> dict[str, Any]:
     """Read a JSON file."""
+    if not path.exists():
+        return {}
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -106,6 +145,25 @@ def read_csv(path: Path) -> pd.DataFrame:
     if not path.exists():
         return pd.DataFrame()
     return pd.read_csv(path)
+
+
+def filter_future_recommendations(
+    frame: pd.DataFrame,
+    now: pd.Timestamp | None = None,
+) -> pd.DataFrame:
+    """Keep only operational recommendation rows at or after the current UTC hour."""
+    if frame.empty or "timestamp_utc" not in frame:
+        return frame.iloc[0:0].copy()
+    timestamps = pd.to_datetime(frame["timestamp_utc"], utc=True, errors="coerce")
+    current_hour = (now or pd.Timestamp.now(tz="UTC")).floor("h")
+    return frame.loc[timestamps >= current_hour].copy()
+
+
+def safe_unique(frame: pd.DataFrame, column: str) -> list[Any]:
+    """Return sorted unique non-null values when a column exists."""
+    if frame.empty or column not in frame:
+        return []
+    return sorted(frame[column].dropna().unique().tolist())
 
 
 def prepare_records(frame: pd.DataFrame) -> list[dict[str, Any]]:
@@ -138,6 +196,37 @@ def summarize_pipeline_health(report: dict[str, Any]) -> dict[str, Any]:
         "warning_count": report.get("warning_count", 0),
         "latest_data_timestamp_utc": max(latest_timestamps) if latest_timestamps else None,
     }
+
+
+def summarize_forecast_monitoring(report: dict[str, Any], stale: bool = False) -> dict[str, Any]:
+    """Return compact monitoring fields for dashboard status."""
+    return {
+        "status": "stale" if stale else report.get("status", "unknown"),
+        "generated_at_utc": report.get("generated_at_utc"),
+        "retraining_recommended": bool(report.get("retraining_recommended", False)) and not stale,
+        "stale": stale,
+        "reason_count": len(report.get("reasons", [])),
+        "warning_count": len(report.get("warnings", [])),
+        "latest_actual_timestamp_utc": report.get("latest_actual_timestamp_utc"),
+        "champion_model": report.get("champion_model"),
+    }
+
+
+def is_forecast_monitoring_stale(path: Path) -> bool:
+    """Return whether monitoring output is older than model-quality inputs."""
+    if not path.exists():
+        return False
+    watched_paths = [
+        ROOT / "reports/metrics/champion_model_selection.json",
+        ROOT / "reports/metrics/ranking_specific_metrics.json",
+        ROOT / "reports/metrics/carbon_forecast_metrics.json",
+        ROOT / "reports/rankings/workload_decision_rankings.csv",
+    ]
+    monitor_mtime = path.stat().st_mtime
+    return any(
+        watched_path.exists() and watched_path.stat().st_mtime > monitor_mtime
+        for watched_path in watched_paths
+    )
 
 
 if __name__ == "__main__":

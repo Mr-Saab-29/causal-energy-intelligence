@@ -48,6 +48,7 @@ class LocalIngestionSummary:
 def refresh_local_data(
     end_date: date | None = None,
     start_date: date | None = None,
+    lookback_days: int | None = None,
     dry_run: bool = False,
     include_prices: bool = True,
     include_mix: bool = True,
@@ -57,8 +58,11 @@ def refresh_local_data(
 ) -> LocalIngestionSummary:
     """Fetch missing local source data and rebuild modeling features."""
     target_end_date = end_date or datetime.now(UTC).date()
-    inferred_start_date = start_date or infer_refresh_start_date(
-        [PRICE_PATH, MIX_PATH, WEATHER_PATH]
+    inferred_start_date = resolve_refresh_start_date(
+        target_end_date=target_end_date,
+        explicit_start_date=start_date,
+        lookback_days=lookback_days,
+        source_paths=[PRICE_PATH, MIX_PATH, WEATHER_PATH],
     )
     if inferred_start_date > target_end_date:
         inferred_start_date = target_end_date
@@ -184,6 +188,23 @@ def infer_refresh_start_date(paths: list[Path]) -> date:
     if not valid_timestamps:
         return date(2023, 1, 1)
     return min(timestamp.date() for timestamp in valid_timestamps)
+
+
+def resolve_refresh_start_date(
+    target_end_date: date,
+    explicit_start_date: date | None,
+    lookback_days: int | None,
+    source_paths: list[Path],
+) -> date:
+    """Resolve refresh start date from explicit, inferred, and bounded lookback inputs."""
+    inferred_start_date = explicit_start_date or infer_refresh_start_date(source_paths)
+    if lookback_days is not None:
+        lookback_start = target_end_date - pd.Timedelta(days=max(lookback_days, 0))
+        lookback_start_date = (
+            lookback_start.date() if hasattr(lookback_start, "date") else lookback_start
+        )
+        inferred_start_date = max(inferred_start_date, lookback_start_date)
+    return inferred_start_date
 
 
 def latest_timestamp(path: Path) -> pd.Timestamp | None:
@@ -397,6 +418,12 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Refresh local France energy CSV data.")
     parser.add_argument("--start-date", default=None)
     parser.add_argument("--end-date", default=None)
+    parser.add_argument(
+        "--lookback-days",
+        type=int,
+        default=None,
+        help="Cap refresh start to a recent lookback window; useful for cloud scheduled runs.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--plan-only", action="store_true")
     parser.add_argument("--skip-prices", action="store_true")
@@ -412,6 +439,7 @@ def main(argv: list[str] | None = None) -> None:
         summary = refresh_local_data(
             start_date=parse_date(args.start_date),
             end_date=parse_date(args.end_date),
+            lookback_days=args.lookback_days,
             dry_run=args.dry_run,
             include_prices=not args.skip_prices,
             include_mix=not args.skip_mix,

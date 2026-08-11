@@ -10,6 +10,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import yaml
 
 from src.carbon.intensity import load_emission_factor_config
 from src.data.pipeline_health import DEFAULT_OUTPUT_PATH as PIPELINE_HEALTH_PATH
@@ -25,27 +26,26 @@ CHAMPION_PATH = ROOT / "reports/metrics/champion_model_selection.json"
 RANKING_METRICS_PATH = ROOT / "reports/metrics/ranking_specific_metrics.json"
 CARBON_METRICS_PATH = ROOT / "reports/metrics/carbon_forecast_metrics.json"
 EMISSION_FACTORS_PATH = ROOT / "config/emission_factors.yaml"
+MONITORING_THRESHOLDS_PATH = ROOT / "config/monitoring_thresholds.yaml"
 
 DEFAULT_RECENT_DAYS = 14
-DEFAULT_MIN_OPERATIONAL_ROWS = 12
-DEFAULT_DEGRADATION_RATIO = 1.25
-DEFAULT_TOP5_DROP_THRESHOLD = 0.15
-DEFAULT_MIN_PRICE_DIRECTION_ACCURACY = 0.50
-SOURCE_SMAPE_DEGRADATION_RATIO = 1.25
 SOURCE_TARGETS = ("nuclear", "gas", "coal", "oil", "wind", "solar", "hydro", "bioenergy")
 
 
 def build_forecast_monitoring_report(
     output_path: str | Path = DEFAULT_OUTPUT_PATH,
-    recent_days: int = DEFAULT_RECENT_DAYS,
+    recent_days: int | None = None,
+    thresholds_path: str | Path = MONITORING_THRESHOLDS_PATH,
 ) -> dict[str, Any]:
     """Build and persist forecast monitoring and retraining trigger report."""
+    thresholds = load_monitoring_thresholds(thresholds_path)
+    window_days = recent_days if recent_days is not None else int(thresholds["recent_window_days"])
     pipeline_health = load_optional_json(PIPELINE_HEALTH_PATH)
     champion = load_optional_json(CHAMPION_PATH)
     champion_model = champion.get("champion_model")
     features = load_features()
     latest_actual_timestamp = features[TIMESTAMP_COLUMN].max() if not features.empty else None
-    cutoff = latest_actual_timestamp - pd.Timedelta(days=recent_days) if latest_actual_timestamp is not None else None
+    cutoff = latest_actual_timestamp - pd.Timedelta(days=window_days) if latest_actual_timestamp is not None else None
 
     historical = monitor_historical_rankings(champion_model, cutoff)
     operational = monitor_operational_rankings(features, champion_model, cutoff)
@@ -57,6 +57,7 @@ def build_forecast_monitoring_report(
         operational=operational,
         source_drift=source_drift,
         references=references,
+        thresholds=thresholds,
     )
     report = {
         "generated_at_utc": datetime.now(UTC).isoformat(),
@@ -64,7 +65,8 @@ def build_forecast_monitoring_report(
         "retraining_recommended": trigger["retraining_recommended"],
         "reasons": trigger["reasons"],
         "warnings": trigger["warnings"],
-        "recent_window_days": recent_days,
+        "recent_window_days": window_days,
+        "thresholds": thresholds,
         "champion_model": champion_model,
         "latest_actual_timestamp_utc": latest_actual_timestamp.isoformat()
         if latest_actual_timestamp is not None
@@ -318,6 +320,7 @@ def evaluate_retraining_trigger(
     operational: dict[str, Any],
     source_drift: dict[str, Any],
     references: dict[str, Any],
+    thresholds: dict[str, float | int],
 ) -> dict[str, Any]:
     """Evaluate monitoring rules and return retraining recommendation status."""
     reasons: list[str] = []
@@ -326,32 +329,35 @@ def evaluate_retraining_trigger(
         reasons.append("pipeline_health_failed")
 
     if operational.get("available"):
-        compare_greater(
-            reasons,
-            "operational_carbon_mae_degraded",
-            operational.get("carbon_mae_g_co2e_per_kwh"),
-            references.get("carbon_intensity_mae_g_co2e_per_kwh"),
-            DEFAULT_DEGRADATION_RATIO,
-        )
-        compare_greater(
-            reasons,
-            "operational_carbon_regret_degraded",
-            operational.get("mean_carbon_regret_g_co2e_per_kwh"),
-            references.get("mean_carbon_regret_g_co2e_per_kwh"),
-            DEFAULT_DEGRADATION_RATIO,
-        )
-        compare_drop(
-            reasons,
-            "operational_top5_hit_rate_dropped",
-            operational.get("top_5_hit_rate"),
-            references.get("top_5_hit_rate"),
-            DEFAULT_TOP5_DROP_THRESHOLD,
-        )
-        if not meets_minimum(
-            operational.get("price_direction_accuracy"),
-            DEFAULT_MIN_PRICE_DIRECTION_ACCURACY,
-        ):
-            reasons.append("operational_price_direction_accuracy_below_50pct")
+        if int(operational.get("rows", 0)) < int(thresholds["min_operational_rows"]):
+            warnings.append("operational_settled_rows_below_minimum")
+        else:
+            compare_greater(
+                reasons,
+                "operational_carbon_mae_degraded",
+                operational.get("carbon_mae_g_co2e_per_kwh"),
+                references.get("carbon_intensity_mae_g_co2e_per_kwh"),
+                float(thresholds["degradation_ratio"]),
+            )
+            compare_greater(
+                reasons,
+                "operational_carbon_regret_degraded",
+                operational.get("mean_carbon_regret_g_co2e_per_kwh"),
+                references.get("mean_carbon_regret_g_co2e_per_kwh"),
+                float(thresholds["degradation_ratio"]),
+            )
+            compare_drop(
+                reasons,
+                "operational_top5_hit_rate_dropped",
+                operational.get("top_5_hit_rate"),
+                references.get("top_5_hit_rate"),
+                float(thresholds["top5_drop_threshold"]),
+            )
+            if not meets_minimum(
+                operational.get("price_direction_accuracy"),
+                float(thresholds["min_price_direction_accuracy"]),
+            ):
+                reasons.append("operational_price_direction_accuracy_below_50pct")
     else:
         warnings.append(str(operational.get("reason", "operational monitoring unavailable")))
 
@@ -361,14 +367,14 @@ def evaluate_retraining_trigger(
             "historical_recent_carbon_regret_degraded",
             historical.get("mean_carbon_regret_g_co2e_per_kwh"),
             references.get("mean_carbon_regret_g_co2e_per_kwh"),
-            DEFAULT_DEGRADATION_RATIO,
+            float(thresholds["degradation_ratio"]),
         )
         compare_drop(
             reasons,
             "historical_recent_top5_hit_rate_dropped",
             historical.get("top_5_hit_rate"),
             references.get("top_5_hit_rate"),
-            DEFAULT_TOP5_DROP_THRESHOLD,
+            float(thresholds["top5_drop_threshold"]),
         )
 
     if source_drift.get("available"):
@@ -377,7 +383,7 @@ def evaluate_retraining_trigger(
             "source_generation_smape_degraded",
             source_drift.get("recent_smape"),
             source_drift.get("reference_smape"),
-            SOURCE_SMAPE_DEGRADATION_RATIO,
+            float(thresholds["source_smape_degradation_ratio"]),
         )
 
     return {
@@ -504,6 +510,23 @@ def load_optional_json(path: str | Path) -> dict[str, Any]:
     return json.loads(json_path.read_text(encoding="utf-8"))
 
 
+def load_monitoring_thresholds(path: str | Path = MONITORING_THRESHOLDS_PATH) -> dict[str, float | int]:
+    """Load monitoring thresholds with defaults for missing keys."""
+    defaults: dict[str, float | int] = {
+        "recent_window_days": DEFAULT_RECENT_DAYS,
+        "min_operational_rows": 12,
+        "degradation_ratio": 1.25,
+        "top5_drop_threshold": 0.15,
+        "min_price_direction_accuracy": 0.50,
+        "source_smape_degradation_ratio": 1.25,
+    }
+    threshold_path = Path(path)
+    if not threshold_path.exists():
+        return defaults
+    loaded = yaml.safe_load(threshold_path.read_text(encoding="utf-8")) or {}
+    return {**defaults, **loaded}
+
+
 def write_json(path: str | Path, payload: dict[str, Any]) -> None:
     """Write JSON output with parent directories."""
     output = Path(path)
@@ -514,12 +537,14 @@ def write_json(path: str | Path, payload: dict[str, Any]) -> None:
 def main(argv: list[str] | None = None) -> None:
     """Run forecast monitoring from the command line."""
     parser = argparse.ArgumentParser(description="Monitor forecast quality and drift.")
-    parser.add_argument("--recent-days", type=int, default=DEFAULT_RECENT_DAYS)
+    parser.add_argument("--recent-days", type=int, default=None)
+    parser.add_argument("--thresholds-path", default=str(MONITORING_THRESHOLDS_PATH))
     parser.add_argument("--output-path", default=str(DEFAULT_OUTPUT_PATH))
     args = parser.parse_args(argv)
     report = build_forecast_monitoring_report(
         output_path=args.output_path,
         recent_days=args.recent_days,
+        thresholds_path=args.thresholds_path,
     )
     print(
         json.dumps(

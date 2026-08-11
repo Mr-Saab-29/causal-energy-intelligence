@@ -34,7 +34,7 @@ def ingest_latest_source_data(context) -> dict[str, Any]:
 @asset(group_name="daily_refresh", deps=[ingest_latest_source_data])
 def source_data_snapshot(context) -> dict[str, Any]:
     """Validate the source files currently used by the static MVP refresh."""
-    report = build_pipeline_health(DEFAULT_OUTPUT_PATH)
+    report = build_pipeline_health(DEFAULT_OUTPUT_PATH, include_future=False)
 
     context.add_output_metadata(
         {
@@ -65,21 +65,6 @@ def quick_recommendation_artifacts(context) -> dict[str, Any]:
     return {"command": "make forecast-decision", "stdout_tail": result[-2_000:]}
 
 
-@asset(group_name="monitoring", deps=[source_data_snapshot])
-def forecast_monitoring_report(context) -> dict[str, Any]:
-    """Compare settled forecasts with actuals and flag retraining needs."""
-    report = build_forecast_monitoring_report(FORECAST_MONITOR_OUTPUT_PATH)
-    context.add_output_metadata(
-        {
-            "status": report["status"],
-            "retraining_recommended": report["retraining_recommended"],
-            "reason_count": len(report["reasons"]),
-            "forecast_monitoring": MetadataValue.path(str(FORECAST_MONITOR_OUTPUT_PATH)),
-        }
-    )
-    return report
-
-
 @asset(group_name="daily_refresh", deps=[clean_hour_forecast_artifacts])
 def future_exogenous_data(context) -> dict[str, Any]:
     """Fetch future exogenous inputs for operational recommendations."""
@@ -108,6 +93,22 @@ def quick_future_exogenous_data(context) -> dict[str, Any]:
         }
     )
     return {"command": "make ingest-future", "stdout_tail": result[-2_000:]}
+
+
+@asset(group_name="monitoring", deps=[quick_future_exogenous_data])
+def forecast_monitoring_report(context) -> dict[str, Any]:
+    """Compare settled forecasts with actuals and flag retraining needs."""
+    build_pipeline_health(DEFAULT_OUTPUT_PATH, include_future=True)
+    report = build_forecast_monitoring_report(FORECAST_MONITOR_OUTPUT_PATH)
+    context.add_output_metadata(
+        {
+            "status": report["status"],
+            "retraining_recommended": report["retraining_recommended"],
+            "reason_count": len(report["reasons"]),
+            "forecast_monitoring": MetadataValue.path(str(FORECAST_MONITOR_OUTPUT_PATH)),
+        }
+    )
+    return report
 
 
 @asset(group_name="daily_refresh", deps=[future_exogenous_data])
@@ -226,6 +227,7 @@ ingestion_monitor_refresh = define_asset_job(
     selection=[
         "ingest_latest_source_data",
         "source_data_snapshot",
+        "quick_future_exogenous_data",
         "forecast_monitoring_report",
     ],
 )

@@ -1,18 +1,20 @@
 PYTHON ?= .venv/bin/python
 DAGSTER ?= .venv/bin/dagster
 
-.PHONY: help ingest-latest ingest-plan ingest-repair ingest-future ingest-monitor forecast-monitor future-recommendations operational-refresh train-all forecast-all quick-refresh daily-local-refresh forecast-price forecast-ranking forecast-decision forecast-recommendations forecast-scenarios forecast-decision-example forecast-consumption forecast-production forecast-supply-demand forecast-carbon pipeline-health pipeline-health-allow-stale dashboard-data frontend-install frontend-dev frontend-build mlflow-ui dagster-dev docker-build docker-up docker-down docker-observability
+.PHONY: help ingest-latest ingest-latest-cloud ingest-plan ingest-repair ingest-future ingest-monitor ingest-monitor-cloud forecast-monitor future-recommendations operational-refresh train-all forecast-all forecast-all-candidate forecast-all-force quick-refresh daily-local-refresh forecast-price forecast-ranking forecast-decision forecast-recommendations forecast-scenarios forecast-decision-example forecast-consumption forecast-production forecast-supply-demand forecast-carbon pipeline-health pipeline-health-allow-stale dashboard-data frontend-install frontend-dev frontend-build mlflow-ui dagster-dev docker-build docker-up docker-down docker-observability
 
 help:
 	@echo "Forecast training targets:"
 	@echo "  make ingest-plan             Show local ingestion date range without API calls"
 	@echo "  make ingest-repair           Repair local CSV timestamps and rebuild features"
 	@echo "  make ingest-latest           Fetch missing source data and rebuild local features"
+	@echo "  make ingest-latest-cloud     Fetch bounded recent source data for scheduled cloud runs"
 	@echo "  make ingest-monitor          Ingest latest data and monitor forecast drift"
+	@echo "  make ingest-monitor-cloud    Bounded cloud ingestion, future weather, health, and monitor"
 	@echo "  make ingest-future           Fetch next-24h future exogenous weather"
 	@echo "  make forecast-monitor        Build reports/metrics/forecast_monitoring.json"
 	@echo "  make future-recommendations  Build next-24h operational recommendations"
-	@echo "  make operational-refresh     Build future recommendations and dashboard"
+	@echo "  make operational-refresh     Build future recommendations, monitor, and dashboard"
 	@echo "  make forecast-consumption    Train/evaluate consumption baselines only"
 	@echo "  make forecast-production     Train/evaluate total + source production baselines"
 	@echo "  make forecast-carbon         Calculate carbon outputs from saved source forecasts"
@@ -24,8 +26,9 @@ help:
 	@echo "  make forecast-scenarios      Export clean-hour scenario rerankings"
 	@echo "  make forecast-decision-example  Example constrained 3-hour workload ranking"
 	@echo "  make train-all               Retrain historical forecasts, carbon accounting, and rankings"
-	@echo "  make forecast-all            Retrain everything, build future recommendations, and dashboard"
-	@echo "  make quick-refresh           Rebuild recommendations, dashboard data, and frontend"
+	@echo "  make forecast-all            Gated retrain; promote only if candidate beats incumbent"
+	@echo "  make forecast-all-force      Retrain everything without incumbent promotion gate"
+	@echo "  make quick-refresh           Rebuild recommendations, monitor, dashboard data, and frontend"
 	@echo "  make daily-local-refresh     Ingest latest data, refresh recommendations, and build frontend"
 	@echo "  make pipeline-health         Build reports/metrics/pipeline_health.json"
 	@echo "  make dashboard-data          Build frontend/public/data/dashboard.json"
@@ -41,10 +44,15 @@ ingest-plan:
 ingest-latest:
 	$(PYTHON) -m src.data.local_ingest
 
+ingest-latest-cloud:
+	$(PYTHON) -m src.data.local_ingest --lookback-days 45
+
 ingest-repair:
 	$(PYTHON) -m src.data.local_ingest --repair-only
 
-ingest-monitor: ingest-latest pipeline-health forecast-monitor
+ingest-monitor: ingest-latest ingest-future pipeline-health forecast-monitor
+
+ingest-monitor-cloud: ingest-latest-cloud ingest-future pipeline-health forecast-monitor
 
 ingest-future:
 	$(PYTHON) -m src.data.future_exogenous --horizon-hours 24
@@ -55,17 +63,24 @@ forecast-monitor:
 future-recommendations:
 	$(PYTHON) -m src.models.future_recommendations --horizon-hours 24
 
-operational-refresh: ingest-future future-recommendations dashboard-data frontend-build
+operational-refresh: ingest-future future-recommendations pipeline-health forecast-monitor dashboard-data frontend-build
 
 train-all:
 	$(PYTHON) -m src.models.train_forecast --target all
 
-forecast-all: train-all ingest-future future-recommendations
+forecast-all:
+	$(PYTHON) scripts/gated_retrain.py -- make forecast-all-candidate
+
+forecast-all-candidate: train-all ingest-future future-recommendations pipeline-health forecast-monitor
 	$(PYTHON) scripts/build_dashboard_data.py
 	npm --prefix frontend run build
 
+forecast-all-force: forecast-all-candidate
+
 quick-refresh:
 	$(PYTHON) -m src.models.train_forecast --target decision
+	$(PYTHON) -m src.data.pipeline_health
+	$(PYTHON) -m src.monitoring.forecast_monitor
 	$(PYTHON) scripts/build_dashboard_data.py
 	npm --prefix frontend run build
 

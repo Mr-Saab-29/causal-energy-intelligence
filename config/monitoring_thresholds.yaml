@@ -1,0 +1,6 @@
+recent_window_days: 14
+min_operational_rows: 12
+degradation_ratio: 1.25
+top5_drop_threshold: 0.15
+min_price_direction_accuracy: 0.50
+source_smape_degradation_ratio: 1.25
