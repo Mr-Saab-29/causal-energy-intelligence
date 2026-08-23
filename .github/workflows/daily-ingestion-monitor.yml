@@ -13,6 +13,7 @@ jobs:
     timeout-minutes: 60
 
     env:
+      PYTHON: python
       PRICE_SOURCE: energy_charts
       ENERGY_CHARTS_BIDDING_ZONE: FR
       FRANCE_START_DATE: "2023-01-01"
@@ -61,9 +62,21 @@ jobs:
         if: steps.schedule_guard.outputs.should_run == 'true'
         run: python -m pip install -r requirements.txt
 
-      - name: Run ingestion and monitoring
+      - name: Ingest latest historical data
         if: steps.schedule_guard.outputs.should_run == 'true'
-        run: make ingest-monitor-cloud
+        run: make ingest-latest-cloud
+
+      - name: Ingest future exogenous data
+        if: steps.schedule_guard.outputs.should_run == 'true'
+        run: make ingest-future
+
+      - name: Build pipeline health report
+        if: steps.schedule_guard.outputs.should_run == 'true'
+        run: make pipeline-health
+
+      - name: Build forecast monitoring report
+        if: steps.schedule_guard.outputs.should_run == 'true'
+        run: make forecast-monitor
 
       - name: Upload monitoring reports
         if: always() && steps.schedule_guard.outputs.should_run == 'true'
