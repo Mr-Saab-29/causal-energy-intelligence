@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from scripts.gated_retrain import evaluate_promotion
+import os
+
+from scripts.gated_retrain import evaluate_promotion, prune_snapshots
 
 
 def champion_payload(model: str, carbon_mae: float, carbon_regret: float) -> dict[str, object]:
@@ -42,3 +44,19 @@ def test_evaluate_promotion_rejects_worse_candidate() -> None:
 
     assert decision["promoted"] is False
     assert decision["promotion_score_vs_incumbent"] > 1
+
+
+def test_prune_snapshots_keeps_newest_directories(tmp_path) -> None:
+    old_snapshot = tmp_path / "old"
+    middle_snapshot = tmp_path / "middle"
+    new_snapshot = tmp_path / "new"
+    for offset, snapshot in enumerate([old_snapshot, middle_snapshot, new_snapshot]):
+        snapshot.mkdir()
+        timestamp = 1_700_000_000 + offset
+        os.utime(snapshot, (timestamp, timestamp))
+
+    prune_snapshots(tmp_path, keep=2)
+
+    assert not old_snapshot.exists()
+    assert middle_snapshot.exists()
+    assert new_snapshot.exists()

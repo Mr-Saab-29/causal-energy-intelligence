@@ -127,6 +127,7 @@ make forecast-decision
 make forecast-recommendations
 make forecast-scenarios
 make train-all
+make train-all-gated
 make forecast-all
 make forecast-all-force
 make operational-refresh
@@ -140,6 +141,7 @@ make dagster-dev
 Command intent:
 
 - `make train-all` retrains historical models and validation artifacts only.
+- `make train-all-gated` runs the historical retrain behind the incumbent promotion gate and is used by the Dagster full-refresh asset.
 - `make operational-refresh` uses current saved model artifacts to build next-24-hour future recommendations, future scenario recommendations, health/monitor reports, and the dashboard.
 - `make forecast-all` runs the gated full retrain and promotes the candidate only if it beats the incumbent. This is the default safe retraining command.
 - `make forecast-all-candidate` is the internal ungated candidate pipeline used by the promotion gate.

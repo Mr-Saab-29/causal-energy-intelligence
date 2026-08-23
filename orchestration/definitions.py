@@ -52,9 +52,9 @@ def source_data_snapshot(context) -> dict[str, Any]:
 @asset(group_name="daily_refresh", deps=[source_data_snapshot])
 def clean_hour_forecast_artifacts(context) -> dict[str, Any]:
     """Run the end-to-end clean-hour recommendation pipeline."""
-    result = run_command(["make", "train-all"])
+    result = run_command(["make", "train-all-gated"])
     context.add_output_metadata({"stdout_tail": MetadataValue.text(result[-2_000:])})
-    return {"command": "make train-all", "stdout_tail": result[-2_000:]}
+    return {"command": "make train-all-gated", "stdout_tail": result[-2_000:]}
 
 
 @asset(group_name="quick_refresh", deps=[source_data_snapshot])

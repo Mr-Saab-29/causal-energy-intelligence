@@ -61,6 +61,12 @@ def main(argv: list[str] | None = None) -> int:
         help="JSON path for the promotion decision report.",
     )
     parser.add_argument(
+        "--keep-snapshots",
+        type=int,
+        default=3,
+        help="Number of latest retrain snapshots to keep.",
+    )
+    parser.add_argument(
         "command",
         nargs=argparse.REMAINDER,
         help="Candidate retraining command. Prefix with -- before the command.",
@@ -88,6 +94,7 @@ def main(argv: list[str] | None = None) -> int:
             "stderr_tail": (command_result.stderr or "")[-4000:],
         }
         write_json(Path(args.decision_path), decision)
+        prune_snapshots(SNAPSHOT_ROOT, keep=args.keep_snapshots)
         print(json.dumps(decision, indent=2))
         return command_result.returncode
 
@@ -112,6 +119,7 @@ def main(argv: list[str] | None = None) -> int:
         decision["status"] = "candidate_promoted"
 
     write_json(Path(args.decision_path), decision)
+    prune_snapshots(SNAPSHOT_ROOT, keep=args.keep_snapshots)
     print(json.dumps(decision, indent=2))
     return 0
 
@@ -158,6 +166,19 @@ def restore_snapshot(entries: list[SnapshotEntry]) -> None:
             shutil.copytree(entry.snapshot, entry.source)
         else:
             shutil.copy2(entry.snapshot, entry.source)
+
+
+def prune_snapshots(snapshot_root: Path, keep: int) -> None:
+    """Keep only the newest retrain snapshots."""
+    if keep < 1 or not snapshot_root.exists():
+        return
+    snapshots = sorted(
+        (path for path in snapshot_root.iterdir() if path.is_dir()),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    for snapshot in snapshots[keep:]:
+        shutil.rmtree(snapshot)
 
 
 def run_command(command: list[str]) -> subprocess.CompletedProcess[str]:

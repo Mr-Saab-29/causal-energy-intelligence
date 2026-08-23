@@ -1,13 +1,50 @@
 .git/
+.github/
+
+# Python environments and caches
 .venv/
+venv/
+env/
 __pycache__/
+**/__pycache__/
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
+*.py[cod]
+*.pyo
+
+# Local environment and OS/editor files
+.env
+.env.*
+.DS_Store
+*.swp
+*.swo
+*.tmp
+*.log
+*.jsonl
+
+# Local app/runtime state
+.dagster/
+.mlflow/
+mlruns/
+mlflow.db
+.data/
+.tmp/
+
+# Data and generated modeling artifacts
+data/
+reports/
+models/*.joblib
+models/*.pkl
+models/*.pickle
+
+# Frontend generated/dependency folders
 frontend/node_modules/
 frontend/dist/
-mlruns/
-.mlflow/
-models/*.joblib
-*.pyc
-.DS_Store
-.env
+frontend/public/data/
+
+# Local generated scratch files
+codex_session*.pdf
+codex_session_to_pdf.py
+*.tmp.yml
+*.tmp.yaml

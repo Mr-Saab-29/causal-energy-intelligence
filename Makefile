@@ -1,7 +1,7 @@
 PYTHON ?= .venv/bin/python
 DAGSTER ?= .venv/bin/dagster
 
-.PHONY: help ingest-latest ingest-latest-cloud ingest-plan ingest-repair ingest-future ingest-monitor ingest-monitor-cloud forecast-monitor future-recommendations operational-refresh train-all forecast-all forecast-all-candidate forecast-all-force quick-refresh daily-local-refresh forecast-price forecast-ranking forecast-decision forecast-recommendations forecast-scenarios forecast-decision-example forecast-consumption forecast-production forecast-supply-demand forecast-carbon pipeline-health pipeline-health-allow-stale dashboard-data frontend-install frontend-dev frontend-build mlflow-ui dagster-dev docker-build docker-up docker-down docker-observability
+.PHONY: help ingest-latest ingest-latest-cloud ingest-plan ingest-repair ingest-future ingest-monitor ingest-monitor-cloud forecast-monitor future-recommendations operational-refresh train-all train-all-gated forecast-all forecast-all-candidate forecast-all-force quick-refresh daily-local-refresh forecast-price forecast-ranking forecast-decision forecast-recommendations forecast-scenarios forecast-decision-example forecast-consumption forecast-production forecast-supply-demand forecast-carbon pipeline-health pipeline-health-allow-stale dashboard-data frontend-install frontend-dev frontend-build mlflow-ui dagster-dev docker-build docker-up docker-down docker-observability
 
 help:
 	@echo "Forecast training targets:"
@@ -26,6 +26,7 @@ help:
 	@echo "  make forecast-scenarios      Export clean-hour scenario rerankings"
 	@echo "  make forecast-decision-example  Example constrained 3-hour workload ranking"
 	@echo "  make train-all               Retrain historical forecasts, carbon accounting, and rankings"
+	@echo "  make train-all-gated         Gated historical retrain for orchestration"
 	@echo "  make forecast-all            Gated retrain; promote only if candidate beats incumbent"
 	@echo "  make forecast-all-force      Retrain everything without incumbent promotion gate"
 	@echo "  make quick-refresh           Rebuild recommendations, monitor, dashboard data, and frontend"
@@ -67,6 +68,9 @@ operational-refresh: ingest-future future-recommendations pipeline-health foreca
 
 train-all:
 	$(PYTHON) -m src.models.train_forecast --target all
+
+train-all-gated:
+	$(PYTHON) scripts/gated_retrain.py -- make train-all
 
 forecast-all:
 	$(PYTHON) scripts/gated_retrain.py -- make forecast-all-candidate
