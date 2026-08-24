@@ -1,8 +1,7 @@
-import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 const dashboardPath = resolve("public/data/dashboard.json");
-const samplePath = resolve("public/data/dashboard.sample.json");
 const fallbackDashboard = {
   data_state: {
     mode: "sample",
@@ -72,11 +71,7 @@ const fallbackDashboard = {
 
 if (!existsSync(dashboardPath)) {
   mkdirSync(dirname(dashboardPath), { recursive: true });
-  if (existsSync(samplePath)) {
-    copyFileSync(samplePath, dashboardPath);
-  } else {
-    writeFileSync(dashboardPath, `${JSON.stringify(fallbackDashboard, null, 2)}\n`);
-  }
+  writeFileSync(dashboardPath, `${JSON.stringify(fallbackDashboard, null, 2)}\n`);
   console.log("Using sample dashboard data for this build.");
 } else {
   console.log("Using existing dashboard data for this build.");
