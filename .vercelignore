@@ -9,7 +9,7 @@ mlflow.db
 .data/
 
 api/
-data/
+/data/
 db/
 docker/
 docs/
