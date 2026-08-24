@@ -1,25 +1,25 @@
-.venv/
-venv/
-env/
-.dagster/
-.mlflow/
-mlruns/
-mlflow.db
-.tmp/
-.data/
+/.venv/
+/venv/
+/env/
+/.dagster/
+/.mlflow/
+/mlruns/
+/mlflow.db
+/.tmp/
+/.data/
 
-api/
+/api/
 /data/
-db/
-docker/
-docs/
-k8s/
-models/
-notebooks/
-orchestration/
-reports/
-src/
-tests/
+/db/
+/docker/
+/docs/
+/k8s/
+/models/
+/notebooks/
+/orchestration/
+/reports/
+/src/
+/tests/
 
 *.joblib
 *.pkl
@@ -32,5 +32,5 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
-frontend/node_modules/
-frontend/dist/
+/frontend/node_modules/
+/frontend/dist/
