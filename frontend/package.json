@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "node scripts/ensure-dashboard-data.mjs",
     "build": "vite build",
     "preview": "vite preview"
   },

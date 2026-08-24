@@ -112,6 +112,34 @@ h2 {
   margin-bottom: 16px;
 }
 
+.deployment-state {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  border: 1px solid #e0c36f;
+  border-radius: 8px;
+  background: #fff8df;
+  color: #76580b;
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.deployment-state svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.deployment-state strong,
+.deployment-state p {
+  display: block;
+}
+
+.deployment-state p {
+  margin-top: 4px;
+  color: #6f654f;
+  font-size: 0.9rem;
+}
+
 .monitor-band {
   display: grid;
   grid-template-columns: minmax(190px, 1.1fr) repeat(3, minmax(150px, 1fr)) minmax(220px, 1.4fr);
@@ -243,6 +271,11 @@ select {
   background: #fffefa;
   color: #17201d;
   padding: 0 10px;
+}
+
+select:disabled {
+  color: #81786b;
+  cursor: not-allowed;
 }
 
 .kpi-grid {
@@ -458,11 +491,24 @@ select {
 }
 
 .chart-area {
+  position: relative;
   height: 280px;
 }
 
 .chart-area.compact {
   height: 232px;
+}
+
+.chart-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #69766f;
+  font-size: 0.9rem;
+  font-weight: 800;
+  text-align: center;
+  pointer-events: none;
 }
 
 .scenario-table {

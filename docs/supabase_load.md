@@ -12,7 +12,6 @@ Required tables:
 - `hourly_electricity_mix`
 - `weather_observations`
 - `future_weather_forecasts`
-- `modeling_price_features`
 
 ## 2. Configure Environment
 
@@ -90,7 +89,7 @@ Weather loading writes one region/date-window at a time. The current mapping use
 ## 6. Scheduled Transformed Refresh
 
 Use this for GitHub Actions or another daily scheduler. It fetches recent API data,
-transforms it in memory, upserts only canonical/model rows to Supabase, and exports
+transforms it in memory, upserts only canonical rows to Supabase, and exports
 the local modeling feature CSV needed by the current training code.
 
 ```bash
@@ -101,6 +100,14 @@ make ingest-future-cloud
 
 The cloud refresh does not store raw API responses and does not require cached
 `data/processed` source files.
+
+To control database size on the Supabase free tier, `make ingest-latest-cloud`
+loads national `FR` electricity mix by default. Regional electricity mix can be
+included manually with:
+
+```bash
+python -m src.data.supabase_ingest --include-regional-mix
+```
 
 ## 7. Full Historical Load
 

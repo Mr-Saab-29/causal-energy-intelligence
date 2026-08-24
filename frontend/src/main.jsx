@@ -76,6 +76,7 @@ function App() {
     if (!payload?.champion?.model) return null;
     return payload.champion.models.find((row) => row.model === payload.champion.model);
   }, [payload]);
+  const isSampleData = payload?.data_state?.mode === "sample";
 
   if (error) {
     return (
@@ -114,6 +115,7 @@ function App() {
   const activeRecommendationCount = payload.summary?.active_future_scenario_count
     ?? payload.summary?.active_future_recommendation_count
     ?? 0;
+  const hasRecommendationData = recommendations.length > 0;
 
   return (
     <main className="app-shell">
@@ -133,7 +135,14 @@ function App() {
         <label>
           <CalendarDays size={16} />
           <span>Decision date</span>
-          <select value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)}>
+          <select
+            value={selectedDate}
+            onChange={(event) => setSelectedDate(event.target.value)}
+            disabled={(payload.filters?.dates ?? []).length === 0}
+          >
+            {(payload.filters?.dates ?? []).length === 0 && (
+              <option value="">No dates available</option>
+            )}
             {payload.filters.dates.map((date) => (
               <option key={date} value={date}>
                 {date}
@@ -147,6 +156,7 @@ function App() {
           <select
             value={selectedScenario}
             onChange={(event) => setSelectedScenario(event.target.value)}
+            disabled={(payload.filters?.scenarios ?? []).length === 0}
           >
             {payload.filters.scenarios.map((scenario) => (
               <option key={scenario} value={scenario}>
@@ -156,6 +166,16 @@ function App() {
           </select>
         </label>
       </section>
+
+      {isSampleData && (
+        <section className="deployment-state">
+          <AlertTriangle size={20} />
+          <div>
+            <strong>Dashboard deployed without live recommendation data</strong>
+            <p>{payload.data_state.message}</p>
+          </div>
+        </section>
+      )}
 
       <section className={`health-band ${healthStatusClass(healthSummary?.status)}`}>
         <div className="health-title">
@@ -285,7 +305,9 @@ function App() {
             )}
             {!staleFutureRecommendations && !staleFutureScenarios && recommendations.length === 0 && (
               <div className="empty-state">
-                No future recommendation rows are available for the selected date.
+                {isSampleData
+                  ? "Live recommendation data has not been published for this deployment yet."
+                  : "No future recommendation rows are available for the selected date."}
               </div>
             )}
             {recommendations.map((row) => (
@@ -306,7 +328,7 @@ function App() {
           </div>
           <div className="chart-area">
             <ResponsiveContainer width="100%" height={260}>
-              <LineChart data={carbonChart} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
+              <LineChart data={hasRecommendationData ? carbonChart : []} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
                 <CartesianGrid stroke="#e7e3d8" strokeDasharray="4 4" />
                 <XAxis dataKey="hour" tickLine={false} axisLine={false} />
                 <YAxis tickLine={false} axisLine={false} width={42} />
@@ -329,6 +351,9 @@ function App() {
                 />
               </LineChart>
             </ResponsiveContainer>
+            {!hasRecommendationData && (
+              <div className="chart-empty">No recommendation data to chart yet.</div>
+            )}
           </div>
         </div>
       </section>
@@ -342,6 +367,11 @@ function App() {
             </div>
           </div>
           <div className="scenario-table">
+            {scenarioRecommendations.length === 0 && (
+              <div className="empty-state">
+                No scenario recommendations are available yet.
+              </div>
+            )}
             {scenarioRecommendations.map((row) => (
               <div className="scenario-row" key={`${row.scenario}-${row.recommendation_rank}`}>
                 <span className="rank">#{row.recommendation_rank}</span>
@@ -370,6 +400,9 @@ function App() {
                 <Bar dataKey="score" fill="#1f8a70" radius={[4, 4, 0, 0]} name="Champion score" />
               </BarChart>
             </ResponsiveContainer>
+            {modelScores.length === 0 && (
+              <div className="chart-empty">No model quality metrics have been published yet.</div>
+            )}
           </div>
           {championMetrics && (
             <div className="score-breakdown">

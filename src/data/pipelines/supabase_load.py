@@ -93,6 +93,7 @@ def load_france_electricity_mix_history(
     start_date: date = FRANCE_START_DATE,
     end_date: date = FRANCE_END_DATE,
     batch_size: int = 1_000,
+    include_regional: bool = True,
 ) -> int:
     """Fetch ODRE electricity mix window-by-window and upsert into Supabase."""
     total_rows = 0
@@ -114,6 +115,9 @@ def load_france_electricity_mix_history(
             scope="national",
             batch_size=batch_size,
         )
+
+        if not include_regional:
+            continue
 
         regional_checkpoint = _Checkpoint(
             source_name="odre",
@@ -138,6 +142,7 @@ def load_france_electricity_mix_realtime(
     start_date: date = MAY_JUNE_2026_START_DATE,
     end_date: date = MAY_JUNE_2026_END_DATE,
     batch_size: int = 1_000,
+    include_regional: bool = True,
 ) -> int:
     """Fetch ODRE real-time/provisional electricity mix and upsert into Supabase."""
     return _load_france_electricity_mix_from_datasets(
@@ -147,6 +152,7 @@ def load_france_electricity_mix_realtime(
         national_dataset=ODRE_NATIONAL_DATASET,
         regional_dataset=ODRE_REGIONAL_DATASET,
         batch_size=batch_size,
+        include_regional=include_regional,
     )
 
 
@@ -157,6 +163,7 @@ def _load_france_electricity_mix_from_datasets(
     national_dataset: str,
     regional_dataset: str,
     batch_size: int,
+    include_regional: bool = True,
 ) -> int:
     total_rows = 0
     from src.data.sources.odre import ODRE_WINDOW_DAYS
@@ -177,6 +184,9 @@ def _load_france_electricity_mix_from_datasets(
             scope="national",
             batch_size=batch_size,
         )
+
+        if not include_regional:
+            continue
 
         regional_checkpoint = _Checkpoint(
             source_name="odre",
@@ -248,6 +258,7 @@ def load_france_may_june_2026_refresh(
     database_url: str,
     include_prices: bool = True,
     include_electricity_mix: bool = True,
+    include_regional_mix: bool = True,
     include_weather: bool = True,
     batch_size: int = 1_000,
 ) -> LoadSummary:
@@ -269,6 +280,7 @@ def load_france_may_june_2026_refresh(
             MAY_JUNE_2026_START_DATE,
             MAY_JUNE_2026_END_DATE,
             batch_size,
+            include_regional=include_regional_mix,
         )
         if include_electricity_mix
         else 0
@@ -296,6 +308,7 @@ def load_france_history_to_supabase(
     end_date: date = FRANCE_END_DATE,
     include_prices: bool = True,
     include_electricity_mix: bool = True,
+    include_regional_mix: bool = True,
     include_weather: bool = True,
     batch_size: int = 1_000,
 ) -> LoadSummary:
@@ -307,7 +320,13 @@ def load_france_history_to_supabase(
         else 0
     )
     hourly_electricity_mix_rows = (
-        load_france_electricity_mix_history(engine, start_date, end_date, batch_size)
+        load_france_electricity_mix_history(
+            engine,
+            start_date,
+            end_date,
+            batch_size,
+            include_regional=include_regional_mix,
+        )
         if include_electricity_mix
         else 0
     )

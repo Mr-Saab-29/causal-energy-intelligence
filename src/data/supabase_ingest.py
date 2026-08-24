@@ -14,7 +14,7 @@ from src.data.pipelines.supabase_load import (
     load_france_price_history,
     load_france_weather_history,
 )
-from src.features.price_features import build_and_store_price_modeling_features
+from src.features.price_features import export_price_modeling_features
 
 
 @dataclass(frozen=True)
@@ -34,6 +34,7 @@ def refresh_supabase_model_data(
     start_date: date | None = None,
     end_date: date | None = None,
     lookback_days: int = 45,
+    include_regional_mix: bool = False,
 ) -> SupabaseIngestionSummary:
     """Fetch recent source data, load transformed rows, and export model features."""
     target_end_date = end_date or datetime.now(UTC).date()
@@ -56,6 +57,7 @@ def refresh_supabase_model_data(
         engine=engine,
         start_date=target_start_date,
         end_date=target_end_date,
+        include_regional=include_regional_mix,
     )
     _log(f"production/consumption mix complete rows={hourly_electricity_mix_rows}")
 
@@ -67,8 +69,8 @@ def refresh_supabase_model_data(
     )
     _log(f"weather complete rows={weather_rows}")
 
-    _log("building and storing modeling features")
-    features = build_and_store_price_modeling_features(engine)
+    _log("building local modeling feature cache")
+    features = export_price_modeling_features(engine)
     _log(f"modeling features complete rows={len(features)}")
 
     return SupabaseIngestionSummary(
@@ -97,6 +99,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--start-date", default=None)
     parser.add_argument("--end-date", default=None)
     parser.add_argument("--lookback-days", type=int, default=45)
+    parser.add_argument("--include-regional-mix", action="store_true")
     args = parser.parse_args(argv)
 
     if not args.database_url:
@@ -107,6 +110,7 @@ def main(argv: list[str] | None = None) -> None:
         start_date=parse_date(args.start_date),
         end_date=parse_date(args.end_date),
         lookback_days=args.lookback_days,
+        include_regional_mix=args.include_regional_mix,
     )
     print(json.dumps(asdict(summary), indent=2))
 

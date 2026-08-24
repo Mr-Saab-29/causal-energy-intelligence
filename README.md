@@ -70,6 +70,13 @@ Production build:
 make frontend-build
 ```
 
+Vercel deployment:
+
+- Set the Vercel project root directory to `frontend`.
+- Use build command `npm run build`.
+- Use output directory `dist`.
+- The build includes a sample dashboard data contract if `frontend/public/data/dashboard.json` has not been generated. That keeps the deployment healthy while ingestion and recommendation publishing are being wired in.
+
 Full retraining and dashboard refresh:
 
 ```bash
@@ -87,7 +94,7 @@ The platform now has a working France electricity decision-support baseline:
 
 - Canonical ETL contracts and Supabase/Postgres schemas are in place.
 - Local ingestion can refresh France day-ahead spot prices, electricity mix, production, consumption, and weather-derived modeling features through the latest available date.
-- Scheduled cloud ingestion now writes transformed canonical/model rows to Supabase instead of relying on persisted raw API payloads or cached source CSVs.
+- Scheduled cloud ingestion now writes transformed canonical rows to Supabase instead of relying on persisted raw API payloads or cached source CSVs. To stay inside the Supabase free tier, scheduled Supabase ingestion loads national `FR` electricity mix by default, skips regional mix rows, and exports the modeling feature CSV as a temporary runner artifact instead of storing derived feature rows in Supabase.
 - Future exogenous weather ingestion is available for the next 24 hours and can upsert transformed forecast rows to Supabase.
 - The modeling dataset is built at `data/processed/modeling_price_features.csv`.
 - Price models are treated as supporting signals only; the project is no longer framed around point spot-price prediction.

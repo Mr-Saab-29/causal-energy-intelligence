@@ -39,7 +39,7 @@ models/*.pickle
 
 # Generated reports and dashboard data
 reports/
-frontend/public/data/
+frontend/public/data/dashboard.json
 frontend/dist/
 
 # Frontend dependencies
