@@ -146,6 +146,7 @@ for _, feature_prefix in PRODUCTION_SOURCE_FEATURE_PREFIXES:
     MODELING_FEATURE_COLUMNS.extend(
         f"{feature_prefix}_{suffix}" for suffix in TARGET_LAG_FEATURE_SUFFIXES
     )
+MODELING_FEATURE_COLUMNS = list(dict.fromkeys(MODELING_FEATURE_COLUMNS))
 
 
 def fetch_base_price_frame(engine: Engine) -> pd.DataFrame:

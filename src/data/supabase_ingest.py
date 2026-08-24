@@ -40,24 +40,36 @@ def refresh_supabase_model_data(
     target_start_date = start_date or (
         target_end_date - timedelta(days=max(lookback_days, 0))
     )
+    _log(f"refresh window start={target_start_date} end={target_end_date}")
     engine = create_database_engine(database_url)
 
+    _log("loading energy-charts prices")
     electricity_price_rows = load_france_price_history(
         engine=engine,
         start_date=target_start_date,
         end_date=target_end_date,
     )
+    _log(f"prices complete rows={electricity_price_rows}")
+
+    _log("loading ODRE production/consumption mix")
     hourly_electricity_mix_rows = load_france_electricity_mix_realtime(
         engine=engine,
         start_date=target_start_date,
         end_date=target_end_date,
     )
+    _log(f"production/consumption mix complete rows={hourly_electricity_mix_rows}")
+
+    _log("loading Open-Meteo historical weather")
     weather_rows = load_france_weather_history(
         engine=engine,
         start_date=target_start_date,
         end_date=target_end_date,
     )
+    _log(f"weather complete rows={weather_rows}")
+
+    _log("building and storing modeling features")
     features = build_and_store_price_modeling_features(engine)
+    _log(f"modeling features complete rows={len(features)}")
 
     return SupabaseIngestionSummary(
         start_date=target_start_date.isoformat(),
@@ -72,6 +84,10 @@ def refresh_supabase_model_data(
 def parse_date(value: str | None) -> date | None:
     """Parse YYYY-MM-DD CLI values."""
     return date.fromisoformat(value) if value else None
+
+
+def _log(message: str) -> None:
+    print(f"[supabase-ingest] {message}", flush=True)
 
 
 def main(argv: list[str] | None = None) -> None:

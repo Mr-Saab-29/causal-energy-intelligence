@@ -148,7 +148,7 @@ Command intent:
 - `make forecast-all-candidate` is the internal ungated candidate pipeline used by the promotion gate.
 - `make forecast-all-force` retrains and overwrites artifacts without the incumbent promotion gate. Use only when you intentionally want to bypass the guard.
 - `make ingest-monitor` ingests latest API data, runs pipeline health, and writes the forecast monitoring report without retraining.
-- `make ingest-monitor-cloud` is the deployable scheduled variant. It requires `DATABASE_URL`, limits historical ingestion to a recent 45-day lookback, writes transformed rows to Supabase, refreshes future weather, and avoids expensive bootstrap backfills.
+- `make ingest-monitor-cloud` is the deployable scheduled variant. It requires `DATABASE_URL`, limits historical ingestion to a recent 14-day lookback, writes transformed rows to Supabase, refreshes future weather, and avoids expensive bootstrap backfills.
 - `make forecast-monitor` writes `reports/metrics/forecast_monitoring.json` from existing artifacts.
 - `make dagster-dev` starts the local Dagster UI. The main jobs are `ingestion_monitor_refresh`, `daily_clean_hour_refresh`, and `quick_recommendation_refresh`.
 - Dagster schedules `ingestion_monitor_refresh` for `02:00` Europe/Paris every day. This scheduled job does not retrain models.

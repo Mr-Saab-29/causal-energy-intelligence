@@ -83,7 +83,7 @@ The workflow runs:
 make ingest-monitor-cloud
 ```
 
-This cloud variant caps historical API ingestion to a recent 45-day lookback so
+This cloud variant caps historical API ingestion to a recent 14-day lookback so
 an empty GitHub Actions cache cannot accidentally trigger a full 2023-to-present
 backfill. Local `make ingest-monitor` still uses the normal incremental local
 refresh logic.

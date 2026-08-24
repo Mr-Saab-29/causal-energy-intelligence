@@ -47,7 +47,7 @@ ingest-latest:
 	$(PYTHON) -m src.data.local_ingest
 
 ingest-latest-cloud:
-	$(PYTHON) -m src.data.supabase_ingest --lookback-days 45
+	$(PYTHON) -m src.data.supabase_ingest --lookback-days 14
 
 ingest-repair:
 	$(PYTHON) -m src.data.local_ingest --repair-only

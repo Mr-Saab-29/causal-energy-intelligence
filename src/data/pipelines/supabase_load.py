@@ -69,16 +69,20 @@ def load_france_price_history(
                 window_end_date=window.end_date,
             )
             if _is_completed(engine, checkpoint):
+                _log_checkpoint("skip", checkpoint)
                 continue
 
+            _log_checkpoint("start", checkpoint)
             _start(engine, checkpoint)
             try:
                 observations = fetch_energy_charts_price_window(client=client, window=window)
                 rows = upsert_electricity_prices(engine, observations, batch_size=batch_size)
                 _complete(engine, checkpoint, rows)
                 total_rows += rows
+                _log_checkpoint("complete", checkpoint, rows)
             except Exception as exc:
                 _fail(engine, checkpoint, exc)
+                _log_checkpoint("failed", checkpoint)
                 raise
             time.sleep(ENERGY_CHARTS_MIN_INTERVAL_SECONDS)
     return total_rows
@@ -215,8 +219,10 @@ def load_france_weather_history(
                 window_end_date=window.end_date,
             )
             if _is_completed(engine, checkpoint):
+                _log_checkpoint("skip", checkpoint)
                 continue
 
+            _log_checkpoint("start", checkpoint)
             _start(engine, checkpoint)
             try:
                 observations = fetch_open_meteo_weather(
@@ -229,8 +235,10 @@ def load_france_weather_history(
                 rows = upsert_weather_observations(engine, observations, batch_size=batch_size)
                 _complete(engine, checkpoint, rows)
                 total_rows += rows
+                _log_checkpoint("complete", checkpoint, rows)
             except Exception as exc:
                 _fail(engine, checkpoint, exc)
+                _log_checkpoint("failed", checkpoint)
                 raise
             time.sleep(OPEN_METEO_MIN_INTERVAL_SECONDS)
     return total_rows
@@ -332,8 +340,10 @@ def _load_odre_mix_window(
     batch_size: int,
 ) -> int:
     if _is_completed(engine, checkpoint):
+        _log_checkpoint("skip", checkpoint)
         return 0
 
+    _log_checkpoint("start", checkpoint)
     _start(engine, checkpoint)
     try:
         records = fetch_odre_records(
@@ -344,9 +354,11 @@ def _load_odre_mix_window(
         observations = aggregate_odre_to_hourly_mwh(records, scope=scope)
         rows = upsert_hourly_electricity_mix(engine, observations, batch_size=batch_size)
         _complete(engine, checkpoint, rows)
+        _log_checkpoint("complete", checkpoint, rows)
         return rows
     except Exception as exc:
         _fail(engine, checkpoint, exc)
+        _log_checkpoint("failed", checkpoint)
         raise
 
 
@@ -364,3 +376,16 @@ def _complete(engine: Engine, checkpoint: _Checkpoint, rows_loaded: int) -> None
 
 def _fail(engine: Engine, checkpoint: _Checkpoint, exc: Exception) -> None:
     fail_ingestion_window(engine, **checkpoint.__dict__, error_message=repr(exc))
+
+
+def _log_checkpoint(status: str, checkpoint: _Checkpoint, rows: int | None = None) -> None:
+    row_text = f" rows={rows}" if rows is not None else ""
+    print(
+        "[supabase-ingest] "
+        f"{status} source={checkpoint.source_name} "
+        f"dataset={checkpoint.dataset_name} "
+        f"region={checkpoint.region} "
+        f"window={checkpoint.window_start_date}:{checkpoint.window_end_date}"
+        f"{row_text}",
+        flush=True,
+    )
