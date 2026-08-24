@@ -77,6 +77,20 @@ Vercel deployment:
 - Use output directory `dist`.
 - The build includes a sample dashboard data contract if `frontend/public/data/dashboard.json` has not been generated. That keeps the deployment healthy while ingestion and recommendation publishing are being wired in.
 
+Daily automated deployment uses GitHub Actions and Vercel CLI so generated
+dashboard data does not need to be committed. Add these GitHub repository
+secrets before enabling the scheduled deployment:
+
+- `SUPABASE_DATABASE_URL`
+- `VERCEL_TOKEN`
+- `VERCEL_ORG_ID`
+- `VERCEL_PROJECT_ID`
+
+The scheduled workflow ingests data, monitors drift, retrains through the gated
+promotion path only when needed or when model artifacts are missing, rebuilds
+future recommendations, writes `frontend/public/data/dashboard.json`, and
+deploys the prebuilt frontend to Vercel.
+
 Full retraining and dashboard refresh:
 
 ```bash

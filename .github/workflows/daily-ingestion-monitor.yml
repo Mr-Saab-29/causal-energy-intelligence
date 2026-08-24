@@ -10,7 +10,7 @@ on:
 jobs:
   ingest-monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
 
     env:
       PYTHON: python
@@ -20,6 +20,8 @@ jobs:
       MLFLOW_TRACKING_ENABLED: "false"
       ENTSOE_API_TOKEN: ${{ secrets.ENTSOE_API_TOKEN }}
       DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
     steps:
       - name: Checkout
@@ -46,6 +48,14 @@ jobs:
           python-version: "3.11"
           cache: "pip"
 
+      - name: Set up Node
+        if: steps.schedule_guard.outputs.should_run == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
       - name: Check Supabase configuration
         if: steps.schedule_guard.outputs.should_run == 'true'
         run: |
@@ -54,9 +64,38 @@ jobs:
             exit 1
           fi
 
+      - name: Check Vercel configuration
+        if: steps.schedule_guard.outputs.should_run == 'true'
+        run: |
+          if [ -z "$VERCEL_ORG_ID" ] || [ -z "$VERCEL_PROJECT_ID" ] || [ -z "${{ secrets.VERCEL_TOKEN }}" ]; then
+            echo "VERCEL_TOKEN, VERCEL_ORG_ID, and VERCEL_PROJECT_ID secrets are required."
+            exit 1
+          fi
+
       - name: Install dependencies
         if: steps.schedule_guard.outputs.should_run == 'true'
         run: python -m pip install -r requirements.txt
+
+      - name: Install frontend dependencies
+        if: steps.schedule_guard.outputs.should_run == 'true'
+        run: npm --prefix frontend ci
+
+      - name: Restore operational model state
+        if: steps.schedule_guard.outputs.should_run == 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            models
+            reports/metrics
+            reports/predictions
+            reports/rankings
+            reports/recommendations
+            reports/scenarios
+            reports/carbon
+            reports/monitoring
+          key: operational-model-state-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            operational-model-state-${{ runner.os }}-
 
       - name: Ingest latest historical data
         if: steps.schedule_guard.outputs.should_run == 'true'
@@ -74,6 +113,31 @@ jobs:
         if: steps.schedule_guard.outputs.should_run == 'true'
         run: make forecast-monitor
 
+      - name: Decide operational action
+        id: operational_action
+        if: steps.schedule_guard.outputs.should_run == 'true'
+        run: python scripts/decide_operational_action.py --github-output "$GITHUB_OUTPUT"
+
+      - name: Retrain champion models when needed
+        if: steps.schedule_guard.outputs.should_run == 'true' && steps.operational_action.outputs.retrain == 'true'
+        run: make forecast-all
+
+      - name: Build recommendations from current champion
+        if: steps.schedule_guard.outputs.should_run == 'true' && steps.operational_action.outputs.retrain != 'true'
+        run: |
+          make future-recommendations
+          make dashboard-data
+          make frontend-build
+
+      - name: Deploy dashboard to Vercel
+        if: steps.schedule_guard.outputs.should_run == 'true'
+        working-directory: frontend
+        run: |
+          npm install --global vercel@latest
+          vercel pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}"
+          vercel build --prod --token="${{ secrets.VERCEL_TOKEN }}"
+          vercel deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}"
+
       - name: Upload monitoring reports
         if: always() && steps.schedule_guard.outputs.should_run == 'true'
         uses: actions/upload-artifact@v4
@@ -82,4 +146,9 @@ jobs:
           path: |
             reports/metrics/pipeline_health.json
             reports/metrics/forecast_monitoring.json
+            reports/metrics/model_promotion_decision.json
+            reports/metrics/future_recommendation_metadata.json
+            reports/recommendations/future_champion_workload_recommendations.csv
+            reports/scenarios/future_workload_scenario_recommendations.csv
+            frontend/public/data/dashboard.json
           if-no-files-found: warn

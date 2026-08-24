@@ -88,22 +88,51 @@ an empty GitHub Actions cache cannot accidentally trigger a full 2023-to-present
 backfill. Local `make ingest-monitor` still uses the normal incremental local
 refresh logic.
 
-It restores and saves a cache for generated local state:
+After ingestion and monitoring, the GitHub Actions workflow decides whether to
+run a gated retrain:
 
-- `data/processed`
+- retrain when `reports/metrics/forecast_monitoring.json` has
+  `retraining_recommended = true`
+- retrain when required cached model artifacts are missing
+- otherwise reuse the current champion artifacts and only refresh
+  next-24-hour recommendations
+
+The workflow then builds `frontend/public/data/dashboard.json` and deploys the
+prebuilt `frontend/dist` output to Vercel with the Vercel CLI. This keeps
+generated dashboard data out of git while still publishing fresh recommendations
+after each successful scheduled run.
+
+Required GitHub repository secrets:
+
+- `SUPABASE_DATABASE_URL`
+- `VERCEL_TOKEN`
+- `VERCEL_ORG_ID`
+- `VERCEL_PROJECT_ID`
+
+It restores and saves a cache for operational model/report state:
+
+- `models`
+- `reports/metrics`
+- `reports/predictions`
+- `reports/rankings`
+- `reports/recommendations`
+- `reports/scenarios`
+- `reports/carbon`
 - `reports/monitoring`
-- `reports/metrics/pipeline_health.json`
-- `reports/metrics/forecast_monitoring.json`
 
-It uploads these reports as workflow artifacts:
+It uploads these operational outputs as workflow artifacts for inspection:
 
 - `reports/metrics/pipeline_health.json`
 - `reports/metrics/forecast_monitoring.json`
-- `data/processed/future_weather_forecast.csv`
+- `reports/metrics/model_promotion_decision.json`
+- `reports/metrics/future_recommendation_metadata.json`
+- `reports/recommendations/future_champion_workload_recommendations.csv`
+- `reports/scenarios/future_workload_scenario_recommendations.csv`
+- `frontend/public/data/dashboard.json`
 
-This workflow is intentionally ingestion/monitoring only. It does not run
-`make forecast-all` and does not retrain models. If the cache is empty on the
-first cloud run, it bootstraps only the bounded recent lookback window.
+If the cache is empty on the first cloud run, the workflow retrains because
+required model artifacts are missing. Later runs retrain only when monitoring
+recommends it.
 
 Monitoring trigger thresholds are configured in:
 
