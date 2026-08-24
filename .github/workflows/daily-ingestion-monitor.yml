@@ -52,7 +52,7 @@ jobs:
         if: steps.schedule_guard.outputs.should_run == 'true'
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
 
@@ -124,8 +124,11 @@ jobs:
 
       - name: Build recommendations from current champion
         if: steps.schedule_guard.outputs.should_run == 'true' && steps.operational_action.outputs.retrain != 'true'
+        run: make future-recommendations
+
+      - name: Build dashboard payload
+        if: steps.schedule_guard.outputs.should_run == 'true'
         run: |
-          make future-recommendations
           make dashboard-data
           make frontend-build
 
@@ -134,6 +137,9 @@ jobs:
         working-directory: frontend
         run: |
           npm install --global vercel@latest
+          rm -rf .vercel
+          mkdir -p .vercel
+          printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
           vercel pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}"
           vercel build --prod --token="${{ secrets.VERCEL_TOKEN }}"
           vercel deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}"
