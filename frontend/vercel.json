@@ -2,5 +2,10 @@
   "buildCommand": "npm run build",
   "installCommand": "npm ci",
   "outputDirectory": "dist",
-  "framework": "vite"
+  "framework": "vite",
+  "build": {
+    "env": {
+      "NODE_VERSION": "20"
+    }
+  }
 }
