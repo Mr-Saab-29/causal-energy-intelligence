@@ -24,8 +24,8 @@ External APIs / CSV sources
 
 ## Initial Components
 
-- **ETL:** scheduled ingestion and normalization.
-- **Raw storage:** raw API pages stored before transformation for lineage.
+- **ETL:** scheduled extraction, in-memory transformation, and transformed-only loading.
+- **Storage policy:** raw API payloads are not persisted; keep only canonical model-relevant rows and small metadata.
 - **Storage:** PostgreSQL-compatible database such as Supabase or Neon.
 - **Features:** time, weather, demand, price, generation mix, carbon intensity, and workload features.
 - **Models:** forecasting baseline, evaluation, and prediction utilities.

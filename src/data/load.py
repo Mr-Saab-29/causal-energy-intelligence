@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Iterable, Sequence
 from datetime import date
 from datetime import datetime
@@ -90,6 +89,12 @@ WEATHER_COLUMNS = [
     "ingestion_timestamp_utc",
 ]
 
+FUTURE_WEATHER_FORECAST_COLUMNS = [
+    *WEATHER_COLUMNS,
+    "forecast_generated_at_utc",
+    "forecast_horizon_hours",
+]
+
 CONFLICT_COLUMNS = ["source", "source_record_id"]
 
 
@@ -101,42 +106,6 @@ def load_energy_data(records: list[dict[str, object]]) -> int:
 def create_database_engine(database_url: str) -> Engine:
     """Create a SQLAlchemy engine for Supabase's Postgres connection string."""
     return create_engine(database_url, pool_pre_ping=True)
-
-
-def insert_raw_api_page(
-    engine: Engine,
-    source_name: str,
-    endpoint: str,
-    request_params: dict[str, object],
-    response_payload: dict[str, object] | list[object] | None,
-) -> None:
-    """Persist one raw API response page for lineage and reprocessing."""
-    statement = text(
-        """
-        insert into raw_api_pages (
-            source_name,
-            endpoint,
-            request_params,
-            response_payload
-        )
-        values (
-            :source_name,
-            :endpoint,
-            cast(:request_params as jsonb),
-            cast(:response_payload as jsonb)
-        )
-        """
-    )
-    with engine.begin() as connection:
-        connection.execute(
-            statement,
-            {
-                "source_name": source_name,
-                "endpoint": endpoint,
-                "request_params": json.dumps(request_params, default=str),
-                "response_payload": json.dumps(response_payload, default=str),
-            },
-        )
 
 
 def is_ingestion_window_completed(
@@ -375,6 +344,21 @@ def upsert_weather_observations(
     )
 
 
+def upsert_future_weather_forecasts(
+    engine: Engine,
+    rows: Sequence[dict[str, Any]],
+    batch_size: int = 1_000,
+) -> int:
+    """Upsert transformed future weather covariates into Supabase."""
+    return _upsert_rows(
+        engine=engine,
+        table_name="future_weather_forecasts",
+        columns=FUTURE_WEATHER_FORECAST_COLUMNS,
+        rows=rows,
+        batch_size=batch_size,
+    )
+
+
 def build_upsert_sql(table_name: str, columns: Sequence[str]) -> str:
     """Build a safe Postgres upsert statement for whitelisted identifiers."""
     _validate_identifier(table_name)
@@ -411,14 +395,39 @@ def _upsert_observations(
     if batch_size <= 0:
         raise ValueError("batch_size must be positive")
 
-    statement = text(build_upsert_sql(table_name, columns))
     rows = [_observation_to_row(observation, columns) for observation in observations]
+    return _upsert_rows(
+        engine=engine,
+        table_name=table_name,
+        columns=columns,
+        rows=rows,
+        batch_size=batch_size,
+    )
+
+
+def _upsert_rows(
+    engine: Engine,
+    table_name: str,
+    columns: Sequence[str],
+    rows: Sequence[dict[str, Any]],
+    batch_size: int,
+) -> int:
+    if not rows:
+        return 0
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive")
+
+    statement = text(build_upsert_sql(table_name, columns))
+    normalized_rows = [
+        {column: _to_database_value(row.get(column)) for column in columns}
+        for row in rows
+    ]
 
     with engine.begin() as connection:
-        for batch in _batched(rows, batch_size):
+        for batch in _batched(normalized_rows, batch_size):
             connection.execute(statement, batch)
 
-    return len(rows)
+    return len(normalized_rows)
 
 
 def _observation_to_row(observation: Any, columns: Sequence[str]) -> dict[str, Any]:

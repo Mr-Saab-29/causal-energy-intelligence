@@ -7,7 +7,7 @@ Clean-hour scheduling, decision ranking, and future causal analysis for carbon-a
 ```text
 External APIs / CSV sources
   -> Local ingestion + Dagster refresh skeleton
-  -> Supabase/Postgres or local processed files
+  -> Supabase/Postgres transformed tables or local processed files
   -> Feature Engineering
   -> Consumption, Production, Source Production Models
   -> Carbon Intensity Estimates
@@ -87,7 +87,8 @@ The platform now has a working France electricity decision-support baseline:
 
 - Canonical ETL contracts and Supabase/Postgres schemas are in place.
 - Local ingestion can refresh France day-ahead spot prices, electricity mix, production, consumption, and weather-derived modeling features through the latest available date.
-- Future exogenous weather ingestion is available for the next 24 hours.
+- Scheduled cloud ingestion now writes transformed canonical/model rows to Supabase instead of relying on persisted raw API payloads or cached source CSVs.
+- Future exogenous weather ingestion is available for the next 24 hours and can upsert transformed forecast rows to Supabase.
 - The modeling dataset is built at `data/processed/modeling_price_features.csv`.
 - Price models are treated as supporting signals only; the project is no longer framed around point spot-price prediction.
 - The primary decision output is a top-5 list of recommended clean workload start hours from the combined scheduling ranking.
@@ -147,11 +148,11 @@ Command intent:
 - `make forecast-all-candidate` is the internal ungated candidate pipeline used by the promotion gate.
 - `make forecast-all-force` retrains and overwrites artifacts without the incumbent promotion gate. Use only when you intentionally want to bypass the guard.
 - `make ingest-monitor` ingests latest API data, runs pipeline health, and writes the forecast monitoring report without retraining.
-- `make ingest-monitor-cloud` is the deployable scheduled variant. It limits historical ingestion to a recent 45-day lookback, refreshes future weather, and avoids expensive bootstrap backfills.
+- `make ingest-monitor-cloud` is the deployable scheduled variant. It requires `DATABASE_URL`, limits historical ingestion to a recent 45-day lookback, writes transformed rows to Supabase, refreshes future weather, and avoids expensive bootstrap backfills.
 - `make forecast-monitor` writes `reports/metrics/forecast_monitoring.json` from existing artifacts.
 - `make dagster-dev` starts the local Dagster UI. The main jobs are `ingestion_monitor_refresh`, `daily_clean_hour_refresh`, and `quick_recommendation_refresh`.
 - Dagster schedules `ingestion_monitor_refresh` for `02:00` Europe/Paris every day. This scheduled job does not retrain models.
-- GitHub Actions workflow `.github/workflows/daily-ingestion-monitor.yml` provides a deployable no-cost daily ingestion monitor. It runs `make ingest-monitor-cloud`, caches generated state, and uploads health/monitoring reports.
+- GitHub Actions workflow `.github/workflows/daily-ingestion-monitor.yml` provides a deployable no-cost daily ingestion monitor. It runs `make ingest-monitor-cloud` with the `SUPABASE_DATABASE_URL` secret and uploads health/monitoring reports.
 - Monitoring trigger thresholds live in `config/monitoring_thresholds.yaml`.
 
 Current key artifacts:
@@ -200,7 +201,7 @@ Status: in progress.
 
 ## Data Contracts
 
-Canonical contracts are defined in `src/data/contracts.py` and documented in `docs/data_contracts.md`. Apply the initial Supabase/Postgres schema from `db/schema.sql`.
+Canonical contracts are defined in `src/data/contracts.py` and documented in `docs/data_contracts.md`. Apply the Supabase/Postgres setup from `db/schema.sql`, `db/feature_views.sql`, and `db/modeling_features.sql`.
 
 Source-specific extraction notes are documented in `docs/data_sources.md`.
 

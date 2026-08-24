@@ -19,6 +19,7 @@ jobs:
       FRANCE_START_DATE: "2023-01-01"
       MLFLOW_TRACKING_ENABLED: "false"
       ENTSOE_API_TOKEN: ${{ secrets.ENTSOE_API_TOKEN }}
+      DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
 
     steps:
       - name: Checkout
@@ -45,18 +46,13 @@ jobs:
           python-version: "3.11"
           cache: "pip"
 
-      - name: Restore generated state cache
+      - name: Check Supabase configuration
         if: steps.schedule_guard.outputs.should_run == 'true'
-        uses: actions/cache@v4
-        with:
-          path: |
-            data/processed
-            reports/monitoring
-            reports/metrics/pipeline_health.json
-            reports/metrics/forecast_monitoring.json
-          key: ingestion-state-${{ runner.os }}-${{ github.run_id }}
-          restore-keys: |
-            ingestion-state-${{ runner.os }}-
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "SUPABASE_DATABASE_URL secret is required."
+            exit 1
+          fi
 
       - name: Install dependencies
         if: steps.schedule_guard.outputs.should_run == 'true'
@@ -68,7 +64,7 @@ jobs:
 
       - name: Ingest future exogenous data
         if: steps.schedule_guard.outputs.should_run == 'true'
-        run: make ingest-future
+        run: make ingest-future-cloud
 
       - name: Build pipeline health report
         if: steps.schedule_guard.outputs.should_run == 'true'
@@ -86,5 +82,4 @@ jobs:
           path: |
             reports/metrics/pipeline_health.json
             reports/metrics/forecast_monitoring.json
-            data/processed/future_weather_forecast.csv
           if-no-files-found: warn

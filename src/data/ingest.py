@@ -1,4 +1,4 @@
-"""Raw ingestion pipeline helpers."""
+"""Paginated ingestion helpers."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ from sqlalchemy.engine import Engine
 
 from src.data.api_client import PaginatedApiClient
 from src.data.contracts import ApiPageResult
-from src.data.load import insert_raw_api_page
 
 
 def ingest_paginated_endpoint(
@@ -17,20 +16,7 @@ def ingest_paginated_endpoint(
     endpoint: str,
     params: dict[str, object] | None = None,
 ) -> Iterator[ApiPageResult]:
-    """Fetch an endpoint page by page and persist each raw response."""
+    """Fetch an endpoint page by page without persisting raw payloads."""
+    _ = engine
     for page in client.fetch_pages(endpoint=endpoint, params=params):
-        request_params = {
-            "page_token": page.page_token,
-            "offset": page.offset,
-            "limit": page.limit,
-            **(params or {}),
-        }
-        insert_raw_api_page(
-            engine=engine,
-            source_name=page.source_name,
-            endpoint=page.endpoint,
-            request_params=request_params,
-            response_payload=page.raw_response,
-        )
         yield page
-

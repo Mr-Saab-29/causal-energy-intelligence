@@ -1,16 +1,6 @@
 create extension if not exists pgcrypto;
 
-create table if not exists raw_api_pages (
-    id uuid primary key default gen_random_uuid(),
-    source_name text not null,
-    endpoint text not null,
-    request_params jsonb not null default '{}'::jsonb,
-    response_payload jsonb,
-    ingested_at timestamptz not null default now()
-);
-
-create index if not exists idx_raw_api_pages_source_ingested_at
-    on raw_api_pages (source_name, ingested_at desc);
+drop table if exists raw_api_pages;
 
 create table if not exists ingestion_checkpoints (
     id uuid primary key default gen_random_uuid(),
@@ -177,6 +167,47 @@ create table if not exists weather_observations (
 
 create index if not exists idx_weather_observations_region_timestamp
     on weather_observations (region, timestamp_utc);
+
+create table if not exists future_weather_forecasts (
+    id uuid primary key default gen_random_uuid(),
+    source text not null,
+    source_record_id text,
+    region text not null,
+    timestamp_utc timestamptz not null,
+    granularity text not null,
+    temperature_c numeric,
+    apparent_temperature_c numeric,
+    relative_humidity_2m_pct numeric check (relative_humidity_2m_pct is null or relative_humidity_2m_pct between 0 and 100),
+    dew_point_2m_c numeric,
+    precipitation_mm numeric check (precipitation_mm is null or precipitation_mm >= 0),
+    rain_mm numeric check (rain_mm is null or rain_mm >= 0),
+    snowfall_cm numeric check (snowfall_cm is null or snowfall_cm >= 0),
+    cloud_cover_pct numeric check (cloud_cover_pct is null or cloud_cover_pct between 0 and 100),
+    cloud_cover_low_pct numeric check (cloud_cover_low_pct is null or cloud_cover_low_pct between 0 and 100),
+    cloud_cover_mid_pct numeric check (cloud_cover_mid_pct is null or cloud_cover_mid_pct between 0 and 100),
+    cloud_cover_high_pct numeric check (cloud_cover_high_pct is null or cloud_cover_high_pct between 0 and 100),
+    shortwave_radiation_wm2 numeric check (shortwave_radiation_wm2 is null or shortwave_radiation_wm2 >= 0),
+    direct_radiation_wm2 numeric check (direct_radiation_wm2 is null or direct_radiation_wm2 >= 0),
+    diffuse_radiation_wm2 numeric check (diffuse_radiation_wm2 is null or diffuse_radiation_wm2 >= 0),
+    wind_speed_mps numeric check (wind_speed_mps is null or wind_speed_mps >= 0),
+    wind_speed_80m_mps numeric check (wind_speed_80m_mps is null or wind_speed_80m_mps >= 0),
+    wind_direction_10m_deg numeric check (wind_direction_10m_deg is null or wind_direction_10m_deg between 0 and 360),
+    wind_direction_80m_deg numeric check (wind_direction_80m_deg is null or wind_direction_80m_deg between 0 and 360),
+    wind_gusts_10m_mps numeric check (wind_gusts_10m_mps is null or wind_gusts_10m_mps >= 0),
+    surface_pressure_hpa numeric check (surface_pressure_hpa is null or surface_pressure_hpa >= 0),
+    weather_code integer,
+    solar_irradiance_wm2 numeric check (solar_irradiance_wm2 is null or solar_irradiance_wm2 >= 0),
+    humidity_pct numeric check (humidity_pct is null or humidity_pct between 0 and 100),
+    ingestion_timestamp_utc timestamptz not null default now(),
+    forecast_generated_at_utc timestamptz not null,
+    forecast_horizon_hours integer not null check (forecast_horizon_hours > 0),
+    created_at timestamptz not null default now(),
+    unique (source, source_record_id),
+    unique (region, timestamp_utc, granularity, source)
+);
+
+create index if not exists idx_future_weather_forecasts_region_timestamp
+    on future_weather_forecasts (region, timestamp_utc);
 
 create table if not exists workload_windows (
     id uuid primary key default gen_random_uuid(),

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
@@ -11,6 +10,7 @@ import httpx
 
 from src.data.contracts import EnergySource, Granularity, WeatherObservation
 from src.data.date_windows import iter_date_windows
+from src.data.http_retry import get_with_retries
 from src.data.source_config import (
     OPEN_METEO_ARCHIVE_BASE_URL,
     OPEN_METEO_HISTORICAL_ENDPOINT,
@@ -84,19 +84,15 @@ def _get_open_meteo_payload(
         "wind_speed_unit": "ms",
         "precipitation_unit": "mm",
     }
-    for attempt in range(OPEN_METEO_MAX_RETRIES + 1):
-        response = client.get(OPEN_METEO_HISTORICAL_ENDPOINT, params=params)
-        if response.status_code not in OPEN_METEO_RETRY_STATUS_CODES:
-            response.raise_for_status()
-            return response.json()
-
-        retry_after = response.headers.get("retry-after")
-        wait_seconds = float(retry_after) if retry_after else OPEN_METEO_BACKOFF_SECONDS * (attempt + 1)
-        if attempt == OPEN_METEO_MAX_RETRIES:
-            response.raise_for_status()
-        time.sleep(wait_seconds)
-
-    raise RuntimeError("Open-Meteo request failed after retries")
+    response = get_with_retries(
+        client,
+        OPEN_METEO_HISTORICAL_ENDPOINT,
+        params=params,
+        max_retries=OPEN_METEO_MAX_RETRIES,
+        backoff_seconds=OPEN_METEO_BACKOFF_SECONDS,
+        retry_status_codes=OPEN_METEO_RETRY_STATUS_CODES,
+    )
+    return response.json()
 
 
 def parse_open_meteo_weather(region: str, payload: dict[str, Any]) -> list[WeatherObservation]:

@@ -6,7 +6,7 @@ This project should ingest upstream API/CSV data into a stable internal schema b
 
 - Use paginated API requests with configurable `page_size`, `max_pages`, timeout, and minimum interval between requests.
 - Prefer date-window extraction for historical backfills from 2023-01-01 through 2026-06-30.
-- Store raw API pages in `raw_api_pages` before transformation for lineage, debugging, and replay.
+- Do not store raw API pages. Transform upstream responses in memory and load only model-relevant canonical rows.
 - Normalize all timestamps to timezone-aware UTC.
 - Use source-specific adapters to map upstream fields into canonical contracts.
 - Use idempotent keys: `source + source_record_id` where available, otherwise `region + timestamp_utc + granularity + source + domain-specific dimensions`.
@@ -73,18 +73,6 @@ This project should ingest upstream API/CSV data into a stable internal schema b
 
 ## Canonical Tables
 
-### `raw_api_pages`
-
-Stores raw API response pages.
-
-| Column | Type | Meaning |
-| --- | --- | --- |
-| `source_name` | `text` | Upstream source identifier. |
-| `endpoint` | `text` | API endpoint path. |
-| `request_params` | `jsonb` | Query parameters used for the request. |
-| `response_payload` | `jsonb` | Raw response body. |
-| `ingested_at` | `timestamptz` | Time the page was stored. |
-
 ### `electricity_prices`
 
 Market electricity price observations.
@@ -122,6 +110,12 @@ Required fields: `source`, `region`, `timestamp_utc`, `granularity`, `generation
 Weather covariates for forecasting and causal adjustment.
 
 Supported fields: `temperature_c`, `wind_speed_mps`, `solar_irradiance_wm2`, `humidity_pct`.
+
+### `future_weather_forecasts`
+
+Next-24-hour weather covariates used by operational recommendations.
+
+Required fields: `source`, `region`, `timestamp_utc`, `granularity`, `forecast_generated_at_utc`, `forecast_horizon_hours`.
 
 ### `workload_windows`
 

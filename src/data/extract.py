@@ -9,7 +9,7 @@ from src.data.contracts import ApiPageResult
 
 
 def extract_energy_data() -> list[dict[str, object]]:
-    """Return raw energy records from configured external sources."""
+    """Return source records from configured external sources."""
     return []
 
 
@@ -18,5 +18,5 @@ def extract_paginated_api(
     endpoint: str,
     params: dict[str, object] | None = None,
 ) -> Iterator[ApiPageResult]:
-    """Stream raw API pages without loading the whole source into memory."""
+    """Stream API pages without persisting raw payloads."""
     yield from client.fetch_pages(endpoint=endpoint, params=params)

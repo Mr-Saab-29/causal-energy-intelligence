@@ -2,15 +2,17 @@
 
 ## 1. Apply Schema
 
-Apply `db/schema.sql` in the Supabase SQL editor before running loaders.
+Apply `db/schema.sql`, `db/feature_views.sql`, and `db/modeling_features.sql`
+in the Supabase SQL editor before running loaders.
 
 Required tables:
 
-- `raw_api_pages`
 - `ingestion_checkpoints`
 - `electricity_prices`
 - `hourly_electricity_mix`
 - `weather_observations`
+- `future_weather_forecasts`
+- `modeling_price_features`
 
 ## 2. Configure Environment
 
@@ -85,7 +87,22 @@ PY
 
 Weather loading writes one region/date-window at a time. The current mapping uses one representative city per ODRE region.
 
-## 6. Full Historical Load
+## 6. Scheduled Transformed Refresh
+
+Use this for GitHub Actions or another daily scheduler. It fetches recent API data,
+transforms it in memory, upserts only canonical/model rows to Supabase, and exports
+the local modeling feature CSV needed by the current training code.
+
+```bash
+export DATABASE_URL="postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres"
+make ingest-latest-cloud
+make ingest-future-cloud
+```
+
+The cloud refresh does not store raw API responses and does not require cached
+`data/processed` source files.
+
+## 7. Full Historical Load
 
 Use this only after individual source loads work.
 
@@ -99,7 +116,7 @@ print(summary)
 PY
 ```
 
-## 7. Refresh May-June 2026 Gap
+## 8. Refresh May-June 2026 Gap
 
 ODRE historical `*-cons-def` datasets currently end before the requested `2026-06-30` target. Use ODRE real-time/provisional datasets for May-June 2026.
 
@@ -163,7 +180,9 @@ If you loaded data before `ingestion_checkpoints` existed, those earlier windows
 ## Recommended Order
 
 1. Apply `db/schema.sql`.
-2. Load Energy-Charts prices.
-3. Load ODRE electricity mix.
-4. Load Open-Meteo weather.
-5. Query row counts and timestamp coverage in Supabase.
+2. Apply `db/feature_views.sql`.
+3. Apply `db/modeling_features.sql`.
+4. Add `SUPABASE_DATABASE_URL` as a GitHub Actions secret.
+5. Run `make ingest-latest-cloud`.
+6. Run `make ingest-future-cloud`.
+7. Query row counts and timestamp coverage in Supabase.

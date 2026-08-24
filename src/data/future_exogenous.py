@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -13,6 +14,8 @@ import httpx
 import pandas as pd
 
 from src.data.france_regions import get_regional_weather_locations
+from src.data.http_retry import get_with_retries
+from src.data.load import create_database_engine, upsert_future_weather_forecasts
 from src.data.sources.open_meteo import OPEN_METEO_HOURLY_FEATURES, WEATHER_FIELD_MAP
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -29,11 +32,17 @@ class FutureExogenousSummary:
     horizon_hours: int
     weather_rows: int
     output_path: str
+    supabase_rows_upserted: int = 0
 
 
-def ingest_future_exogenous(horizon_hours: int = 24, output_path: str | Path = OUTPUT_PATH) -> FutureExogenousSummary:
+def ingest_future_exogenous(
+    horizon_hours: int = 24,
+    output_path: str | Path = OUTPUT_PATH,
+    database_url: str | None = None,
+) -> FutureExogenousSummary:
     """Fetch future weather forecasts for representative France regions."""
     rows: list[dict[str, Any]] = []
+    generated_at = datetime.now(UTC).isoformat()
     with httpx.Client(base_url=OPEN_METEO_FORECAST_BASE_URL, timeout=60.0) as client:
         for location in get_regional_weather_locations():
             payload = fetch_open_meteo_forecast(
@@ -42,17 +51,31 @@ def ingest_future_exogenous(horizon_hours: int = 24, output_path: str | Path = O
                 longitude=location.longitude,
                 horizon_hours=horizon_hours,
             )
-            rows.extend(parse_open_meteo_forecast(location.region, payload, horizon_hours))
+            rows.extend(
+                parse_open_meteo_forecast(
+                    location.region,
+                    payload,
+                    horizon_hours,
+                    generated_at=generated_at,
+                )
+            )
 
     frame = pd.DataFrame(rows)
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
     frame.to_csv(output, index=False)
+    supabase_rows = 0
+    if database_url:
+        supabase_rows = upsert_future_weather_forecasts(
+            create_database_engine(database_url),
+            rows,
+        )
     return FutureExogenousSummary(
-        generated_at_utc=datetime.now(UTC).isoformat(),
+        generated_at_utc=generated_at,
         horizon_hours=horizon_hours,
         weather_rows=int(len(frame)),
         output_path=str(output.relative_to(ROOT)),
+        supabase_rows_upserted=supabase_rows,
     )
 
 
@@ -63,7 +86,8 @@ def fetch_open_meteo_forecast(
     horizon_hours: int,
 ) -> dict[str, Any]:
     """Fetch one location's hourly forecast payload."""
-    response = client.get(
+    response = get_with_retries(
+        client,
         OPEN_METEO_FORECAST_ENDPOINT,
         params={
             "latitude": latitude,
@@ -74,8 +98,9 @@ def fetch_open_meteo_forecast(
             "precipitation_unit": "mm",
             "forecast_hours": horizon_hours,
         },
+        max_retries=5,
+        backoff_seconds=10.0,
     )
-    response.raise_for_status()
     return response.json()
 
 
@@ -83,12 +108,13 @@ def parse_open_meteo_forecast(
     region: str,
     payload: dict[str, Any],
     horizon_hours: int,
+    generated_at: str | None = None,
 ) -> list[dict[str, Any]]:
     """Convert an Open-Meteo forecast payload to local weather rows."""
     hourly = payload.get("hourly", {})
     times = hourly.get("time", [])[:horizon_hours]
     rows: list[dict[str, Any]] = []
-    generated_at = datetime.now(UTC).isoformat()
+    forecast_generated_at = generated_at or datetime.now(UTC).isoformat()
     for index, timestamp_value in enumerate(times):
         row: dict[str, Any] = {
             "source": "api",
@@ -96,7 +122,9 @@ def parse_open_meteo_forecast(
             "region": region,
             "timestamp_utc": f"{timestamp_value}+00:00",
             "granularity": "1h",
-            "ingestion_timestamp_utc": generated_at,
+            "ingestion_timestamp_utc": forecast_generated_at,
+            "forecast_generated_at_utc": forecast_generated_at,
+            "forecast_horizon_hours": horizon_hours,
         }
         for source_field, target_field in WEATHER_FIELD_MAP.items():
             values = hourly.get(source_field)
@@ -112,8 +140,16 @@ def main(argv: list[str] | None = None) -> None:
     """Fetch future exogenous weather data from the command line."""
     parser = argparse.ArgumentParser(description="Fetch future exogenous weather forecasts.")
     parser.add_argument("--horizon-hours", type=int, default=24)
+    parser.add_argument("--database-url", default=None)
+    parser.add_argument("--upsert-supabase", action="store_true")
     args = parser.parse_args(argv)
-    summary = ingest_future_exogenous(horizon_hours=args.horizon_hours)
+    database_url = args.database_url
+    if args.upsert_supabase and not database_url:
+        database_url = os.environ.get("DATABASE_URL")
+    summary = ingest_future_exogenous(
+        horizon_hours=args.horizon_hours,
+        database_url=database_url,
+    )
     print(json.dumps(asdict(summary), indent=2))
 
 

@@ -12,6 +12,7 @@ import httpx
 
 from src.data.contracts import ElectricityPriceObservation, EnergySource, Granularity
 from src.data.date_windows import DateWindow, iter_calendar_year_windows
+from src.data.http_retry import get_with_retries
 from src.data.source_config import (
     ENERGY_CHARTS_BASE_URL,
     ENERGY_CHARTS_FRANCE_BIDDING_ZONE,
@@ -62,27 +63,18 @@ def fetch_energy_charts_price_window(
         "start": window.start_date.isoformat(),
         "end": window.end_date.isoformat(),
     }
-    for attempt in range(ENERGY_CHARTS_MAX_RETRIES + 1):
-        response = client.get(ENERGY_CHARTS_PRICE_ENDPOINT, params=params)
-        if response.status_code != 429:
-            response.raise_for_status()
-            return parse_energy_charts_day_ahead_prices(
-                payload=response.json(),
-                bidding_zone=bidding_zone,
-            )
-
-        retry_after = response.headers.get("retry-after")
-        if retry_after:
-            wait_seconds = float(retry_after)
-        else:
-            wait_seconds = ENERGY_CHARTS_BACKOFF_SECONDS * (attempt + 1)
-
-        if attempt == ENERGY_CHARTS_MAX_RETRIES:
-            response.raise_for_status()
-
-        time.sleep(wait_seconds)
-
-    return []
+    response = get_with_retries(
+        client,
+        ENERGY_CHARTS_PRICE_ENDPOINT,
+        params=params,
+        max_retries=ENERGY_CHARTS_MAX_RETRIES,
+        backoff_seconds=ENERGY_CHARTS_BACKOFF_SECONDS,
+        retry_status_codes={429, 500, 502, 503, 504},
+    )
+    return parse_energy_charts_day_ahead_prices(
+        payload=response.json(),
+        bidding_zone=bidding_zone,
+    )
 
 
 def parse_energy_charts_day_ahead_prices(

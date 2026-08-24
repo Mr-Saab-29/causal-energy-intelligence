@@ -13,6 +13,7 @@ import httpx
 
 from src.data.contracts import EnergySource, Granularity, HourlyElectricityMixObservation
 from src.data.date_windows import DateWindow, iter_date_windows
+from src.data.http_retry import get_with_retries
 from src.data.source_config import (
     ODRE_BASE_URL,
     ODRE_NATIONAL_DATASET,
@@ -69,7 +70,8 @@ def fetch_odre_records(
         for window in iter_date_windows(start_date, end_date, ODRE_WINDOW_DAYS):
             offset = 0
             while True:
-                response = client.get(
+                response = get_with_retries(
+                    client,
                     f"/api/explore/v2.1/catalog/datasets/{dataset}/records",
                     params={
                         "limit": ODRE_PAGE_LIMIT,
@@ -77,8 +79,9 @@ def fetch_odre_records(
                         "order_by": "date_heure",
                         "where": _date_where_clause(window),
                     },
+                    max_retries=5,
+                    backoff_seconds=10.0,
                 )
-                response.raise_for_status()
                 payload = response.json()
                 results = payload.get("results", [])
                 if not results:

@@ -1,17 +1,18 @@
 PYTHON ?= .venv/bin/python
 DAGSTER ?= .venv/bin/dagster
 
-.PHONY: help ingest-latest ingest-latest-cloud ingest-plan ingest-repair ingest-future ingest-monitor ingest-monitor-cloud forecast-monitor future-recommendations operational-refresh train-all train-all-gated forecast-all forecast-all-candidate forecast-all-force quick-refresh daily-local-refresh forecast-price forecast-ranking forecast-decision forecast-recommendations forecast-scenarios forecast-decision-example forecast-consumption forecast-production forecast-supply-demand forecast-carbon pipeline-health pipeline-health-allow-stale dashboard-data frontend-install frontend-dev frontend-build mlflow-ui dagster-dev docker-build docker-up docker-down docker-observability
+.PHONY: help ingest-latest ingest-latest-cloud ingest-plan ingest-repair ingest-future ingest-future-cloud ingest-monitor ingest-monitor-cloud forecast-monitor future-recommendations operational-refresh train-all train-all-gated forecast-all forecast-all-candidate forecast-all-force quick-refresh daily-local-refresh forecast-price forecast-ranking forecast-decision forecast-recommendations forecast-scenarios forecast-decision-example forecast-consumption forecast-production forecast-supply-demand forecast-carbon pipeline-health pipeline-health-allow-stale dashboard-data frontend-install frontend-dev frontend-build mlflow-ui dagster-dev docker-build docker-up docker-down docker-observability
 
 help:
 	@echo "Forecast training targets:"
 	@echo "  make ingest-plan             Show local ingestion date range without API calls"
 	@echo "  make ingest-repair           Repair local CSV timestamps and rebuild features"
 	@echo "  make ingest-latest           Fetch missing source data and rebuild local features"
-	@echo "  make ingest-latest-cloud     Fetch bounded recent source data for scheduled cloud runs"
+	@echo "  make ingest-latest-cloud     Upsert bounded recent transformed data to Supabase"
 	@echo "  make ingest-monitor          Ingest latest data and monitor forecast drift"
 	@echo "  make ingest-monitor-cloud    Bounded cloud ingestion, future weather, health, and monitor"
 	@echo "  make ingest-future           Fetch next-24h future exogenous weather"
+	@echo "  make ingest-future-cloud     Fetch next-24h weather and upsert transformed rows to Supabase"
 	@echo "  make forecast-monitor        Build reports/metrics/forecast_monitoring.json"
 	@echo "  make future-recommendations  Build next-24h operational recommendations"
 	@echo "  make operational-refresh     Build future recommendations, monitor, and dashboard"
@@ -46,17 +47,20 @@ ingest-latest:
 	$(PYTHON) -m src.data.local_ingest
 
 ingest-latest-cloud:
-	$(PYTHON) -m src.data.local_ingest --lookback-days 45
+	$(PYTHON) -m src.data.supabase_ingest --lookback-days 45
 
 ingest-repair:
 	$(PYTHON) -m src.data.local_ingest --repair-only
 
 ingest-monitor: ingest-latest ingest-future pipeline-health forecast-monitor
 
-ingest-monitor-cloud: ingest-latest-cloud ingest-future pipeline-health forecast-monitor
+ingest-monitor-cloud: ingest-latest-cloud ingest-future-cloud pipeline-health forecast-monitor
 
 ingest-future:
 	$(PYTHON) -m src.data.future_exogenous --horizon-hours 24
+
+ingest-future-cloud:
+	$(PYTHON) -m src.data.future_exogenous --horizon-hours 24 --upsert-supabase
 
 forecast-monitor:
 	$(PYTHON) -m src.monitoring.forecast_monitor
