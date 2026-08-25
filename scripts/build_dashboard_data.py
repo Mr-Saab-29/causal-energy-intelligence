@@ -56,6 +56,10 @@ def main() -> None:
         else pd.DataFrame()
     )
 
+    active_scenario_recommendations = enrich_scenario_recommendations(
+        active_scenario_recommendations,
+        active_recommendations,
+    )
     recommendation_rows = prepare_records(active_recommendations)
     scenario_rows = prepare_records(active_scenario_recommendations)
     payload = {
@@ -173,6 +177,41 @@ def prepare_records(frame: pd.DataFrame) -> list[dict[str, Any]]:
     cleaned = frame.replace({pd.NA: None})
     cleaned = cleaned.where(pd.notna(cleaned), None)
     return cleaned.to_dict(orient="records")
+
+
+def enrich_scenario_recommendations(
+    scenario_frame: pd.DataFrame,
+    recommendation_frame: pd.DataFrame,
+) -> pd.DataFrame:
+    """Add shared recommendation context to scenario reranking rows."""
+    if scenario_frame.empty or recommendation_frame.empty:
+        return scenario_frame
+    join_columns = ["decision_group", "timestamp_utc"]
+    if not all(column in scenario_frame for column in join_columns):
+        return scenario_frame
+    if not all(column in recommendation_frame for column in join_columns):
+        return scenario_frame
+
+    context_columns = [
+        "candidate_count",
+        "confidence_score",
+        "confidence_level",
+        "heuristic_confidence_score",
+        "heuristic_confidence_level",
+        "empirical_top_n_hit_rate",
+        "expected_carbon_regret_g_co2e_per_kwh",
+        "expected_cost_regret_eur_mwh",
+    ]
+    available_context_columns = [
+        column for column in context_columns if column in recommendation_frame
+    ]
+    if not available_context_columns:
+        return scenario_frame
+
+    context = recommendation_frame[join_columns + available_context_columns].drop_duplicates(
+        subset=join_columns
+    )
+    return scenario_frame.merge(context, on=join_columns, how="left")
 
 
 def safe_float(value: float) -> float | None:

@@ -68,8 +68,6 @@ h2 {
 
 .champion-pill,
 .controls-band,
-.health-band,
-.monitor-band,
 .metric,
 .panel {
   border: 1px solid #ded8ca;
@@ -102,16 +100,6 @@ h2 {
   margin-bottom: 16px;
 }
 
-.health-band {
-  display: grid;
-  grid-template-columns: minmax(190px, 1.1fr) repeat(4, minmax(150px, 1fr));
-  gap: 12px;
-  align-items: center;
-  padding: 12px;
-  border-radius: 8px;
-  margin-bottom: 16px;
-}
-
 .deployment-state {
   display: flex;
   align-items: flex-start;
@@ -138,121 +126,6 @@ h2 {
   margin-top: 4px;
   color: #6f654f;
   font-size: 0.9rem;
-}
-
-.monitor-band {
-  display: grid;
-  grid-template-columns: minmax(190px, 1.1fr) repeat(3, minmax(150px, 1fr)) minmax(220px, 1.4fr);
-  gap: 12px;
-  align-items: center;
-  padding: 12px;
-  border-radius: 8px;
-  margin-bottom: 16px;
-}
-
-.health-band.pass {
-  border-color: #b9dcca;
-}
-
-.health-band.warn {
-  border-color: #e0c36f;
-}
-
-.health-band.fail {
-  border-color: #d99a8f;
-}
-
-.monitor-band.pass {
-  border-color: #b9dcca;
-}
-
-.monitor-band.warn {
-  border-color: #e0c36f;
-}
-
-.monitor-band.fail {
-  border-color: #d99a8f;
-}
-
-.health-title,
-.monitor-title,
-.health-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.health-title {
-  color: #176851;
-}
-
-.monitor-title {
-  color: #176851;
-}
-
-.health-band.warn .health-title {
-  color: #76580b;
-}
-
-.health-band.fail .health-title {
-  color: #8a2f21;
-}
-
-.monitor-band.warn .monitor-title {
-  color: #76580b;
-}
-
-.monitor-band.fail .monitor-title {
-  color: #8a2f21;
-}
-
-.health-title div,
-.monitor-title div,
-.health-item {
-  min-width: 0;
-}
-
-.health-title span,
-.monitor-title span,
-.health-item span {
-  display: block;
-  color: #69766f;
-  font-size: 0.78rem;
-  font-weight: 700;
-}
-
-.health-title strong,
-.monitor-title strong,
-.health-item strong {
-  display: block;
-  overflow: hidden;
-  color: #17201d;
-  font-size: 0.9rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.health-item svg {
-  flex: 0 0 auto;
-  color: #1f8a70;
-}
-
-.monitor-reasons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  min-width: 0;
-}
-
-.monitor-reasons span {
-  border: 1px solid #ded8ca;
-  border-radius: 6px;
-  background: #fffefa;
-  color: #5d675f;
-  font-size: 0.78rem;
-  font-weight: 800;
-  padding: 6px 8px;
 }
 
 .controls-band label {
@@ -586,11 +459,6 @@ select:disabled {
     align-items: stretch;
   }
 
-  .health-band,
-  .monitor-band {
-    grid-template-columns: 1fr 1fr;
-  }
-
   .champion-pill {
     width: fit-content;
   }
@@ -648,8 +516,4 @@ select:disabled {
     width: 100%;
   }
 
-  .health-band,
-  .monitor-band {
-    grid-template-columns: 1fr;
-  }
 }

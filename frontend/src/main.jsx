@@ -9,7 +9,6 @@ import {
   CalendarDays,
   CheckCircle2,
   Clock3,
-  Database,
   Gauge,
   Leaf,
   SlidersHorizontal,
@@ -107,14 +106,6 @@ function App() {
     model: shortModel(row.model),
     score: row.champion_score,
   }));
-  const healthSummary = payload.summary?.pipeline_health;
-  const monitor = payload.forecast_monitoring ?? {};
-  const monitorSummary = payload.summary?.forecast_monitoring ?? {};
-  const staleFutureRecommendations = Boolean(payload.summary?.stale_future_recommendations);
-  const staleFutureScenarios = Boolean(payload.summary?.stale_future_scenarios);
-  const activeRecommendationCount = payload.summary?.active_future_scenario_count
-    ?? payload.summary?.active_future_recommendation_count
-    ?? 0;
   const hasRecommendationData = recommendations.length > 0;
 
   return (
@@ -177,67 +168,6 @@ function App() {
         </section>
       )}
 
-      <section className={`health-band ${healthStatusClass(healthSummary?.status)}`}>
-        <div className="health-title">
-          {healthSummary?.status === "pass" ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
-          <div>
-            <span>Data Status</span>
-            <strong>{formatHealthStatus(healthSummary?.status)}</strong>
-          </div>
-        </div>
-        <HealthItem
-          icon={<Database size={16} />}
-          label="Latest data"
-          value={formatDateTime(healthSummary?.latest_data_timestamp_utc)}
-        />
-        <HealthItem
-          icon={<Clock3 size={16} />}
-          label="Checked"
-          value={formatDateTime(healthSummary?.generated_at_utc)}
-        />
-        <HealthItem
-          icon={<Activity size={16} />}
-          label="Issues"
-          value={`${healthSummary?.critical_issue_count ?? 0} critical / ${healthSummary?.warning_count ?? 0} warnings`}
-        />
-        <HealthItem
-          icon={<Zap size={16} />}
-          label="Recommendations"
-          value={`${activeRecommendationCount} future`}
-        />
-      </section>
-
-      <section className={`monitor-band ${monitorStatusClass(monitorSummary)}`}>
-        <div className="monitor-title">
-          {monitorSummary.retraining_recommended || monitorSummary.stale ? <AlertTriangle size={18} /> : <CheckCircle2 size={18} />}
-          <div>
-            <span>Forecast Monitor</span>
-            <strong>{formatMonitorStatus(monitorSummary)}</strong>
-          </div>
-        </div>
-        <HealthItem
-          icon={<Clock3 size={16} />}
-          label="Checked"
-          value={formatDateTime(monitorSummary.generated_at_utc)}
-        />
-        <HealthItem
-          icon={<Database size={16} />}
-          label="Latest actual"
-          value={formatDateTime(monitorSummary.latest_actual_timestamp_utc)}
-        />
-        <HealthItem
-          icon={<Activity size={16} />}
-          label="Reasons"
-          value={`${monitorSummary.reason_count ?? 0} triggers / ${monitorSummary.warning_count ?? 0} warnings`}
-        />
-        <div className="monitor-reasons">
-          {(monitor.reasons ?? []).slice(0, 2).map((reason) => (
-            <span key={reason}>{formatReason(reason)}</span>
-          ))}
-          {(!monitor.reasons || monitor.reasons.length === 0) && <span>No retraining trigger</span>}
-        </div>
-      </section>
-
       <section className="kpi-grid">
         <Metric
           icon={<Clock3 size={20} />}
@@ -282,7 +212,7 @@ function App() {
           <div className="panel-heading">
             <div>
               <h2>Clean-Hour Recommendations</h2>
-              <p>Top 5 future workload start hours. Carbon intensity is predicted operational gCO2e per kWh.</p>
+              <p>Top 5 future workload start hours for {formatScenario(selectedScenario)}. Carbon intensity is predicted operational gCO2e per kWh.</p>
             </div>
           </div>
           <div className="recommendation-list">
@@ -293,17 +223,7 @@ function App() {
               <span>Price vs yesterday</span>
               <span>Confidence</span>
             </div>
-            {staleFutureRecommendations && (
-              <div className="empty-state">
-                Future recommendation file is stale. Run <code>make operational-refresh</code>.
-              </div>
-            )}
-            {staleFutureScenarios && (
-              <div className="empty-state">
-                Future scenario file is stale. Run <code>make operational-refresh</code>.
-              </div>
-            )}
-            {!staleFutureRecommendations && !staleFutureScenarios && recommendations.length === 0 && (
+            {recommendations.length === 0 && (
               <div className="empty-state">
                 {isSampleData
                   ? "Live recommendation data has not been published for this deployment yet."
@@ -363,7 +283,7 @@ function App() {
           <div className="panel-heading">
             <div>
               <h2>Scenario Reranking</h2>
-              <p>Compare alternate scheduling preferences without retraining.</p>
+              <p>{formatScenario(selectedScenario)} reranks the same candidate hours using scenario-specific carbon and price weights.</p>
             </div>
           </div>
           <div className="scenario-table">
@@ -424,16 +344,6 @@ function Metric({ icon, label, value, detail }) {
       <span>{label}</span>
       <strong>{value}</strong>
       <small>{detail}</small>
-    </div>
-  );
-}
-
-function HealthItem({ icon, label, value }) {
-  return (
-    <div className="health-item">
-      {icon}
-      <span>{label}</span>
-      <strong>{value || "-"}</strong>
     </div>
   );
 }
@@ -577,32 +487,6 @@ function formatDateTime(value) {
   }).format(new Date(value));
 }
 
-function formatHealthStatus(value) {
-  if (value === "pass") return "Healthy";
-  if (value === "warn") return "Warnings";
-  if (value === "fail") return "Action needed";
-  return "Unknown";
-}
-
-function healthStatusClass(value) {
-  if (value === "pass") return "pass";
-  if (value === "warn") return "warn";
-  if (value === "fail") return "fail";
-  return "unknown";
-}
-
-function monitorStatusClass(summary) {
-  if (summary?.stale) return "warn";
-  if (summary?.retraining_recommended) return "fail";
-  return healthStatusClass(summary?.status);
-}
-
-function formatMonitorStatus(summary) {
-  if (summary?.stale) return "Monitor stale";
-  if (summary?.retraining_recommended) return "Retraining recommended";
-  return formatHealthStatus(summary?.status);
-}
-
 function shortModel(value) {
   return value
     .replace("hist_gradient_boosting", "HGB")
@@ -614,11 +498,6 @@ function shortModel(value) {
 }
 
 function formatScenario(value) {
-  return value.split("_").map(titleCase).join(" ");
-}
-
-function formatReason(value) {
-  if (!value) return "";
   return value.split("_").map(titleCase).join(" ");
 }
 
