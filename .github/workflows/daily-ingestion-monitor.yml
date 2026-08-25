@@ -156,7 +156,6 @@ jobs:
 
       - name: Deploy dashboard to Vercel
         if: steps.schedule_guard.outputs.should_run == 'true'
-        working-directory: frontend
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
@@ -165,9 +164,9 @@ jobs:
           mkdir -p .vercel
           printf '{"projectId":"%s","orgId":"%s","projectName":"causal-energy-intelligence"}\n' "$VERCEL_PROJECT_ID" "$VERCEL_ORG_ID" > .vercel/project.json
           vercel whoami --token="$VERCEL_TOKEN"
-          test -f dist/index.html
+          test -f frontend/dist/index.html
           mkdir -p .vercel/output/static
-          cp -R dist/. .vercel/output/static/
+          cp -R frontend/dist/. .vercel/output/static/
           printf '{"version":3,"routes":[{"handle":"filesystem"},{"src":"/.*","dest":"/index.html"}]}\n' > .vercel/output/config.json
           vercel deploy --prebuilt --prod --yes --token="$VERCEL_TOKEN"
 
