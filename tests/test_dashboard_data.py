@@ -144,6 +144,21 @@ def test_active_future_recommendations_refill_to_top5_after_past_rows_drop() -> 
     assert active["timestamp_utc"].min() >= pd.Timestamp("2026-08-25T02:00:00Z")
 
 
+def test_active_future_recommendations_refill_handles_legacy_rankings() -> None:
+    rankings = sample_future_rankings().drop(columns=["is_low_uncertainty_candidate"])
+    stale_top5 = rankings[rankings["predicted_decision_rank"] <= 5].copy()
+    stale_top5["recommendation_rank"] = stale_top5["predicted_decision_rank"]
+
+    active = build_active_future_recommendations(
+        stale_top5,
+        rankings,
+        now=pd.Timestamp("2026-08-25T02:15:00Z"),
+    )
+
+    assert len(active) == 5
+    assert "recommendation_status" in active
+
+
 def test_active_future_scenario_recommendations_refill_each_scenario_to_top5() -> None:
     rankings = sample_future_rankings()
     scenario_top5 = pd.DataFrame(

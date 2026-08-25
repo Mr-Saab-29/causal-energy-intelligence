@@ -932,6 +932,7 @@ def build_top_workload_recommendations(rankings: pd.DataFrame, top_n: int = 5) -
     if top_n < 1:
         raise ValueError("top_n must be at least 1")
 
+    rankings = ensure_uncertainty_columns(rankings)
     group_columns = ["window", "model", "decision_group"]
     recommended_frames: list[pd.DataFrame] = []
     for _, group in rankings.sort_values(
@@ -1560,6 +1561,7 @@ def build_scenario_rerankings(
 
 def build_top_scenario_recommendations(rankings: pd.DataFrame, top_n: int) -> pd.DataFrame:
     """Return top-N recommendations for one reranked scenario frame."""
+    rankings = ensure_uncertainty_columns(rankings)
     group_columns = ["scenario", "window", "model", "decision_group"]
     recommended_frames: list[pd.DataFrame] = []
     for _, group in rankings.sort_values(
@@ -1628,6 +1630,33 @@ def build_top_scenario_recommendations(rankings: pd.DataFrame, top_n: int) -> pd
     float_columns = recommended.select_dtypes(include=["float"]).columns
     recommended[float_columns] = recommended[float_columns].round(2)
     return recommended.reset_index(drop=True)
+
+
+def ensure_uncertainty_columns(rankings: pd.DataFrame) -> pd.DataFrame:
+    """Fill uncertainty fields for legacy ranking artifacts."""
+    output = rankings.copy()
+    if "decision_uncertainty_score" not in output:
+        output["decision_uncertainty_score"] = 0.0
+    output["decision_uncertainty_score"] = pd.to_numeric(
+        output["decision_uncertainty_score"],
+        errors="coerce",
+    ).fillna(0.0)
+    if "is_low_uncertainty_candidate" not in output:
+        output["is_low_uncertainty_candidate"] = (
+            output["decision_uncertainty_score"] <= UNCERTAINTY_GUARD_THRESHOLD
+        )
+    output["is_low_uncertainty_candidate"] = output[
+        "is_low_uncertainty_candidate"
+    ].fillna(True).astype(bool)
+    if "uncertainty_guard_penalty" not in output:
+        output["uncertainty_guard_penalty"] = calculate_uncertainty_guard_penalty(
+            output["decision_uncertainty_score"]
+        )
+    if "uncertainty_guard_applied" not in output:
+        output["uncertainty_guard_applied"] = output["uncertainty_guard_penalty"] > 0
+    if "prediction_interval_uncertainty_score" not in output:
+        output["prediction_interval_uncertainty_score"] = 0.0
+    return output
 
 
 def summarize_scenario_metrics(rankings: pd.DataFrame) -> list[dict[str, Any]]:
