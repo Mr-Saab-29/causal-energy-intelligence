@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-from src.monitoring.forecast_monitor import evaluate_retraining_trigger, load_monitoring_thresholds
+import pandas as pd
+
+from src.monitoring import forecast_monitor
+from src.monitoring.forecast_monitor import (
+    evaluate_retraining_trigger,
+    load_monitoring_thresholds,
+    monitor_operational_rankings,
+)
 
 
 def test_load_monitoring_thresholds_merges_defaults(tmp_path) -> None:
@@ -49,3 +56,22 @@ def test_evaluate_retraining_trigger_flags_recommendation_drift() -> None:
     assert "recommendation_no_low_risk_share_high" in trigger["reasons"]
     assert "recommendation_average_confidence_low" in trigger["reasons"]
     assert "recommendation_rank_overlap_low" in trigger["reasons"]
+
+
+def test_monitor_operational_rankings_handles_malformed_history(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "operational_ranking_history.csv"
+    path.write_text("timestamp_utc,model\n2026-08-10T08:00:00Z,model_a,extra\n", encoding="utf-8")
+    monkeypatch.setattr(forecast_monitor, "OPERATIONAL_RANKING_HISTORY_PATH", path)
+
+    result = monitor_operational_rankings(
+        pd.DataFrame(
+            {
+                "timestamp_utc": [pd.Timestamp("2026-08-10T08:00:00Z")],
+            }
+        ),
+        "model_a",
+        pd.Timestamp("2026-08-10T00:00:00Z"),
+    )
+
+    assert result["available"] is False
+    assert "malformed" in result["reason"]

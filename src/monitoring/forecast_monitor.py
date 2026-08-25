@@ -134,8 +134,20 @@ def monitor_operational_rankings(
         or cutoff is None
     ):
         return unavailable("operational ranking history or actuals unavailable")
-    history = pd.read_csv(OPERATIONAL_RANKING_HISTORY_PATH, parse_dates=[TIMESTAMP_COLUMN])
-    history[TIMESTAMP_COLUMN] = pd.to_datetime(history[TIMESTAMP_COLUMN], utc=True)
+    try:
+        history = pd.read_csv(OPERATIONAL_RANKING_HISTORY_PATH, parse_dates=[TIMESTAMP_COLUMN])
+    except pd.errors.ParserError as error:
+        return unavailable(f"operational ranking history malformed: {error}")
+    if TIMESTAMP_COLUMN not in history or "model" not in history:
+        return unavailable("operational ranking history malformed: missing required columns")
+    history[TIMESTAMP_COLUMN] = pd.to_datetime(
+        history[TIMESTAMP_COLUMN],
+        utc=True,
+        errors="coerce",
+    )
+    history = history.dropna(subset=[TIMESTAMP_COLUMN])
+    if history.empty:
+        return unavailable("operational ranking history malformed: no valid timestamps")
     history = history[
         (history["model"] == champion_model)
         & (history[TIMESTAMP_COLUMN] >= cutoff)

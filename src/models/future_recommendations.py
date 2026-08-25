@@ -472,7 +472,20 @@ def append_operational_history(
     output.parent.mkdir(parents=True, exist_ok=True)
     history = frame.copy()
     history["forecast_generated_at_utc"] = generated_at_utc
-    history.to_csv(output, mode="a", index=False, header=not output.exists())
+    if not output.exists():
+        history.to_csv(output, index=False)
+        return
+    try:
+        existing = pd.read_csv(output)
+    except pd.errors.ParserError:
+        backup = output.with_suffix(f"{output.suffix}.malformed")
+        output.replace(backup)
+        history.to_csv(output, index=False)
+        return
+    aligned_columns = list(dict.fromkeys([*existing.columns.tolist(), *history.columns.tolist()]))
+    existing = existing.reindex(columns=aligned_columns)
+    history = history.reindex(columns=aligned_columns)
+    pd.concat([existing, history], ignore_index=True).to_csv(output, index=False)
 
 
 def load_latest_operational_recommendation_snapshot(path: str | Path) -> pd.DataFrame:
@@ -480,7 +493,10 @@ def load_latest_operational_recommendation_snapshot(path: str | Path) -> pd.Data
     history_path = Path(path)
     if not history_path.exists():
         return pd.DataFrame()
-    history = pd.read_csv(history_path)
+    try:
+        history = pd.read_csv(history_path)
+    except pd.errors.ParserError:
+        return pd.DataFrame()
     if history.empty or "forecast_generated_at_utc" not in history:
         return pd.DataFrame()
     latest_generation = history["forecast_generated_at_utc"].dropna().max()
