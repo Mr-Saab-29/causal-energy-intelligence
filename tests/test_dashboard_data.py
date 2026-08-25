@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import pandas as pd
 
 from scripts.build_dashboard_data import (
@@ -8,6 +10,7 @@ from scripts.build_dashboard_data import (
     enrich_scenario_recommendations,
     filter_future_recommendations,
     normalize_recommendation_fields,
+    sanitize_json_value,
 )
 from src.optimization.workload_shift import WorkloadConstraints, build_workload_decision_rankings
 
@@ -126,6 +129,24 @@ def test_normalize_recommendation_fields_renumbers_visible_scenario_ranks() -> N
 
     assert balanced["recommendation_rank"].tolist() == [1, 2]
     assert normalized[normalized["scenario"] == "clean_first"]["recommendation_rank"].tolist() == [1]
+
+
+def test_sanitize_json_value_replaces_non_finite_numbers() -> None:
+    payload = {
+        "missing": float("nan"),
+        "infinite": float("inf"),
+        "rows": [{"value": pd.NA}, {"value": pd.Timestamp("2026-08-25T01:00:00Z")}],
+        "tuple": (1, math.nan),
+    }
+
+    sanitized = sanitize_json_value(payload)
+
+    assert sanitized == {
+        "missing": None,
+        "infinite": None,
+        "rows": [{"value": None}, {"value": "2026-08-25T01:00:00+00:00"}],
+        "tuple": [1, None],
+    }
 
 
 def test_active_future_recommendations_refill_to_top5_after_past_rows_drop() -> None:

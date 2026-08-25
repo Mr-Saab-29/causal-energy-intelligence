@@ -7,26 +7,23 @@ on:
     - cron: "0 0,1 * * *"
   workflow_dispatch:
 
+env:
+  PYTHON: python
+  PRICE_SOURCE: energy_charts
+  ENERGY_CHARTS_BIDDING_ZONE: FR
+  FRANCE_START_DATE: "2023-01-01"
+  MLFLOW_TRACKING_ENABLED: "false"
+  ENTSOE_API_TOKEN: ${{ secrets.ENTSOE_API_TOKEN }}
+  DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
 jobs:
-  ingest-monitor:
+  schedule-guard:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
-
-    env:
-      PYTHON: python
-      PRICE_SOURCE: energy_charts
-      ENERGY_CHARTS_BIDDING_ZONE: FR
-      FRANCE_START_DATE: "2023-01-01"
-      MLFLOW_TRACKING_ENABLED: "false"
-      ENTSOE_API_TOKEN: ${{ secrets.ENTSOE_API_TOKEN }}
-      DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-
+    outputs:
+      should_run: ${{ steps.schedule_guard.outputs.should_run }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Keep only the 02:00 Europe/Paris run
         id: schedule_guard
         run: |
@@ -41,31 +38,200 @@ jobs:
             echo "Skipping because local Europe/Paris time is not 02:00."
           fi
 
+  ingest:
+    needs: schedule-guard
+    if: needs.schedule-guard.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Set up Python
-        if: steps.schedule_guard.outputs.should_run == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: "pip"
 
-      - name: Set up Node
-        if: steps.schedule_guard.outputs.should_run == 'true'
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-          cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
-
       - name: Check Supabase configuration
-        if: steps.schedule_guard.outputs.should_run == 'true'
         run: |
           if [ -z "$DATABASE_URL" ]; then
             echo "SUPABASE_DATABASE_URL secret is required."
             exit 1
           fi
 
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Ingest latest historical data
+        run: make ingest-latest-cloud
+
+      - name: Ingest future exogenous data
+        run: make ingest-future-cloud
+
+      - name: Upload ingested data
+        uses: actions/upload-artifact@v4
+        with:
+          name: ingested-data
+          path: data
+          if-no-files-found: warn
+
+  preflight-monitor:
+    needs: ingest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      retrain: ${{ steps.operational_action.outputs.retrain }}
+      action: ${{ steps.operational_action.outputs.action }}
+      reasons: ${{ steps.operational_action.outputs.reasons }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Restore operational model state
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            models
+            reports/metrics
+            reports/predictions
+            reports/rankings
+            reports/recommendations
+            reports/scenarios
+            reports/carbon
+            reports/monitoring
+          key: operational-model-state-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            operational-model-state-${{ runner.os }}-
+
+      - name: Download ingested data
+        uses: actions/download-artifact@v4
+        with:
+          name: ingested-data
+          path: data
+
+      - name: Build pipeline health report
+        run: make pipeline-health
+
+      - name: Build forecast monitoring report
+        run: make forecast-monitor
+
+      - name: Decide operational action
+        id: operational_action
+        run: python scripts/decide_operational_action.py --github-output "$GITHUB_OUTPUT"
+
+      - name: Upload preflight reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: preflight-reports
+          path: |
+            reports/metrics/pipeline_health.json
+            reports/metrics/forecast_monitoring.json
+          if-no-files-found: warn
+
+  retrain:
+    needs: preflight-monitor
+    if: needs.preflight-monitor.outputs.retrain == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Restore operational model state
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            models
+            reports/metrics
+            reports/predictions
+            reports/rankings
+            reports/recommendations
+            reports/scenarios
+            reports/carbon
+            reports/monitoring
+          key: operational-model-state-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            operational-model-state-${{ runner.os }}-
+
+      - name: Download ingested data
+        uses: actions/download-artifact@v4
+        with:
+          name: ingested-data
+          path: data
+
+      - name: Download preflight reports
+        uses: actions/download-artifact@v4
+        with:
+          name: preflight-reports
+          path: reports/metrics
+
+      - name: Retrain champion models when needed
+        run: make train-all-gated
+
+      - name: Upload retrained operational state
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: retrained-operational-state
+          path: |
+            models
+            reports/metrics
+            reports/predictions
+            reports/rankings
+            reports/recommendations
+            reports/scenarios
+            reports/carbon
+            reports/monitoring
+          if-no-files-found: warn
+
+  publish-dashboard:
+    needs:
+      - preflight-monitor
+      - retrain
+    if: |
+      always()
+      && needs.preflight-monitor.result == 'success'
+      && (needs.retrain.result == 'success' || needs.retrain.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
       - name: Check Vercel configuration
-        if: steps.schedule_guard.outputs.should_run == 'true'
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
@@ -95,16 +261,13 @@ jobs:
           esac
 
       - name: Install dependencies
-        if: steps.schedule_guard.outputs.should_run == 'true'
         run: python -m pip install -r requirements.txt
 
       - name: Install frontend dependencies
-        if: steps.schedule_guard.outputs.should_run == 'true'
         run: npm --prefix frontend ci
 
       - name: Restore operational model state
-        if: steps.schedule_guard.outputs.should_run == 'true'
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             models
@@ -119,43 +282,43 @@ jobs:
           restore-keys: |
             operational-model-state-${{ runner.os }}-
 
-      - name: Ingest latest historical data
-        if: steps.schedule_guard.outputs.should_run == 'true'
-        run: make ingest-latest-cloud
+      - name: Download ingested data
+        uses: actions/download-artifact@v4
+        with:
+          name: ingested-data
+          path: data
 
-      - name: Ingest future exogenous data
-        if: steps.schedule_guard.outputs.should_run == 'true'
-        run: make ingest-future-cloud
+      - name: Download preflight reports
+        uses: actions/download-artifact@v4
+        with:
+          name: preflight-reports
+          path: reports/metrics
 
-      - name: Build pipeline health report
-        if: steps.schedule_guard.outputs.should_run == 'true'
-        run: make pipeline-health
+      - name: Download retrained operational state
+        if: needs.preflight-monitor.outputs.retrain == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: retrained-operational-state
 
-      - name: Build forecast monitoring report
-        if: steps.schedule_guard.outputs.should_run == 'true'
-        run: make forecast-monitor
+      - name: Build recommendations and dashboard from current champion
+        run: make operational-publish
 
-      - name: Decide operational action
-        id: operational_action
-        if: steps.schedule_guard.outputs.should_run == 'true'
-        run: python scripts/decide_operational_action.py --github-output "$GITHUB_OUTPUT"
-
-      - name: Retrain champion models when needed
-        if: steps.schedule_guard.outputs.should_run == 'true' && steps.operational_action.outputs.retrain == 'true'
-        run: make forecast-all
-
-      - name: Build recommendations from current champion
-        if: steps.schedule_guard.outputs.should_run == 'true' && steps.operational_action.outputs.retrain != 'true'
-        run: make future-recommendations
-
-      - name: Build dashboard payload
-        if: steps.schedule_guard.outputs.should_run == 'true'
-        run: |
-          make dashboard-data
-          make frontend-build
+      - name: Save operational model state
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: |
+            models
+            reports/metrics
+            reports/predictions
+            reports/rankings
+            reports/recommendations
+            reports/scenarios
+            reports/carbon
+            reports/monitoring
+          key: operational-model-state-${{ runner.os }}-${{ github.run_id }}
 
       - name: Deploy dashboard to Vercel
-        if: steps.schedule_guard.outputs.should_run == 'true'
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
@@ -171,7 +334,7 @@ jobs:
           vercel deploy --prebuilt --prod --yes --token="$VERCEL_TOKEN"
 
       - name: Upload monitoring reports
-        if: always() && steps.schedule_guard.outputs.should_run == 'true'
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ingestion-monitor-reports

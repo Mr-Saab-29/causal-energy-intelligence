@@ -1,7 +1,7 @@
 PYTHON ?= .venv/bin/python
 DAGSTER ?= .venv/bin/dagster
 
-.PHONY: help ingest-latest ingest-latest-cloud ingest-plan ingest-repair ingest-future ingest-future-cloud ingest-monitor ingest-monitor-cloud forecast-monitor future-recommendations operational-refresh train-all train-all-gated forecast-all forecast-all-candidate forecast-all-force quick-refresh daily-local-refresh forecast-price forecast-ranking forecast-decision forecast-recommendations forecast-scenarios forecast-decision-example forecast-consumption forecast-production forecast-supply-demand forecast-carbon pipeline-health pipeline-health-allow-stale dashboard-data frontend-install frontend-dev frontend-build mlflow-ui dagster-dev docker-build docker-up docker-down docker-observability
+.PHONY: help ingest-latest ingest-latest-cloud ingest-plan ingest-repair ingest-future ingest-future-cloud ingest-monitor ingest-monitor-cloud forecast-monitor future-recommendations operational-refresh operational-publish train-all train-all-gated forecast-all forecast-all-candidate forecast-all-force quick-refresh daily-local-refresh forecast-price forecast-ranking forecast-decision forecast-recommendations forecast-scenarios forecast-decision-example forecast-consumption forecast-production forecast-supply-demand forecast-carbon pipeline-health pipeline-health-allow-stale dashboard-data frontend-install frontend-dev frontend-build mlflow-ui dagster-dev docker-build docker-up docker-down docker-observability
 
 help:
 	@echo "Forecast training targets:"
@@ -16,6 +16,7 @@ help:
 	@echo "  make forecast-monitor        Build reports/metrics/forecast_monitoring.json"
 	@echo "  make future-recommendations  Build next-24h operational recommendations"
 	@echo "  make operational-refresh     Build future recommendations, monitor, and dashboard"
+	@echo "  make operational-publish     Rebuild recommendations, monitor, dashboard data, and frontend"
 	@echo "  make forecast-consumption    Train/evaluate consumption baselines only"
 	@echo "  make forecast-production     Train/evaluate total + source production baselines"
 	@echo "  make forecast-carbon         Calculate carbon outputs from saved source forecasts"
@@ -68,7 +69,9 @@ forecast-monitor:
 future-recommendations:
 	$(PYTHON) -m src.models.future_recommendations --horizon-hours 24
 
-operational-refresh: ingest-future future-recommendations pipeline-health forecast-monitor dashboard-data frontend-build
+operational-refresh: ingest-future operational-publish
+
+operational-publish: future-recommendations pipeline-health forecast-monitor dashboard-data frontend-build
 
 train-all:
 	$(PYTHON) -m src.models.train_forecast --target all
@@ -79,9 +82,7 @@ train-all-gated:
 forecast-all:
 	$(PYTHON) scripts/gated_retrain.py -- make forecast-all-candidate
 
-forecast-all-candidate: train-all ingest-future future-recommendations pipeline-health forecast-monitor
-	$(PYTHON) scripts/build_dashboard_data.py
-	npm --prefix frontend run build
+forecast-all-candidate: train-all ingest-future operational-publish
 
 forecast-all-force: forecast-all-candidate
 

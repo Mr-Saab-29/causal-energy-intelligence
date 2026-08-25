@@ -157,6 +157,7 @@ make train-all-gated
 make forecast-all
 make forecast-all-force
 make operational-refresh
+make operational-publish
 make ingest-monitor
 make ingest-monitor-cloud
 make forecast-monitor
@@ -169,6 +170,7 @@ Command intent:
 - `make train-all` retrains historical models and validation artifacts only.
 - `make train-all-gated` runs the historical retrain behind the incumbent promotion gate and is used by the Dagster full-refresh asset.
 - `make operational-refresh` uses current saved model artifacts to build next-24-hour future recommendations, future scenario recommendations, health/monitor reports, and the dashboard.
+- `make operational-publish` runs the fast publish stage after data/model state already exists: recommendations, health/monitor reports, dashboard data, and frontend build.
 - `make forecast-all` runs the gated full retrain and promotes the candidate only if it beats the incumbent. This is the default safe retraining command.
 - `make forecast-all-candidate` is the internal ungated candidate pipeline used by the promotion gate.
 - `make forecast-all-force` retrains and overwrites artifacts without the incumbent promotion gate. Use only when you intentionally want to bypass the guard.
@@ -177,7 +179,7 @@ Command intent:
 - `make forecast-monitor` writes `reports/metrics/forecast_monitoring.json` from existing artifacts.
 - `make dagster-dev` starts the local Dagster UI. The main jobs are `ingestion_monitor_refresh`, `daily_clean_hour_refresh`, and `quick_recommendation_refresh`.
 - Dagster schedules `ingestion_monitor_refresh` for `02:00` Europe/Paris every day. This scheduled job does not retrain models.
-- GitHub Actions workflow `.github/workflows/daily-ingestion-monitor.yml` provides a deployable no-cost daily ingestion monitor. It runs `make ingest-monitor-cloud` with the `SUPABASE_DATABASE_URL` secret and uploads health/monitoring reports.
+- GitHub Actions workflow `.github/workflows/daily-ingestion-monitor.yml` provides a deployable no-cost daily ingestion monitor. It runs ingestion, preflight monitoring, optional gated retraining, and dashboard publishing as separate chained jobs so failed downstream jobs can be rerun without repeating a completed retrain.
 - Monitoring trigger thresholds live in `config/monitoring_thresholds.yaml`.
 
 Current key artifacts:

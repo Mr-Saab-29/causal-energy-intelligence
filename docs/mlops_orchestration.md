@@ -77,11 +77,13 @@ GitHub cron is UTC-only, so the workflow triggers at both possible Paris UTC
 offsets and then skips unless `Europe/Paris` local time is `02:00`. The workflow
 can also be run manually from the GitHub Actions UI.
 
-The workflow runs:
+The workflow runs as chained jobs:
 
-```bash
-make ingest-monitor-cloud
-```
+- `schedule-guard`: skips duplicate UTC cron runs unless Paris local time is `02:00`
+- `ingest`: runs `make ingest-latest-cloud` and `make ingest-future-cloud`
+- `preflight-monitor`: restores current operational state, runs health/forecast monitors, and decides whether retraining is needed
+- `retrain`: runs `make train-all-gated` only when the preflight decision requests retraining
+- `publish-dashboard`: runs `make operational-publish`, saves the refreshed operational cache, and deploys the dashboard
 
 This cloud variant caps historical API ingestion to a recent 14-day lookback so
 an empty GitHub Actions cache cannot accidentally trigger a full 2023-to-present
@@ -100,7 +102,9 @@ run a gated retrain:
 The workflow then builds `frontend/public/data/dashboard.json` and deploys the
 prebuilt `frontend/dist` output to Vercel with the Vercel CLI. This keeps
 generated dashboard data out of git while still publishing fresh recommendations
-after each successful scheduled run.
+after each successful scheduled run. Because retraining and publishing are
+separate jobs, GitHub Actions can rerun a failed publish job without repeating a
+completed retrain from the same workflow run.
 
 Required GitHub repository secrets:
 

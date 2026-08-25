@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import sys
 from pathlib import Path
 from typing import Any
@@ -171,7 +172,10 @@ def main() -> None:
     }
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT_PATH.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    OUTPUT_PATH.write_text(
+        json.dumps(sanitize_json_value(payload), indent=2, allow_nan=False),
+        encoding="utf-8",
+    )
     print(f"Wrote {OUTPUT_PATH}")
 
 
@@ -262,7 +266,34 @@ def prepare_records(frame: pd.DataFrame) -> list[dict[str, Any]]:
         return []
     cleaned = frame.replace({pd.NA: None})
     cleaned = cleaned.where(pd.notna(cleaned), None)
-    return cleaned.to_dict(orient="records")
+    return sanitize_json_value(cleaned.to_dict(orient="records"))
+
+
+def sanitize_json_value(value: Any) -> Any:
+    """Return a value that can be emitted as strict JSON."""
+    if isinstance(value, dict):
+        return {str(key): sanitize_json_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [sanitize_json_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [sanitize_json_value(item) for item in value]
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, pd.Timestamp):
+        return value.isoformat()
+    if hasattr(value, "item"):
+        try:
+            return sanitize_json_value(value.item())
+        except (TypeError, ValueError):
+            pass
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    return value
 
 
 def enrich_scenario_recommendations(
