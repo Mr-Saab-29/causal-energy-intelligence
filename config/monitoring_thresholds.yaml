@@ -4,3 +4,7 @@ degradation_ratio: 1.25
 top5_drop_threshold: 0.15
 min_price_direction_accuracy: 0.50
 source_smape_degradation_ratio: 1.25
+max_high_uncertainty_share: 0.30
+max_no_low_risk_recommendation_share: 0.10
+min_average_confidence_score: 0.50
+min_rank_overlap_with_previous: 0.50

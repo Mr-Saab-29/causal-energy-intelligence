@@ -130,12 +130,26 @@ Current aggregate ranking performance:
 
 Current champion-model rule:
 
-- 45% carbon-intensity MAE
+- 35% realized recommendation regret
 - 25% carbon regret from the recommended hour versus the actual cleanest feasible hour
 - 20% top-5 ranking loss, combining pairwise ranking loss and `1 - top_5_f1`
 - 10% price-direction error versus the previous day at the same time
+- 10% carbon-intensity MAE as a forecast-quality reference term
 
 The champion model is selected dynamically from the generated metrics when the decision pipeline runs.
+Ranking-specific metrics include pairwise loss and top-5 precision/recall/F1 by decision group
+and by decision day. Scenario reranking metrics report the same top-5 and pairwise loss
+fields per scenario/model. Candidate hours with weak raw price/carbon score separation receive
+an uncertainty penalty before the final recommendation rank is assigned. If a decision group
+has no low-uncertainty candidates, the top row is marked as
+`no_low_risk_recommendation_available` rather than a normal recommendation.
+Confidence calibration uses minimum sample-size guards before trusting a bin or scenario slice.
+Retrain promotion also rejects candidates that improve the weighted score by trading off a
+material regression in recommendation regret or carbon regret.
+Prediction-interval half-widths are calibrated from historical candidate residual quantiles
+and reused in future recommendations as an additional uncertainty signal. The historical
+policy backtest evaluates the exact emitted rank-1 recommendation rows, including scenario
+rerankings. Scenario champion selection reports the best model per scenario.
 
 Current aggregate combined clean-hour decision performance with equal weights:
 
@@ -234,6 +248,12 @@ python -m src.models.train_forecast \
 - Champion model selection: `reports/metrics/champion_model_selection.json`
 - Scenario rerankings: `reports/scenarios/workload_scenario_recommendations.csv`
 - Scenario metrics: `reports/metrics/scenario_reranking_metrics.json`
+- Scenario confidence calibration: `reports/metrics/scenario_recommendation_confidence_calibration.json`
+- Historical recommendation drift metrics: `reports/metrics/recommendation_drift_metrics.json`
+- Future recommendation drift metrics: `reports/metrics/future_recommendation_drift_metrics.json`
+- Prediction interval calibration: `reports/metrics/recommendation_prediction_interval_calibration.json`
+- Recommendation policy backtest: `reports/metrics/recommendation_policy_backtest.json`
+- Scenario champion selection: `reports/metrics/scenario_champion_selection.json`
 - Supply/demand metrics: `reports/metrics/supply_demand_baseline_metrics.json`
 - Supply/demand predictions: `reports/predictions/supply_demand_baseline_predictions.csv`
 - Supply/demand feature importance: `reports/metrics/supply_demand_baseline_feature_importance.csv`

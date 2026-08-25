@@ -13,6 +13,9 @@ const fallbackDashboard = {
     recommendations: null,
     scenario_recommendations: null,
     future_scenario_recommendations: null,
+    recommendation_drift: null,
+    policy_backtest: null,
+    scenario_champion_selection: null,
   },
   champion: {
     model: null,
@@ -40,6 +43,8 @@ const fallbackDashboard = {
       champion_model: null,
     },
     date_count: 0,
+    policy_backtest: {},
+    scenario_champions: [],
     recommendation_count: 0,
     future_recommendation_file_rows: 0,
     active_future_recommendation_count: 0,
@@ -49,6 +54,7 @@ const fallbackDashboard = {
     stale_future_scenarios: false,
     average_confidence_score: null,
     high_confidence_share: null,
+    high_uncertainty_share: null,
   },
   pipeline_health: {
     status: "unknown",
@@ -61,6 +67,7 @@ const fallbackDashboard = {
     warnings: ["dashboard_sample_data"],
     reasons: [],
   },
+  recommendation_drift: {},
   filters: {
     dates: [],
     scenarios: ["clean_first", "balanced", "cost_aware_clean"],

@@ -25,6 +25,7 @@ OPERATIONAL_RANKING_HISTORY_PATH = ROOT / "reports/monitoring/operational_rankin
 CHAMPION_PATH = ROOT / "reports/metrics/champion_model_selection.json"
 RANKING_METRICS_PATH = ROOT / "reports/metrics/ranking_specific_metrics.json"
 CARBON_METRICS_PATH = ROOT / "reports/metrics/carbon_forecast_metrics.json"
+RECOMMENDATION_DRIFT_PATH = ROOT / "reports/metrics/future_recommendation_drift_metrics.json"
 EMISSION_FACTORS_PATH = ROOT / "config/emission_factors.yaml"
 MONITORING_THRESHOLDS_PATH = ROOT / "config/monitoring_thresholds.yaml"
 
@@ -50,12 +51,14 @@ def build_forecast_monitoring_report(
     historical = monitor_historical_rankings(champion_model, cutoff)
     operational = monitor_operational_rankings(features, champion_model, cutoff)
     source_drift = monitor_source_prediction_drift(champion_model, cutoff)
+    recommendation_drift = monitor_recommendation_drift()
     references = load_reference_metrics(champion_model)
     trigger = evaluate_retraining_trigger(
         pipeline_health=pipeline_health,
         historical=historical,
         operational=operational,
         source_drift=source_drift,
+        recommendation_drift=recommendation_drift,
         references=references,
         thresholds=thresholds,
     )
@@ -75,6 +78,7 @@ def build_forecast_monitoring_report(
         "historical_recent": historical,
         "operational_settled": operational,
         "source_prediction_drift": source_drift,
+        "recommendation_drift": recommendation_drift,
         "pipeline_health": summarize_pipeline_health(pipeline_health),
     }
     write_json(output_path, report)
@@ -275,6 +279,23 @@ def monitor_source_prediction_drift(champion_model: str | None, cutoff: pd.Times
     }
 
 
+def monitor_recommendation_drift() -> dict[str, Any]:
+    """Load recommendation drift metrics for threshold checks."""
+    drift = load_optional_json(RECOMMENDATION_DRIFT_PATH)
+    if not drift:
+        return unavailable("recommendation drift metrics unavailable")
+    recommendations = drift.get("recommendations", {})
+    return {
+        "available": True,
+        "generated_at_utc": drift.get("generated_at_utc"),
+        "high_uncertainty_share": recommendations.get("high_uncertainty_share"),
+        "average_confidence_score": recommendations.get("average_confidence_score"),
+        "recommendation_status_counts": recommendations.get("recommendation_status_counts", {}),
+        "rows": recommendations.get("rows", 0),
+        "rank_overlap_with_previous": drift.get("rank_overlap_with_previous"),
+    }
+
+
 def summarize_source_smape(frame: pd.DataFrame) -> list[dict[str, Any]]:
     """Summarize recent source sMAPE by production source."""
     rows = []
@@ -319,6 +340,7 @@ def evaluate_retraining_trigger(
     historical: dict[str, Any],
     operational: dict[str, Any],
     source_drift: dict[str, Any],
+    recommendation_drift: dict[str, Any],
     references: dict[str, Any],
     thresholds: dict[str, float | int],
 ) -> dict[str, Any]:
@@ -386,6 +408,38 @@ def evaluate_retraining_trigger(
             float(thresholds["source_smape_degradation_ratio"]),
         )
 
+    if recommendation_drift.get("available"):
+        compare_absolute_greater(
+            reasons,
+            "recommendation_high_uncertainty_share_high",
+            recommendation_drift.get("high_uncertainty_share"),
+            float(thresholds["max_high_uncertainty_share"]),
+        )
+        no_low_risk_share = recommendation_status_share(
+            recommendation_drift.get("recommendation_status_counts", {}),
+            int(recommendation_drift.get("rows", 0)),
+            "no_low_risk_recommendation_available",
+        )
+        compare_absolute_greater(
+            reasons,
+            "recommendation_no_low_risk_share_high",
+            no_low_risk_share,
+            float(thresholds["max_no_low_risk_recommendation_share"]),
+        )
+        if not meets_minimum(
+            recommendation_drift.get("average_confidence_score"),
+            float(thresholds["min_average_confidence_score"]),
+        ):
+            reasons.append("recommendation_average_confidence_low")
+        rank_overlap = recommendation_drift.get("rank_overlap_with_previous")
+        if rank_overlap is not None and not meets_minimum(
+            rank_overlap,
+            float(thresholds["min_rank_overlap_with_previous"]),
+        ):
+            reasons.append("recommendation_rank_overlap_low")
+    else:
+        warnings.append(str(recommendation_drift.get("reason", "recommendation drift unavailable")))
+
     return {
         "status": "warn" if reasons or warnings else "pass",
         "retraining_recommended": bool(reasons),
@@ -422,6 +476,30 @@ def compare_drop(
         return
     if current < reference - drop:
         reasons.append(reason)
+
+
+def compare_absolute_greater(
+    reasons: list[str],
+    reason: str,
+    current: float | None,
+    threshold: float,
+) -> None:
+    """Append reason when current exceeds an absolute threshold."""
+    if current is None or pd.isna(current):
+        return
+    if current > threshold:
+        reasons.append(reason)
+
+
+def recommendation_status_share(
+    status_counts: dict[str, Any],
+    rows: int,
+    status: str,
+) -> float | None:
+    """Return a status share from drift status counts."""
+    if rows <= 0:
+        return None
+    return float(status_counts.get(status, 0)) / rows
 
 
 def meets_minimum(current: float | None, minimum: float) -> bool:
@@ -519,6 +597,10 @@ def load_monitoring_thresholds(path: str | Path = MONITORING_THRESHOLDS_PATH) ->
         "top5_drop_threshold": 0.15,
         "min_price_direction_accuracy": 0.50,
         "source_smape_degradation_ratio": 1.25,
+        "max_high_uncertainty_share": 0.30,
+        "max_no_low_risk_recommendation_share": 0.10,
+        "min_average_confidence_score": 0.50,
+        "min_rank_overlap_with_previous": 0.50,
     }
     threshold_path = Path(path)
     if not threshold_path.exists():

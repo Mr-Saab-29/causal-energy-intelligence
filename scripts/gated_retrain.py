@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DECISION_PATH = ROOT / "reports/metrics/model_promotion_decision.json"
 CHAMPION_PATH = ROOT / "reports/metrics/champion_model_selection.json"
 SNAPSHOT_ROOT = ROOT / ".tmp/retrain_snapshots"
+MAX_GUARDED_METRIC_DEGRADATION = 1.05
 
 SNAPSHOT_PATHS = [
     ROOT / "models",
@@ -29,6 +30,7 @@ SNAPSHOT_PATHS = [
 ]
 
 PROMOTION_METRICS = {
+    "recommendation_regret": "mean_top_1_combined_regret",
     "carbon_intensity_error": "carbon_intensity_mae_g_co2e_per_kwh",
     "carbon_regret": "carbon_regret_g_co2e_per_kwh",
     "top_5_ranking_loss": "top_5_ranking_loss",
@@ -230,18 +232,34 @@ def evaluate_promotion(
         weight_sum += weight
     promotion_score = weighted_score / weight_sum if weight_sum else float("inf")
     required_score = 1.0 - min_improvement
-    promoted = promotion_score < required_score
+    guarded_degradations = {
+        metric: ratio
+        for metric, ratio in weighted_ratios.items()
+        if metric
+        in {
+            "mean_top_1_combined_regret",
+            "carbon_regret_g_co2e_per_kwh",
+        }
+        and ratio > MAX_GUARDED_METRIC_DEGRADATION
+    }
+    promoted = promotion_score < required_score and not guarded_degradations
     return {
         "promoted": promoted,
         "reason": (
             "candidate weighted relative score improved"
             if promoted
+            else "candidate regressed on guarded recommendation metrics"
+            if guarded_degradations
             else "candidate did not beat incumbent weighted relative score"
         ),
         "promotion_score_vs_incumbent": round(promotion_score, 6),
         "required_score": round(required_score, 6),
         "weighted_metric_ratios": {
             metric: round(value, 6) for metric, value in weighted_ratios.items()
+        },
+        "guarded_metric_degradation_limit": MAX_GUARDED_METRIC_DEGRADATION,
+        "guarded_metric_degradations": {
+            metric: round(value, 6) for metric, value in guarded_degradations.items()
         },
         "incumbent": summarize_champion(incumbent, incumbent_row),
         "candidate": summarize_champion(candidate, candidate_row),

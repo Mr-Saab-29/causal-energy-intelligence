@@ -25,8 +25,11 @@ def main() -> None:
     decision_metrics = read_json(ROOT / "reports/metrics/workload_decision_metrics.json")
     ranking_metrics = read_json(ROOT / "reports/metrics/ranking_specific_metrics.json")
     scenario_metrics = read_json(ROOT / "reports/metrics/scenario_reranking_metrics.json")
+    policy_backtest = read_json(ROOT / "reports/metrics/recommendation_policy_backtest.json")
+    scenario_champions = read_json(ROOT / "reports/metrics/scenario_champion_selection.json")
     forecast_monitoring_path = ROOT / "reports/metrics/forecast_monitoring.json"
     forecast_monitoring = read_json(forecast_monitoring_path)
+    recommendation_drift = read_json(ROOT / "reports/metrics/future_recommendation_drift_metrics.json")
     forecast_monitoring_stale = is_forecast_monitoring_stale(forecast_monitoring_path)
     pipeline_health = build_pipeline_health(DEFAULT_OUTPUT_PATH)
     recommendations = read_csv(
@@ -76,6 +79,9 @@ def main() -> None:
                 if not active_future_scenario_recommendations.empty
                 else None
             ),
+            "recommendation_drift": "reports/metrics/future_recommendation_drift_metrics.json",
+            "policy_backtest": "reports/metrics/recommendation_policy_backtest.json",
+            "scenario_champion_selection": "reports/metrics/scenario_champion_selection.json",
         },
         "champion": {
             "model": champion.get("champion_model"),
@@ -93,6 +99,8 @@ def main() -> None:
             "decision_metrics": decision_metrics.get("summary", []),
             "ranking_metrics": ranking_metrics.get("summary", []),
             "scenario_metrics": scenario_metrics.get("summary", []),
+            "policy_backtest": policy_backtest,
+            "scenario_champions": scenario_champions.get("champions", []),
             "date_count": int(active_recommendations["decision_group"].nunique())
             if not active_recommendations.empty
             else 0,
@@ -118,12 +126,18 @@ def main() -> None:
             )
             if "confidence_level" in active_recommendations
             else None,
+            "high_uncertainty_share": safe_float(
+                active_recommendations["decision_uncertainty_score"].gt(0.85).mean()
+            )
+            if "decision_uncertainty_score" in active_recommendations
+            else None,
         },
         "pipeline_health": pipeline_health,
         "forecast_monitoring": {
             **forecast_monitoring,
             "stale": forecast_monitoring_stale,
         },
+        "recommendation_drift": recommendation_drift,
         "filters": {
             "dates": safe_unique(active_recommendations, "decision_group"),
             "scenarios": safe_unique(active_scenario_recommendations, "scenario"),
@@ -203,7 +217,9 @@ def enrich_scenario_recommendations(
         "expected_cost_regret_eur_mwh",
     ]
     available_context_columns = [
-        column for column in context_columns if column in recommendation_frame
+        column
+        for column in context_columns
+        if column in recommendation_frame and column not in scenario_frame
     ]
     if not available_context_columns:
         return scenario_frame

@@ -116,11 +116,15 @@ The platform now has a working France electricity decision-support baseline:
 - Operational recommendations are written to `reports/recommendations/future_champion_workload_recommendations.csv`.
 - Future scenario recommendations are written to `reports/scenarios/future_workload_scenario_recommendations.csv`.
 - Recommendations show price direction versus the previous day at the same time instead of presenting price as the main dashboard forecast.
-- The champion model is selected from generated metrics with a carbon-first score: 45% carbon-intensity error, 25% carbon regret, 20% top-5 ranking loss, and 10% price-direction error.
-- Full retraining is guarded by an incumbent-vs-candidate promotion gate. A candidate retrain is promoted only when its weighted lower-is-better decision metrics beat the current production champion; otherwise the incumbent artifacts are restored.
+- The champion model is selected from generated metrics with a regret-first score: 35% realized recommendation regret, 25% carbon regret, 20% top-5 ranking loss, 10% price-direction error, and 10% carbon-intensity error.
+- Full retraining is guarded by an incumbent-vs-candidate promotion gate. A candidate retrain is promoted only when its weighted lower-is-better decision metrics beat the current production champion and recommendation/carbon regret do not regress beyond tolerance; otherwise the incumbent artifacts are restored.
 - The latest promotion decision is written to `reports/metrics/model_promotion_decision.json`.
-- The ranking layer is evaluated by top-k capture, pairwise ranking loss, top-5 classification metrics, regret by day/window, and savings versus running immediately.
+- Historical policy backtests evaluate the exact emitted rank-1 recommendation by model and scenario.
+- Scenario-level champion selection reports the best model separately for clean-first, balanced, and cost-aware-clean preferences.
+- The ranking layer is evaluated by top-k capture, pairwise ranking loss by decision day/window, top-5 classification metrics, regret by day/window, and savings versus running immediately.
 - A ranking-specific top-5 classifier is trained on historical decision candidates and accepted only when out-of-window combined regret and carbon regret do not degrade versus the baseline ranking score.
+- Candidate hours with weak raw price/carbon score separation receive an uncertainty penalty before recommendation ranking. When no low-uncertainty candidate exists, the export marks the row as `no_low_risk_recommendation_available`.
+- Empirical prediction-interval half-widths are calibrated from historical candidate residual quantiles and reused for future recommendation uncertainty.
 - Workload recommendations support duration, earliest start, latest end, max-delay, price-weight, and carbon-weight constraints.
 - Scenario reranking is available for clean-first, balanced, and cost-aware-clean preferences. The dashboard scenario selector now changes the active future top-5 recommendation list, KPIs, and chart.
 - Ranking currently uses strict forecast-time features: calendar features, lagged prices, lagged/rolling supply-demand signals, and upstream forecasted consumption/production.
@@ -129,7 +133,7 @@ The platform now has a working France electricity decision-support baseline:
 - Historical validation windows are assigned dynamically from the ingested data. The final validation/test window is the latest 90 days ending at the latest modeling timestamp.
 - The dashboard shows a health/status band from `reports/metrics/pipeline_health.json`.
 - The dashboard shows forecast-monitoring status from `reports/metrics/forecast_monitoring.json`, including whether retraining is recommended and why. It also marks the monitor as stale if model-quality artifacts changed after the monitor report was generated.
-- Recommendation confidence is calibrated from historical confidence bins, empirical top-5 hit rates, and observed regret.
+- Recommendation confidence is calibrated from historical confidence bins, empirical top-5 hit rates, and observed regret, with minimum sample-size guards and scenario-specific calibration for scenario rerankings.
 - The dashboard recommendation rows now show explicit carbon intensity, price direction versus yesterday, calibrated confidence, expected regret, and expandable details.
 - MLflow tracking hooks and a Dagster refresh skeleton are in place. Docker files exist, but Docker execution is currently optional and can be skipped during local development.
 - Notebook `notebooks/02_forecasting.ipynb` reads the generated metrics and diagnostics.
@@ -189,6 +193,11 @@ Current key artifacts:
 - Ranking-specific metrics: `reports/metrics/ranking_specific_metrics.json`
 - Ranking model metrics: `reports/metrics/ranking_model_metrics.json`
 - Confidence calibration: `reports/metrics/recommendation_confidence_calibration.json`
+- Scenario confidence calibration: `reports/metrics/scenario_recommendation_confidence_calibration.json`
+- Historical recommendation drift metrics: `reports/metrics/recommendation_drift_metrics.json`
+- Prediction interval calibration: `reports/metrics/recommendation_prediction_interval_calibration.json`
+- Recommendation policy backtest: `reports/metrics/recommendation_policy_backtest.json`
+- Scenario champion selection: `reports/metrics/scenario_champion_selection.json`
 - Monitoring thresholds: `config/monitoring_thresholds.yaml`
 - Champion model selection: `reports/metrics/champion_model_selection.json`
 - Scenario rerankings: `reports/scenarios/workload_scenario_recommendations.csv`
@@ -198,6 +207,7 @@ Current key artifacts:
 - Future decision rankings: `reports/rankings/future_workload_decision_rankings.csv`
 - Future champion recommendations: `reports/recommendations/future_champion_workload_recommendations.csv`
 - Future recommendation metadata: `reports/metrics/future_recommendation_metadata.json`
+- Recommendation drift metrics: `reports/metrics/future_recommendation_drift_metrics.json`
 - Pipeline health: `reports/metrics/pipeline_health.json`
 - Forecast monitoring: `reports/metrics/forecast_monitoring.json`
 - Model promotion decision: `reports/metrics/model_promotion_decision.json`

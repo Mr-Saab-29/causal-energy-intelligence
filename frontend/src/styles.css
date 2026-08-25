@@ -153,7 +153,7 @@ select:disabled {
 
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 14px;
   margin-bottom: 16px;
 }
@@ -232,7 +232,7 @@ select:disabled {
 .recommendation-header,
 .recommendation-summary {
   display: grid;
-  grid-template-columns: 48px minmax(130px, 1.1fr) minmax(120px, 0.8fr) minmax(150px, 0.9fr) minmax(150px, 0.9fr);
+  grid-template-columns: 48px minmax(130px, 1.1fr) minmax(120px, 0.8fr) minmax(150px, 0.9fr) minmax(150px, 0.9fr) minmax(150px, 0.9fr);
   align-items: center;
   gap: 12px;
 }
@@ -315,7 +315,8 @@ select:disabled {
 }
 
 .direction-badge,
-.confidence-badge {
+.confidence-badge,
+.risk-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -361,6 +362,23 @@ select:disabled {
 .confidence-badge.unavailable {
   background: #ebe7de;
   color: #655c50;
+}
+
+.risk-badge.ok {
+  background: #dff2ea;
+  color: #176851;
+}
+
+.risk-badge.blocked {
+  background: #fff2cc;
+  color: #76580b;
+}
+
+.scenario-champion {
+  background: #f8f5ef;
+  border: 1px solid #e8e0d3;
+  border-radius: 6px;
+  padding: 0 10px;
 }
 
 .chart-area {

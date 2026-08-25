@@ -97,6 +97,9 @@ function App() {
   }
 
   const topRecommendation = recommendations[0];
+  const selectedScenarioChampion = payload.summary?.scenario_champions?.find(
+    (row) => row.scenario === selectedScenario,
+  );
   const carbonChart = recommendations.map((row) => ({
     hour: formatHour(row.timestamp_utc),
     carbon: row.predicted_avg_carbon_intensity_g_co2e_per_kwh,
@@ -205,6 +208,16 @@ function App() {
               : "No confidence"
           }
         />
+        <Metric
+          icon={<AlertTriangle size={20} />}
+          label="Risk status"
+          value={topRecommendation ? formatRecommendationStatus(topRecommendation.recommendation_status) : "-"}
+          detail={
+            topRecommendation?.decision_uncertainty_score != null
+              ? `${Math.round(topRecommendation.decision_uncertainty_score * 100)}% uncertainty`
+              : "No uncertainty score"
+          }
+        />
       </section>
 
       <section className="content-grid">
@@ -222,6 +235,7 @@ function App() {
               <span>Carbon intensity</span>
               <span>Price vs yesterday</span>
               <span>Confidence</span>
+              <span>Risk</span>
             </div>
             {recommendations.length === 0 && (
               <div className="empty-state">
@@ -287,6 +301,14 @@ function App() {
             </div>
           </div>
           <div className="scenario-table">
+            {selectedScenarioChampion && (
+              <div className="scenario-row scenario-champion">
+                <span className="rank">Best</span>
+                <strong>{shortModel(selectedScenarioChampion.model)}</strong>
+                <span>{formatFixed(selectedScenarioChampion.mean_scenario_regret)} regret</span>
+                <span>{formatFixed(selectedScenarioChampion.top_5_f1)} top-5 F1</span>
+              </div>
+            )}
             {scenarioRecommendations.length === 0 && (
               <div className="empty-state">
                 No scenario recommendations are available yet.
@@ -297,7 +319,11 @@ function App() {
                 <span className="rank">#{row.recommendation_rank}</span>
                 <strong>{formatHour(row.timestamp_utc)}</strong>
                 <span>{formatFixed(row.predicted_avg_carbon_intensity_g_co2e_per_kwh)} gCO2e/kWh</span>
-                <DirectionBadge value={row.predicted_price_direction_vs_previous_day} />
+                {row.recommendation_status === "no_low_risk_recommendation_available" ? (
+                  <RiskBadge status={row.recommendation_status} />
+                ) : (
+                  <DirectionBadge value={row.predicted_price_direction_vs_previous_day} />
+                )}
               </div>
             ))}
           </div>
@@ -372,8 +398,32 @@ function RecommendationRow({ row }) {
           <ConfidenceBadge level={row.confidence_level} score={row.confidence_score} />
           <small>{confidenceAvailable ? "rank and margin score" : "scenario rerank"}</small>
         </span>
+        <span className="metric-cell">
+          <RiskBadge status={row.recommendation_status} />
+          <small>
+            {row.decision_uncertainty_score != null
+              ? `${Math.round(row.decision_uncertainty_score * 100)}% uncertainty`
+              : "uncertainty unavailable"}
+          </small>
+        </span>
       </summary>
       <div className="recommendation-details">
+        <DetailItem
+          label="Recommendation status"
+          value={formatRecommendationStatus(row.recommendation_status)}
+        />
+        {row.predicted_price_interval_half_width_eur_mwh != null && (
+          <DetailItem
+            label="Price interval half-width"
+            value={`${formatFixed(row.predicted_price_interval_half_width_eur_mwh)} EUR/MWh`}
+          />
+        )}
+        {row.predicted_carbon_interval_half_width_g_co2e_per_kwh != null && (
+          <DetailItem
+            label="Carbon interval half-width"
+            value={`${formatFixed(row.predicted_carbon_interval_half_width_g_co2e_per_kwh)} gCO2e/kWh`}
+          />
+        )}
         <DetailItem
           label="Predicted total emissions"
           value={`${formatNumber(row.predicted_total_emissions_kg_co2e)} kgCO2e`}
@@ -468,6 +518,16 @@ function ConfidenceBadge({ level, score }) {
   );
 }
 
+function RiskBadge({ status }) {
+  const isNoLowRisk = status === "no_low_risk_recommendation_available";
+  return (
+    <span className={`risk-badge ${isNoLowRisk ? "blocked" : "ok"}`}>
+      {isNoLowRisk ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />}
+      {formatRecommendationStatus(status)}
+    </span>
+  );
+}
+
 function formatHour(value) {
   return new Intl.DateTimeFormat("en-GB", {
     hour: "2-digit",
@@ -498,6 +558,13 @@ function shortModel(value) {
 }
 
 function formatScenario(value) {
+  return value.split("_").map(titleCase).join(" ");
+}
+
+function formatRecommendationStatus(value) {
+  if (!value) return "Unknown";
+  if (value === "no_low_risk_recommendation_available") return "No low-risk hour";
+  if (value === "recommended") return "Recommended";
   return value.split("_").map(titleCase).join(" ");
 }
 

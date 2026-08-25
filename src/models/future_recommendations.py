@@ -27,14 +27,19 @@ from src.models.baseline_price import (
     supply_demand_feature_columns,
 )
 from src.optimization.workload_shift import (
+    PREDICTION_INTERVAL_CALIBRATION_PATH,
+    SCENARIO_CONFIDENCE_CALIBRATION_PATH,
     WorkloadConstraints,
     add_recommendation_confidence,
     apply_confidence_calibration,
+    apply_prediction_interval_uncertainty,
     apply_saved_ranking_model_overlay,
     build_scenario_rerankings,
     build_top_workload_recommendations,
     build_workload_decision_rankings,
     load_confidence_calibration,
+    summarize_recommendation_drift,
+    validate_columns,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -44,6 +49,7 @@ OUTPUT_PATH = ROOT / "reports/recommendations/future_champion_workload_recommend
 RANKING_OUTPUT_PATH = ROOT / "reports/rankings/future_workload_decision_rankings.csv"
 SCENARIO_OUTPUT_PATH = ROOT / "reports/scenarios/future_workload_scenario_recommendations.csv"
 METADATA_OUTPUT_PATH = ROOT / "reports/metrics/future_recommendation_metadata.json"
+DRIFT_OUTPUT_PATH = ROOT / "reports/metrics/future_recommendation_drift_metrics.json"
 EMISSION_FACTORS_PATH = ROOT / "config/emission_factors.yaml"
 OPERATIONAL_RECOMMENDATION_HISTORY_PATH = (
     ROOT / "reports/monitoring/operational_recommendation_history.csv"
@@ -82,6 +88,10 @@ def build_future_recommendations(
         hourly,
         WorkloadConstraints(price_weight=0.5, carbon_weight=0.5),
     )
+    rankings = apply_prediction_interval_uncertainty(
+        rankings,
+        load_confidence_calibration(PREDICTION_INTERVAL_CALIBRATION_PATH),
+    )
     rankings = apply_saved_ranking_model_overlay(rankings)
     recommendations = build_top_workload_recommendations(rankings, top_n=5)
     recommendations = add_recommendation_confidence(recommendations, rankings, top_n=5)
@@ -90,13 +100,31 @@ def build_future_recommendations(
         load_confidence_calibration(),
     )
     scenario_recommendations, _ = build_scenario_rerankings(rankings, top_n=5)
+    scenario_recommendations = apply_confidence_calibration(
+        scenario_recommendations,
+        load_confidence_calibration(SCENARIO_CONFIDENCE_CALIBRATION_PATH),
+    )
+    previous_recommendations = load_latest_operational_recommendation_snapshot(
+        OPERATIONAL_RECOMMENDATION_HISTORY_PATH
+    )
+    drift_metrics = summarize_recommendation_drift(
+        recommendations,
+        scenario_recommendations,
+        previous_recommendations=previous_recommendations,
+    )
     recommendations["is_future_recommendation"] = True
     rankings["is_future_recommendation"] = True
     scenario_recommendations["is_future_recommendation"] = True
+    validate_future_recommendation_artifacts(
+        rankings,
+        recommendations,
+        scenario_recommendations,
+    )
 
     write_csv(ranking_output_path, rankings)
     write_csv(output_path, recommendations)
     write_csv(scenario_output_path, scenario_recommendations)
+    write_json(DRIFT_OUTPUT_PATH, drift_metrics)
     summary = FutureRecommendationSummary(
         generated_at_utc=datetime.now(UTC).isoformat(),
         horizon_hours=horizon_hours,
@@ -379,6 +407,61 @@ def write_json(path: str | Path, payload: dict[str, Any]) -> None:
     output.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
+def validate_future_recommendation_artifacts(
+    rankings: pd.DataFrame,
+    recommendations: pd.DataFrame,
+    scenario_recommendations: pd.DataFrame,
+) -> None:
+    """Validate operational recommendation exports before writing them."""
+    validate_columns(
+        rankings,
+        [
+            TIMESTAMP_COLUMN,
+            "window",
+            "model",
+            "decision_group",
+            "predicted_decision_rank",
+            "decision_uncertainty_score",
+            "uncertainty_guard_applied",
+        ],
+        "future workload rankings",
+    )
+    validate_columns(
+        recommendations,
+        [
+            "window",
+            "model",
+            "decision_group",
+            "recommendation_rank",
+            "recommendation_status",
+            TIMESTAMP_COLUMN,
+            "confidence_score",
+            "confidence_level",
+            "expected_combined_regret",
+            "decision_uncertainty_score",
+            "prediction_interval_uncertainty_score",
+        ],
+        "future recommendations",
+    )
+    validate_columns(
+        scenario_recommendations,
+        [
+            "scenario",
+            "window",
+            "model",
+            "decision_group",
+            "recommendation_rank",
+            "recommendation_status",
+            TIMESTAMP_COLUMN,
+            "confidence_score",
+            "confidence_level",
+            "expected_combined_regret",
+            "decision_uncertainty_score",
+        ],
+        "future scenario recommendations",
+    )
+
+
 def append_operational_history(
     frame: pd.DataFrame,
     path: str | Path,
@@ -390,6 +473,20 @@ def append_operational_history(
     history = frame.copy()
     history["forecast_generated_at_utc"] = generated_at_utc
     history.to_csv(output, mode="a", index=False, header=not output.exists())
+
+
+def load_latest_operational_recommendation_snapshot(path: str | Path) -> pd.DataFrame:
+    """Load the latest previously generated operational recommendation rows."""
+    history_path = Path(path)
+    if not history_path.exists():
+        return pd.DataFrame()
+    history = pd.read_csv(history_path)
+    if history.empty or "forecast_generated_at_utc" not in history:
+        return pd.DataFrame()
+    latest_generation = history["forecast_generated_at_utc"].dropna().max()
+    if pd.isna(latest_generation):
+        return pd.DataFrame()
+    return history[history["forecast_generated_at_utc"] == latest_generation].copy()
 
 
 def main(argv: list[str] | None = None) -> None:
