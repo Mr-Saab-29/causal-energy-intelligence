@@ -166,7 +166,10 @@ jobs:
           printf '{"projectId":"%s","orgId":"%s","projectName":"causal-energy-intelligence"}\n' "$VERCEL_PROJECT_ID" "$VERCEL_ORG_ID" > .vercel/project.json
           vercel whoami --token="$VERCEL_TOKEN"
           test -f dist/index.html
-          vercel deploy dist --prod --yes --token="$VERCEL_TOKEN"
+          mkdir -p .vercel/output/static
+          cp -R dist/. .vercel/output/static/
+          printf '{"version":3,"routes":[{"handle":"filesystem"},{"src":"/.*","dest":"/index.html"}]}\n' > .vercel/output/config.json
+          vercel deploy --prebuilt --prod --yes --token="$VERCEL_TOKEN"
 
       - name: Upload monitoring reports
         if: always() && steps.schedule_guard.outputs.should_run == 'true'
