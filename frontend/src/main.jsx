@@ -69,7 +69,8 @@ function App() {
       )
       .sort((left, right) => left.recommendation_rank - right.recommendation_rank);
   }, [payload, selectedDate, selectedScenario]);
-  const recommendations = scenarioRecommendations.length > 0 ? scenarioRecommendations : baseRecommendations;
+  const hasScenarioMode = (payload?.filters?.scenarios ?? []).length > 0;
+  const recommendations = hasScenarioMode ? scenarioRecommendations : baseRecommendations;
 
   const championMetrics = useMemo(() => {
     if (!payload?.champion?.model) return null;
@@ -225,7 +226,7 @@ function App() {
           <div className="panel-heading">
             <div>
               <h2>Clean-Hour Recommendations</h2>
-              <p>Top 5 future workload start hours for {formatScenario(selectedScenario)}. Carbon intensity is predicted operational gCO2e per kWh.</p>
+              <p>Top 5 future workload start hours for {formatScenario(selectedScenario)}. Scenario rank and score update with the selector.</p>
             </div>
           </div>
           <div className="recommendation-list">
@@ -385,6 +386,9 @@ function RecommendationRow({ row }) {
         <span className="time-cell">
           <strong>{formatHour(row.timestamp_utc)}</strong>
           <small>{formatDateTime(row.timestamp_utc)} UTC</small>
+          {row.scenario && (
+            <small>{formatScenario(row.scenario)} score {formatFixed(row.predicted_scenario_score)}</small>
+          )}
         </span>
         <span className="metric-cell">
           <strong>{formatFixed(row.predicted_avg_carbon_intensity_g_co2e_per_kwh)}</strong>
@@ -519,11 +523,12 @@ function ConfidenceBadge({ level, score }) {
 }
 
 function RiskBadge({ status }) {
-  const isNoLowRisk = status === "no_low_risk_recommendation_available";
+  const normalizedStatus = status ?? "recommended";
+  const isNoLowRisk = normalizedStatus === "no_low_risk_recommendation_available";
   return (
     <span className={`risk-badge ${isNoLowRisk ? "blocked" : "ok"}`}>
       {isNoLowRisk ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />}
-      {formatRecommendationStatus(status)}
+      {formatRecommendationStatus(normalizedStatus)}
     </span>
   );
 }

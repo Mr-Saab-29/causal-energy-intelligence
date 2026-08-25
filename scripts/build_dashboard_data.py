@@ -14,6 +14,15 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.data.pipeline_health import DEFAULT_OUTPUT_PATH, build_pipeline_health
+from src.optimization.workload_shift import (
+    CONFIDENCE_CALIBRATION_PATH,
+    SCENARIO_CONFIDENCE_CALIBRATION_PATH,
+    add_recommendation_confidence,
+    apply_confidence_calibration,
+    build_scenario_rerankings,
+    build_top_workload_recommendations,
+    load_confidence_calibration,
+)
 
 OUTPUT_PATH = ROOT / "frontend/public/data/dashboard.json"
 PRODUCTION_MODEL_LABEL = "Production Model V1"
@@ -38,7 +47,13 @@ def main() -> None:
     future_recommendations = read_csv(
         ROOT / "reports/recommendations/future_champion_workload_recommendations.csv"
     )
-    active_future_recommendations = filter_future_recommendations(future_recommendations)
+    future_rankings = read_csv(
+        ROOT / "reports/rankings/future_workload_decision_rankings.csv"
+    )
+    active_future_recommendations = build_active_future_recommendations(
+        future_recommendations,
+        future_rankings,
+    )
     active_recommendations = (
         active_future_recommendations
         if not active_future_recommendations.empty
@@ -50,8 +65,9 @@ def main() -> None:
     future_scenario_recommendations = read_csv(
         ROOT / "reports/scenarios/future_workload_scenario_recommendations.csv"
     )
-    active_future_scenario_recommendations = filter_future_recommendations(
-        future_scenario_recommendations
+    active_future_scenario_recommendations = build_active_future_scenario_recommendations(
+        future_scenario_recommendations,
+        future_rankings,
     )
     active_scenario_recommendations = (
         active_future_scenario_recommendations
@@ -63,8 +79,16 @@ def main() -> None:
         active_scenario_recommendations,
         active_recommendations,
     )
+    active_recommendations = normalize_recommendation_fields(active_recommendations)
+    active_scenario_recommendations = normalize_recommendation_fields(
+        active_scenario_recommendations
+    )
     recommendation_rows = prepare_records(active_recommendations)
     scenario_rows = prepare_records(active_scenario_recommendations)
+    filter_dates = sorted(
+        set(safe_unique(active_recommendations, "decision_group"))
+        | set(safe_unique(active_scenario_recommendations, "decision_group"))
+    )
     payload = {
         "generated_from": {
             "champion_model_selection": "reports/metrics/champion_model_selection.json",
@@ -139,7 +163,7 @@ def main() -> None:
         },
         "recommendation_drift": recommendation_drift,
         "filters": {
-            "dates": safe_unique(active_recommendations, "decision_group"),
+            "dates": filter_dates,
             "scenarios": safe_unique(active_scenario_recommendations, "scenario"),
         },
         "recommendations": recommendation_rows,
@@ -175,6 +199,54 @@ def filter_future_recommendations(
     timestamps = pd.to_datetime(frame["timestamp_utc"], utc=True, errors="coerce")
     current_hour = (now or pd.Timestamp.now(tz="UTC")).floor("h")
     return frame.loc[timestamps >= current_hour].copy()
+
+
+def build_active_future_recommendations(
+    recommendations: pd.DataFrame,
+    rankings: pd.DataFrame,
+    now: pd.Timestamp | None = None,
+    top_n: int = 5,
+) -> pd.DataFrame:
+    """Return active top-N recommendations, refilling from future rankings when needed."""
+    active = filter_future_recommendations(recommendations, now=now)
+    if has_top_n_per_group(active, ["window", "model", "decision_group"], top_n):
+        return active
+    active_rankings = filter_future_recommendations(rankings, now=now)
+    if active_rankings.empty:
+        return active
+    rebuilt = build_top_workload_recommendations(active_rankings, top_n=top_n)
+    rebuilt = add_recommendation_confidence(rebuilt, active_rankings, top_n=top_n)
+    return apply_confidence_calibration(
+        rebuilt,
+        load_confidence_calibration(CONFIDENCE_CALIBRATION_PATH),
+    )
+
+
+def build_active_future_scenario_recommendations(
+    scenario_recommendations: pd.DataFrame,
+    rankings: pd.DataFrame,
+    now: pd.Timestamp | None = None,
+    top_n: int = 5,
+) -> pd.DataFrame:
+    """Return active scenario top-N rows, refilling from future rankings when needed."""
+    active = filter_future_recommendations(scenario_recommendations, now=now)
+    if has_top_n_per_group(active, ["scenario", "window", "model", "decision_group"], top_n):
+        return active
+    active_rankings = filter_future_recommendations(rankings, now=now)
+    if active_rankings.empty:
+        return active
+    rebuilt, _ = build_scenario_rerankings(active_rankings, top_n=top_n)
+    return apply_confidence_calibration(
+        rebuilt,
+        load_confidence_calibration(SCENARIO_CONFIDENCE_CALIBRATION_PATH),
+    )
+
+
+def has_top_n_per_group(frame: pd.DataFrame, group_columns: list[str], top_n: int) -> bool:
+    """Return whether every visible group has at least top-N rows."""
+    if frame.empty or not all(column in frame for column in group_columns):
+        return False
+    return bool((frame.groupby(group_columns, dropna=False).size() >= top_n).all())
 
 
 def safe_unique(frame: pd.DataFrame, column: str) -> list[Any]:
@@ -228,6 +300,37 @@ def enrich_scenario_recommendations(
         subset=join_columns
     )
     return scenario_frame.merge(context, on=join_columns, how="left")
+
+
+def normalize_recommendation_fields(frame: pd.DataFrame) -> pd.DataFrame:
+    """Fill optional recommendation fields expected by the dashboard."""
+    if frame.empty:
+        return frame
+    output = frame.copy()
+    if "recommendation_status" not in output:
+        output["recommendation_status"] = "recommended"
+    output["recommendation_status"] = output["recommendation_status"].fillna("recommended")
+    if "suppressed_by_uncertainty_guard" not in output:
+        output["suppressed_by_uncertainty_guard"] = False
+    output["suppressed_by_uncertainty_guard"] = output[
+        "suppressed_by_uncertainty_guard"
+    ].fillna(False)
+    if "decision_uncertainty_score" not in output:
+        output["decision_uncertainty_score"] = None
+    rank_group_columns = [
+        column
+        for column in ["scenario", "window", "model", "decision_group"]
+        if column in output
+    ]
+    if "recommendation_rank" in output and rank_group_columns:
+        output = output.sort_values(
+            rank_group_columns + ["recommendation_rank", "timestamp_utc"],
+            na_position="last",
+        ).copy()
+        output["recommendation_rank"] = (
+            output.groupby(rank_group_columns, dropna=False).cumcount() + 1
+        )
+    return output
 
 
 def safe_float(value: float) -> float | None:

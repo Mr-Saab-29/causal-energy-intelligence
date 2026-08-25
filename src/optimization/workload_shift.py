@@ -938,14 +938,18 @@ def build_top_workload_recommendations(rankings: pd.DataFrame, top_n: int = 5) -
         group_columns + ["predicted_decision_rank", TIMESTAMP_COLUMN]
     ).groupby(group_columns, observed=True):
         low_risk = group[group["is_low_uncertainty_candidate"]]
-        if low_risk.empty:
-            selected = group.head(1).copy()
-            selected["recommendation_status"] = RECOMMENDATION_STATUS_NO_LOW_RISK
-            selected["suppressed_by_uncertainty_guard"] = True
-        else:
-            selected = low_risk.head(top_n).copy()
-            selected["recommendation_status"] = RECOMMENDATION_STATUS_OK
-            selected["suppressed_by_uncertainty_guard"] = False
+        selected = low_risk.head(top_n).copy()
+        if len(selected) < top_n:
+            fill = group.drop(index=selected.index).head(top_n - len(selected)).copy()
+            selected = pd.concat([selected, fill], ignore_index=False)
+        selected["recommendation_status"] = np.where(
+            selected["is_low_uncertainty_candidate"],
+            RECOMMENDATION_STATUS_OK,
+            RECOMMENDATION_STATUS_NO_LOW_RISK,
+        )
+        selected["suppressed_by_uncertainty_guard"] = ~selected[
+            "is_low_uncertainty_candidate"
+        ]
         selected["recommendation_rank"] = range(1, len(selected) + 1)
         selected["eligible_low_uncertainty_candidate_count"] = int(len(low_risk))
         recommended_frames.append(selected)
@@ -1562,14 +1566,18 @@ def build_top_scenario_recommendations(rankings: pd.DataFrame, top_n: int) -> pd
         group_columns + ["predicted_scenario_rank", TIMESTAMP_COLUMN]
     ).groupby(group_columns, observed=True):
         low_risk = group[group["is_low_uncertainty_candidate"]]
-        if low_risk.empty:
-            selected = group.head(1).copy()
-            selected["recommendation_status"] = RECOMMENDATION_STATUS_NO_LOW_RISK
-            selected["suppressed_by_uncertainty_guard"] = True
-        else:
-            selected = low_risk.head(top_n).copy()
-            selected["recommendation_status"] = RECOMMENDATION_STATUS_OK
-            selected["suppressed_by_uncertainty_guard"] = False
+        selected = low_risk.head(top_n).copy()
+        if len(selected) < top_n:
+            fill = group.drop(index=selected.index).head(top_n - len(selected)).copy()
+            selected = pd.concat([selected, fill], ignore_index=False)
+        selected["recommendation_status"] = np.where(
+            selected["is_low_uncertainty_candidate"],
+            RECOMMENDATION_STATUS_OK,
+            RECOMMENDATION_STATUS_NO_LOW_RISK,
+        )
+        selected["suppressed_by_uncertainty_guard"] = ~selected[
+            "is_low_uncertainty_candidate"
+        ]
         selected["recommendation_rank"] = range(1, len(selected) + 1)
         selected["eligible_low_uncertainty_candidate_count"] = int(len(low_risk))
         recommended_frames.append(selected)

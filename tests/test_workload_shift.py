@@ -180,10 +180,13 @@ def test_top_recommendations_emit_no_low_risk_status_when_all_candidates_uncerta
 
     recommendations = build_top_workload_recommendations(rankings, top_n=5)
 
+    assert len(recommendations) == 3
     assert recommendations["recommendation_status"].tolist() == [
-        "no_low_risk_recommendation_available"
+        "no_low_risk_recommendation_available",
+        "no_low_risk_recommendation_available",
+        "no_low_risk_recommendation_available",
     ]
-    assert recommendations["suppressed_by_uncertainty_guard"].tolist() == [True]
+    assert recommendations["suppressed_by_uncertainty_guard"].tolist() == [True, True, True]
 
 
 def test_default_confidence_calibration_skips_small_scenario_bins() -> None:

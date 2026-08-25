@@ -211,6 +211,10 @@ select:disabled {
   min-width: 0;
 }
 
+.recommendations-panel {
+  overflow: hidden;
+}
+
 .panel-heading {
   display: flex;
   align-items: flex-start;
@@ -222,6 +226,9 @@ select:disabled {
 .recommendation-list {
   display: grid;
   gap: 8px;
+  max-width: 100%;
+  overflow-x: auto;
+  padding-bottom: 4px;
 }
 
 .recommendation-header,
@@ -232,9 +239,10 @@ select:disabled {
 .recommendation-header,
 .recommendation-summary {
   display: grid;
-  grid-template-columns: 48px minmax(130px, 1.1fr) minmax(120px, 0.8fr) minmax(150px, 0.9fr) minmax(150px, 0.9fr) minmax(150px, 0.9fr);
+  grid-template-columns: 44px minmax(128px, 1fr) minmax(116px, 0.72fr) minmax(132px, 0.82fr) minmax(132px, 0.82fr) minmax(128px, 0.76fr);
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  min-width: 820px;
 }
 
 .recommendation-header {
@@ -326,6 +334,8 @@ select:disabled {
   padding: 6px 8px;
   font-size: 0.82rem;
   font-weight: 800;
+  max-width: 100%;
+  white-space: nowrap;
 }
 
 .direction-badge.decrease {
@@ -493,6 +503,7 @@ select:disabled {
 
   .recommendation-summary {
     grid-template-columns: 42px minmax(0, 1fr);
+    min-width: 0;
   }
 
   .recommendation-row {
