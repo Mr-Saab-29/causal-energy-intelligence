@@ -50,3 +50,4 @@ codex_session*.pdf
 codex_session_to_pdf.py
 *.tmp.yml
 *.tmp.yaml
+.vercel
