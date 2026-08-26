@@ -70,12 +70,15 @@ The deployable no-cost ingestion monitor lives at:
 It runs on GitHub Actions using:
 
 ```text
-cron: 0 0,1 * * *
+cron: 17 0 * * *
+cron: 17 1 * * *
 ```
 
 GitHub cron is UTC-only, so the workflow triggers at both possible Paris UTC
-offsets and then skips unless `Europe/Paris` local time is `02:00`. The workflow
-can also be run manually from the GitHub Actions UI.
+offsets and then skips unless the scheduled UTC time maps to the `02:00`
+Europe/Paris hour. The guard checks the intended cron time, not the delayed
+runner start time, so a queued run does not skip just because GitHub starts it
+late. The workflow can also be run manually from the GitHub Actions UI.
 
 The workflow runs as chained jobs:
 

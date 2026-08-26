@@ -3,8 +3,10 @@ name: Daily ingestion monitor
 on:
   schedule:
     # GitHub cron is UTC-only. Trigger at both possible UTC offsets and
-    # run only when Europe/Paris local time is 02:00.
-    - cron: "0 0,1 * * *"
+    # run only when the scheduled time maps to 02:00 Europe/Paris. Avoid minute
+    # 0 because GitHub Actions scheduled workflows can be delayed under load.
+    - cron: "17 0 * * *"
+    - cron: "17 1 * * *"
   workflow_dispatch:
 
 env:
@@ -24,19 +26,17 @@ jobs:
     outputs:
       should_run: ${{ steps.schedule_guard.outputs.should_run }}
     steps:
-      - name: Keep only the 02:00 Europe/Paris run
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Keep only the 02:00 Europe/Paris hour
         id: schedule_guard
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if [ "$(TZ=Europe/Paris date +%H)" = "02" ]; then
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "should_run=false" >> "$GITHUB_OUTPUT"
-            echo "Skipping because local Europe/Paris time is not 02:00."
-          fi
+        run: python scripts/should_run_paris_schedule.py --event-name "${{ github.event_name }}" --schedule "${{ github.event.schedule }}" --github-output "$GITHUB_OUTPUT"
 
   ingest:
     needs: schedule-guard
