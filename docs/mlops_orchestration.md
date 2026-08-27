@@ -71,19 +71,19 @@ It runs on GitHub Actions using:
 
 ```text
 cron: 17 0 * * *
-cron: 17 1 * * *
 ```
 
-GitHub cron is UTC-only, so the workflow triggers at both possible Paris UTC
-offsets and then skips unless the scheduled UTC time maps to the `02:00`
-Europe/Paris hour. The guard checks the intended cron time, not the delayed
-runner start time, so a queued run does not skip just because GitHub starts it
-late. The workflow can also be run manually from the GitHub Actions UI.
+GitHub cron is UTC-only, so `00:17` UTC lands at `02:17` Europe/Paris during
+summer time and `01:17` Europe/Paris during winter time. The guard allows
+scheduled runs that start inside the `00:00-06:00` Europe/Paris window, so a
+queued run can start late without being skipped as long as it is still inside
+the overnight window. The workflow can also be run manually from the GitHub
+Actions UI.
 
 The workflow runs as chained jobs:
 
-- `schedule-guard`: skips duplicate UTC cron runs unless Paris local time is `02:00`
-- `ingest`: runs `make ingest-latest-cloud` and `make ingest-future-cloud`
+- `schedule-guard`: skips scheduled runs that start outside the `00:00-06:00` Europe/Paris window
+- `ingest`: runs `make ingest-latest-cloud` and `make ingest-future-cloud`; this job has a 45-minute timeout because upstream APIs and Supabase writes can exceed the normal 15-minute fast-path during slow refreshes
 - `preflight-monitor`: restores current operational state, runs health/forecast monitors, and decides whether retraining is needed
 - `retrain`: runs `make train-all-gated` only when the preflight decision requests retraining
 - `publish-dashboard`: runs `make operational-publish`, saves the refreshed operational cache, and deploys the dashboard

@@ -1,55 +1,67 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import datetime, timezone
 
 import pytest
 
-from scripts.should_run_paris_schedule import is_intended_local_hour, parse_cron_minute_hour
+from scripts.should_run_paris_schedule import is_local_time_in_window
 
 
 def test_manual_dispatch_always_runs() -> None:
-    assert is_intended_local_hour(
+    assert is_local_time_in_window(
         event_name="workflow_dispatch",
-        schedule="",
-        target_hour=2,
+        window_start_hour=0,
+        window_end_hour=6,
         timezone_name="Europe/Paris",
     )
 
 
-def test_summer_uses_utc_midnight_schedule_for_paris_02() -> None:
-    assert is_intended_local_hour(
+def test_summer_utc_midnight_run_is_inside_paris_window() -> None:
+    assert is_local_time_in_window(
         event_name="schedule",
-        schedule="17 0 * * *",
-        target_hour=2,
+        window_start_hour=0,
+        window_end_hour=6,
         timezone_name="Europe/Paris",
-        utc_date=date(2026, 8, 26),
+        now_utc=datetime(2026, 8, 26, 0, 17, tzinfo=timezone.utc),
     )
-    assert not is_intended_local_hour(
+
+
+def test_winter_utc_midnight_run_is_inside_paris_window() -> None:
+    assert is_local_time_in_window(
         event_name="schedule",
-        schedule="17 1 * * *",
-        target_hour=2,
+        window_start_hour=0,
+        window_end_hour=6,
         timezone_name="Europe/Paris",
-        utc_date=date(2026, 8, 26),
+        now_utc=datetime(2026, 1, 26, 0, 17, tzinfo=timezone.utc),
     )
 
 
-def test_winter_uses_utc_01_schedule_for_paris_02() -> None:
-    assert not is_intended_local_hour(
+def test_delayed_start_inside_paris_window_still_runs() -> None:
+    assert is_local_time_in_window(
         event_name="schedule",
-        schedule="17 0 * * *",
-        target_hour=2,
+        window_start_hour=0,
+        window_end_hour=6,
         timezone_name="Europe/Paris",
-        utc_date=date(2026, 1, 26),
+        now_utc=datetime(2026, 8, 26, 2, 30, tzinfo=timezone.utc),
     )
-    assert is_intended_local_hour(
+
+
+def test_start_after_paris_window_skips() -> None:
+    assert not is_local_time_in_window(
         event_name="schedule",
-        schedule="17 1 * * *",
-        target_hour=2,
+        window_start_hour=0,
+        window_end_hour=6,
         timezone_name="Europe/Paris",
-        utc_date=date(2026, 1, 26),
+        now_utc=datetime(2026, 8, 26, 4, 0, tzinfo=timezone.utc),
     )
 
 
-def test_parse_cron_minute_hour_rejects_combined_hours() -> None:
+def test_rejects_invalid_window() -> None:
     with pytest.raises(ValueError):
-        parse_cron_minute_hour("17 0,1 * * *")
+        is_local_time_in_window(
+            event_name="schedule",
+            window_start_hour=6,
+            window_end_hour=0,
+            timezone_name="Europe/Paris",
+            now_utc=datetime(2026, 8, 26, 0, 17, tzinfo=timezone.utc),
+        )

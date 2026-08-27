@@ -2,11 +2,9 @@ name: Daily ingestion monitor
 
 on:
   schedule:
-    # GitHub cron is UTC-only. Trigger at both possible UTC offsets and
-    # run only when the scheduled time maps to 02:00 Europe/Paris. Avoid minute
-    # 0 because GitHub Actions scheduled workflows can be delayed under load.
+    # GitHub cron is UTC-only. 00:17 UTC lands inside 00:00-06:00
+    # Europe/Paris in both summer and winter, while avoiding minute 0.
     - cron: "17 0 * * *"
-    - cron: "17 1 * * *"
   workflow_dispatch:
 
 env:
@@ -34,15 +32,15 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Keep only the 02:00 Europe/Paris hour
+      - name: Keep only the 00:00-06:00 Europe/Paris window
         id: schedule_guard
-        run: python scripts/should_run_paris_schedule.py --event-name "${{ github.event_name }}" --schedule "${{ github.event.schedule }}" --github-output "$GITHUB_OUTPUT"
+        run: python scripts/should_run_paris_schedule.py --event-name "${{ github.event_name }}" --schedule "${{ github.event.schedule }}" --window-start-hour 0 --window-end-hour 6 --github-output "$GITHUB_OUTPUT"
 
   ingest:
     needs: schedule-guard
     if: needs.schedule-guard.outputs.should_run == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
