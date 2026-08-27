@@ -153,6 +153,8 @@ make forecast-ranking
 make forecast-decision
 make forecast-recommendations
 make forecast-scenarios
+make marginal-emissions
+make causal-recommendations
 make train-all
 make train-all-gated
 make forecast-all
@@ -175,6 +177,8 @@ Command intent:
 - `make forecast-all` runs the gated full retrain and promotes the candidate only if it beats the incumbent. This is the default safe retraining command.
 - `make forecast-all-candidate` is the internal ungated candidate pipeline used by the promotion gate.
 - `make forecast-all-force` retrains and overwrites artifacts without the incumbent promotion gate. Use only when you intentionally want to bypass the guard.
+- `make marginal-emissions` builds the Sprint 2 marginal-emissions proxy from hourly carbon outputs.
+- `make causal-recommendations` compares average-carbon and marginal-carbon rankings, quantifies shifts, and exports causal-adjusted recommendations.
 - `make ingest-monitor` ingests latest API data, runs pipeline health, and writes the forecast monitoring report without retraining.
 - `make ingest-monitor-cloud` is the deployable scheduled variant. It requires `DATABASE_URL`, limits historical ingestion to a recent 14-day lookback, writes transformed rows to Supabase, refreshes future weather, and avoids expensive bootstrap backfills.
 - `make forecast-monitor` writes `reports/metrics/forecast_monitoring.json` from existing artifacts.
@@ -216,6 +220,11 @@ Current key artifacts:
 - Model promotion decision: `reports/metrics/model_promotion_decision.json`
 - Operational forecast history: `reports/monitoring/operational_ranking_history.csv`
 - Dashboard data contract: `frontend/public/data/dashboard.json`
+- Marginal emissions proxy: `reports/carbon/marginal_emissions_proxy.csv`
+- Marginal emissions metrics: `reports/metrics/marginal_emissions_proxy_metrics.json`
+- Marginal workload rankings: `reports/rankings/marginal_workload_decision_rankings.csv`
+- Causal-adjusted recommendations: `reports/recommendations/causal_adjusted_workload_recommendations.csv`
+- Marginal ranking shift metrics: `reports/metrics/marginal_ranking_shift_metrics.json`
 - Supply/demand metrics: `reports/metrics/supply_demand_baseline_metrics.json`
 - Supply/demand predictions: `reports/predictions/supply_demand_baseline_predictions.csv`
 - Feature importance: `reports/metrics/*feature_importance.csv`
