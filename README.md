@@ -75,7 +75,8 @@ Vercel deployment:
 - Set the Vercel project root directory to `frontend`.
 - Use build command `npm run build`.
 - Use output directory `dist`.
-- The build includes a sample dashboard data contract if `frontend/public/data/dashboard.json` has not been generated. That keeps the deployment healthy while ingestion and recommendation publishing are being wired in.
+- Automatic Vercel Git deployments are disabled in `frontend/vercel.json`. Deploy through the scheduled GitHub Actions workflow so the generated live dashboard data is included.
+- The local/frontend build still includes a sample dashboard data contract if `frontend/public/data/dashboard.json` has not been generated. That keeps local builds healthy, but it is not the production deployment path.
 
 Daily automated deployment uses GitHub Actions and Vercel CLI so generated
 dashboard data does not need to be committed. Add these GitHub repository

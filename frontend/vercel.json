@@ -3,6 +3,9 @@
   "installCommand": "npm ci",
   "outputDirectory": "dist",
   "framework": "vite",
+  "git": {
+    "deploymentEnabled": false
+  },
   "build": {
     "env": {
       "NODE_VERSION": "24"
