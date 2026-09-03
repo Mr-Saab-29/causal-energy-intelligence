@@ -16,6 +16,8 @@ const fallbackDashboard = {
     recommendation_drift: null,
     policy_backtest: null,
     scenario_champion_selection: null,
+    marginal_ranking_shift_metrics: null,
+    causal_adjusted_recommendations: null,
   },
   champion: {
     model: null,
@@ -45,11 +47,22 @@ const fallbackDashboard = {
     date_count: 0,
     policy_backtest: {},
     scenario_champions: [],
+    marginal_ranking_shift: {
+      method: null,
+      quality_status: "unknown",
+      warnings: ["dashboard_sample_data"],
+      top_1_change_share: null,
+      mean_top_5_overlap_share: null,
+      mean_absolute_rank_shift: null,
+      mean_causal_adjustment_coverage: null,
+      mean_top_1_regret_delta: null,
+    },
     recommendation_count: 0,
     future_recommendation_file_rows: 0,
     active_future_recommendation_count: 0,
     future_scenario_file_rows: 0,
     active_future_scenario_count: 0,
+    active_future_causal_count: 0,
     stale_future_recommendations: false,
     stale_future_scenarios: false,
     average_confidence_score: null,
@@ -68,12 +81,14 @@ const fallbackDashboard = {
     reasons: [],
   },
   recommendation_drift: {},
+  marginal_ranking_shift: {},
   filters: {
     dates: [],
     scenarios: ["clean_first", "balanced", "cost_aware_clean"],
   },
   recommendations: [],
   scenario_recommendations: [],
+  causal_recommendations: [],
 };
 
 if (!existsSync(dashboardPath)) {

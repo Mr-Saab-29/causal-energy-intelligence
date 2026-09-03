@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import patch
 
 import pandas as pd
 
 from src.causal.recommendations import (
     build_causal_adjusted_recommendations,
     build_marginal_workload_rankings,
+    run_all_causal_adjusted_recommendations,
     run_causal_adjusted_recommendations,
     summarize_ranking_shifts,
 )
+import src.causal.recommendations as causal_recommendations
 from src.optimization.workload_shift import WorkloadConstraints, build_workload_decision_rankings
 
 
@@ -44,6 +47,8 @@ def test_shift_metrics_quantify_top_changes() -> None:
     assert metrics["aggregate"]["groups"] == 1
     assert metrics["aggregate"]["top_1_change_share"] == 1.0
     assert metrics["aggregate"]["mean_top_5_overlap_share"] == 1 / 3
+    assert metrics["method"] == "marginal_proxy_mvp"
+    assert metrics["quality_guard"]["status"] == "ok"
     assert metrics["summary"][0]["top_1_average_timestamp_utc"] == "2026-01-01T00:00:00+00:00"
     assert metrics["summary"][0]["top_1_marginal_timestamp_utc"] == "2026-01-01T02:00:00+00:00"
 
@@ -91,6 +96,111 @@ def test_run_causal_adjusted_recommendations_writes_outputs(tmp_path) -> None:
     assert len(pd.read_csv(recommendation_path)) == 2
     json.loads(metrics_path.read_text(encoding="utf-8"))
     assert "NaN" not in metrics_path.read_text(encoding="utf-8")
+
+
+def test_rankings_from_average_proxy_warn_when_coverage_is_low() -> None:
+    average_rankings = sample_average_rankings()
+    marginal_rankings = build_marginal_workload_rankings(
+        average_rankings,
+        pd.DataFrame(),
+        constraints=WorkloadConstraints(price_weight=0.0, carbon_weight=1.0),
+    )
+
+    metrics = summarize_ranking_shifts(average_rankings, marginal_rankings, top_n=2)
+
+    assert metrics["quality_guard"]["status"] == "warning"
+    assert metrics["quality_guard"]["warnings"] == ["low_marginal_proxy_coverage"]
+    assert "predicted_marginal_carbon_intensity_g_co2e_per_kwh" in marginal_rankings
+
+
+def test_run_all_causal_adjusted_recommendations_writes_future_outputs(tmp_path) -> None:
+    historical_path = tmp_path / "historical.csv"
+    future_path = tmp_path / "future.csv"
+    proxy_path = tmp_path / "proxy.csv"
+    future_ranking_path = tmp_path / "future_marginal.csv"
+    future_recommendation_path = tmp_path / "future_recommendations.csv"
+    metrics_path = tmp_path / "metrics.json"
+    sample_average_rankings().to_csv(historical_path, index=False)
+    sample_average_rankings().to_csv(future_path, index=False)
+    sample_marginal_proxy().to_csv(proxy_path, index=False)
+
+    with (
+        patch.object(causal_recommendations, "DEFAULT_AVERAGE_RANKINGS_PATH", str(historical_path)),
+        patch.object(causal_recommendations, "DEFAULT_FUTURE_AVERAGE_RANKINGS_PATH", str(future_path)),
+        patch.object(causal_recommendations, "DEFAULT_MARGINAL_PROXY_PATH", str(proxy_path)),
+        patch.object(
+            causal_recommendations,
+            "DEFAULT_RANKING_OUTPUT_PATH",
+            str(tmp_path / "historical_marginal.csv"),
+        ),
+        patch.object(
+            causal_recommendations,
+            "DEFAULT_RECOMMENDATION_OUTPUT_PATH",
+            str(tmp_path / "historical_recommendations.csv"),
+        ),
+        patch.object(
+            causal_recommendations,
+            "DEFAULT_FUTURE_RANKING_OUTPUT_PATH",
+            str(future_ranking_path),
+        ),
+        patch.object(
+            causal_recommendations,
+            "DEFAULT_FUTURE_RECOMMENDATION_OUTPUT_PATH",
+            str(future_recommendation_path),
+        ),
+        patch.object(causal_recommendations, "DEFAULT_METRICS_OUTPUT_PATH", str(metrics_path)),
+    ):
+        result = run_all_causal_adjusted_recommendations(top_n=2)
+
+    assert result["future"]["aggregate"]["groups"] == 1
+    assert future_ranking_path.exists()
+    assert future_recommendation_path.exists()
+    assert json.loads(metrics_path.read_text(encoding="utf-8"))["quality_guard"]["status"]
+
+
+def test_run_all_causal_adjusted_recommendations_skips_missing_historical(tmp_path) -> None:
+    future_path = tmp_path / "future.csv"
+    future_ranking_path = tmp_path / "future_marginal.csv"
+    future_recommendation_path = tmp_path / "future_recommendations.csv"
+    metrics_path = tmp_path / "metrics.json"
+    sample_average_rankings().to_csv(future_path, index=False)
+
+    with (
+        patch.object(
+            causal_recommendations,
+            "DEFAULT_AVERAGE_RANKINGS_PATH",
+            str(tmp_path / "missing_historical.csv"),
+        ),
+        patch.object(causal_recommendations, "DEFAULT_FUTURE_AVERAGE_RANKINGS_PATH", str(future_path)),
+        patch.object(causal_recommendations, "DEFAULT_MARGINAL_PROXY_PATH", str(tmp_path / "proxy.csv")),
+        patch.object(
+            causal_recommendations,
+            "DEFAULT_RANKING_OUTPUT_PATH",
+            str(tmp_path / "historical_marginal.csv"),
+        ),
+        patch.object(
+            causal_recommendations,
+            "DEFAULT_RECOMMENDATION_OUTPUT_PATH",
+            str(tmp_path / "historical_recommendations.csv"),
+        ),
+        patch.object(
+            causal_recommendations,
+            "DEFAULT_FUTURE_RANKING_OUTPUT_PATH",
+            str(future_ranking_path),
+        ),
+        patch.object(
+            causal_recommendations,
+            "DEFAULT_FUTURE_RECOMMENDATION_OUTPUT_PATH",
+            str(future_recommendation_path),
+        ),
+        patch.object(causal_recommendations, "DEFAULT_METRICS_OUTPUT_PATH", str(metrics_path)),
+    ):
+        result = run_all_causal_adjusted_recommendations(top_n=2)
+
+    assert result["historical"]["status"] == "skipped"
+    assert future_ranking_path.exists()
+    assert future_recommendation_path.exists()
+    assert metrics_path.exists()
 
 
 def sample_average_rankings() -> pd.DataFrame:

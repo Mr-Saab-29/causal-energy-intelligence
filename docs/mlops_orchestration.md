@@ -133,7 +133,10 @@ It uploads these operational outputs as workflow artifacts for inspection:
 - `reports/metrics/forecast_monitoring.json`
 - `reports/metrics/model_promotion_decision.json`
 - `reports/metrics/future_recommendation_metadata.json`
+- `reports/metrics/marginal_ranking_shift_metrics.json`
+- `reports/rankings/future_marginal_workload_decision_rankings.csv`
 - `reports/recommendations/future_champion_workload_recommendations.csv`
+- `reports/recommendations/future_causal_adjusted_workload_recommendations.csv`
 - `reports/scenarios/future_workload_scenario_recommendations.csv`
 - `frontend/public/data/dashboard.json`
 
@@ -200,7 +203,8 @@ make operational-refresh
 
 This fetches future exogenous weather, scores the next 24 hours with saved model
 artifacts, writes `reports/recommendations/future_champion_workload_recommendations.csv`,
-and rebuilds the dashboard JSON. Use `make train-all` when you only want to
+adds causal-adjusted MVP recommendations from the marginal-emissions proxy, and
+rebuilds the dashboard JSON. Use `make train-all` when you only want to
 refresh historical validation artifacts and saved model artifacts.
 
 To retrain the entire project and refresh the future dashboard output in one command:

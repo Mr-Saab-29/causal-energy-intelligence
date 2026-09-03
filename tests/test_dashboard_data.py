@@ -5,12 +5,14 @@ import math
 import pandas as pd
 
 from scripts.build_dashboard_data import (
+    build_active_future_causal_recommendations,
     build_active_future_recommendations,
     build_active_future_scenario_recommendations,
     enrich_scenario_recommendations,
     filter_future_recommendations,
     normalize_recommendation_fields,
     sanitize_json_value,
+    summarize_marginal_shift_metrics,
 )
 from src.optimization.workload_shift import WorkloadConstraints, build_workload_decision_rankings
 
@@ -149,6 +151,39 @@ def test_sanitize_json_value_replaces_non_finite_numbers() -> None:
     }
 
 
+def test_summarize_marginal_shift_metrics_prefers_future_report() -> None:
+    report = {
+        "historical": {
+            "method": "marginal_proxy_mvp",
+            "aggregate": {"top_1_change_share": 0.0},
+        },
+        "future": {
+            "method": "marginal_proxy_mvp",
+            "quality_guard": {"status": "warning", "warnings": ["low_marginal_proxy_coverage"]},
+            "aggregate": {
+                "top_1_change_share": 0.5,
+                "mean_top_5_overlap_share": 0.8,
+                "mean_absolute_rank_shift": 1.25,
+                "mean_causal_adjustment_coverage": 0.75,
+                "mean_top_1_regret_delta": -0.2,
+            },
+        },
+    }
+
+    summary = summarize_marginal_shift_metrics(report)
+
+    assert summary == {
+        "method": "marginal_proxy_mvp",
+        "quality_status": "warning",
+        "warnings": ["low_marginal_proxy_coverage"],
+        "top_1_change_share": 0.5,
+        "mean_top_5_overlap_share": 0.8,
+        "mean_absolute_rank_shift": 1.25,
+        "mean_causal_adjustment_coverage": 0.75,
+        "mean_top_1_regret_delta": -0.2,
+    }
+
+
 def test_active_future_recommendations_refill_to_top5_after_past_rows_drop() -> None:
     rankings = sample_future_rankings()
     stale_top5 = rankings[rankings["predicted_decision_rank"] <= 5].copy()
@@ -201,6 +236,38 @@ def test_active_future_scenario_recommendations_refill_each_scenario_to_top5() -
 
     assert set(active["scenario"]) == {"balanced", "clean_first", "cost_aware_clean"}
     assert active.groupby("scenario").size().tolist() == [5, 5, 5]
+
+
+def test_active_future_causal_recommendations_refill_preserves_proxy_context() -> None:
+    rankings = sample_future_rankings()
+    rankings["carbon_ranking_strategy"] = "marginal_proxy"
+    rankings["causal_carbon_source"] = "marginal_emissions_proxy"
+    rankings["causal_adjustment_available"] = True
+    rankings["average_predicted_decision_rank"] = rankings["predicted_decision_rank"] + 1
+    rankings["average_actual_decision_rank"] = rankings["actual_decision_rank"] + 1
+    rankings["average_predicted_carbon_rank"] = rankings["predicted_carbon_rank"] + 1
+    rankings["average_actual_carbon_rank"] = rankings["actual_carbon_rank"] + 1
+    rankings["causal_adjusted_rank_shift"] = -1
+    rankings["predicted_marginal_carbon_intensity_g_co2e_per_kwh"] = (
+        rankings["predicted_avg_carbon_intensity_g_co2e_per_kwh"] + 10
+    )
+    rankings["actual_marginal_carbon_intensity_g_co2e_per_kwh"] = (
+        rankings["actual_avg_carbon_intensity_g_co2e_per_kwh"] + 10
+    )
+    rankings["predicted_marginal_proxy_confidence"] = "medium"
+    stale_top5 = rankings[rankings["predicted_decision_rank"] <= 5].copy()
+    stale_top5["recommendation_rank"] = stale_top5["predicted_decision_rank"]
+
+    active = build_active_future_causal_recommendations(
+        stale_top5,
+        rankings,
+        now=pd.Timestamp("2026-08-25T02:15:00Z"),
+    )
+
+    assert len(active) == 5
+    assert active["recommendation_rank"].tolist() == [1, 2, 3, 4, 5]
+    assert active["carbon_ranking_strategy"].eq("marginal_proxy").all()
+    assert "predicted_marginal_carbon_intensity_g_co2e_per_kwh" in active
 
 
 def sample_future_rankings() -> pd.DataFrame:

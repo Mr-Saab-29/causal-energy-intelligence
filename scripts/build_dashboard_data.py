@@ -15,6 +15,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.data.pipeline_health import DEFAULT_OUTPUT_PATH, build_pipeline_health
+from src.causal.recommendations import build_causal_adjusted_recommendations
 from src.optimization.workload_shift import (
     CONFIDENCE_CALIBRATION_PATH,
     SCENARIO_CONFIDENCE_CALIBRATION_PATH,
@@ -37,6 +38,7 @@ def main() -> None:
     scenario_metrics = read_json(ROOT / "reports/metrics/scenario_reranking_metrics.json")
     policy_backtest = read_json(ROOT / "reports/metrics/recommendation_policy_backtest.json")
     scenario_champions = read_json(ROOT / "reports/metrics/scenario_champion_selection.json")
+    marginal_shift_metrics = read_json(ROOT / "reports/metrics/marginal_ranking_shift_metrics.json")
     forecast_monitoring_path = ROOT / "reports/metrics/forecast_monitoring.json"
     forecast_monitoring = read_json(forecast_monitoring_path)
     recommendation_drift = read_json(ROOT / "reports/metrics/future_recommendation_drift_metrics.json")
@@ -50,6 +52,12 @@ def main() -> None:
     )
     future_rankings = read_csv(
         ROOT / "reports/rankings/future_workload_decision_rankings.csv"
+    )
+    future_causal_recommendations = read_csv(
+        ROOT / "reports/recommendations/future_causal_adjusted_workload_recommendations.csv"
+    )
+    future_marginal_rankings = read_csv(
+        ROOT / "reports/rankings/future_marginal_workload_decision_rankings.csv"
     )
     active_future_recommendations = build_active_future_recommendations(
         future_recommendations,
@@ -84,11 +92,20 @@ def main() -> None:
     active_scenario_recommendations = normalize_recommendation_fields(
         active_scenario_recommendations
     )
+    active_future_causal_recommendations = build_active_future_causal_recommendations(
+        future_causal_recommendations,
+        future_marginal_rankings,
+    )
+    active_causal_recommendations = normalize_recommendation_fields(
+        active_future_causal_recommendations
+    )
     recommendation_rows = prepare_records(active_recommendations)
     scenario_rows = prepare_records(active_scenario_recommendations)
+    causal_rows = prepare_records(active_causal_recommendations)
     filter_dates = sorted(
         set(safe_unique(active_recommendations, "decision_group"))
         | set(safe_unique(active_scenario_recommendations, "decision_group"))
+        | set(safe_unique(active_causal_recommendations, "decision_group"))
     )
     payload = {
         "generated_from": {
@@ -107,6 +124,16 @@ def main() -> None:
             "recommendation_drift": "reports/metrics/future_recommendation_drift_metrics.json",
             "policy_backtest": "reports/metrics/recommendation_policy_backtest.json",
             "scenario_champion_selection": "reports/metrics/scenario_champion_selection.json",
+            "marginal_ranking_shift_metrics": (
+                "reports/metrics/marginal_ranking_shift_metrics.json"
+                if marginal_shift_metrics
+                else None
+            ),
+            "causal_adjusted_recommendations": (
+                "reports/recommendations/future_causal_adjusted_workload_recommendations.csv"
+                if not future_causal_recommendations.empty
+                else None
+            ),
         },
         "champion": {
             "model": champion.get("champion_model"),
@@ -126,6 +153,9 @@ def main() -> None:
             "scenario_metrics": scenario_metrics.get("summary", []),
             "policy_backtest": policy_backtest,
             "scenario_champions": scenario_champions.get("champions", []),
+            "marginal_ranking_shift": summarize_marginal_shift_metrics(
+                marginal_shift_metrics
+            ),
             "date_count": int(active_recommendations["decision_group"].nunique())
             if not active_recommendations.empty
             else 0,
@@ -134,6 +164,7 @@ def main() -> None:
             "active_future_recommendation_count": int(len(active_future_recommendations)),
             "future_scenario_file_rows": int(len(future_scenario_recommendations)),
             "active_future_scenario_count": int(len(active_future_scenario_recommendations)),
+            "active_future_causal_count": int(len(active_causal_recommendations)),
             "stale_future_recommendations": bool(
                 not future_recommendations.empty and active_future_recommendations.empty
             ),
@@ -163,12 +194,14 @@ def main() -> None:
             "stale": forecast_monitoring_stale,
         },
         "recommendation_drift": recommendation_drift,
+        "marginal_ranking_shift": marginal_shift_metrics,
         "filters": {
             "dates": filter_dates,
             "scenarios": safe_unique(active_scenario_recommendations, "scenario"),
         },
         "recommendations": recommendation_rows,
         "scenario_recommendations": scenario_rows,
+        "causal_recommendations": causal_rows,
     }
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -244,6 +277,22 @@ def build_active_future_scenario_recommendations(
         rebuilt,
         load_confidence_calibration(SCENARIO_CONFIDENCE_CALIBRATION_PATH),
     )
+
+
+def build_active_future_causal_recommendations(
+    recommendations: pd.DataFrame,
+    marginal_rankings: pd.DataFrame,
+    now: pd.Timestamp | None = None,
+    top_n: int = 5,
+) -> pd.DataFrame:
+    """Return active causal-adjusted top-N rows, preserving marginal proxy context."""
+    active = filter_future_recommendations(recommendations, now=now)
+    if has_top_n_per_group(active, ["window", "model", "decision_group"], top_n):
+        return active
+    active_rankings = filter_future_recommendations(marginal_rankings, now=now)
+    if active_rankings.empty:
+        return active
+    return build_causal_adjusted_recommendations(active_rankings, top_n=top_n)
 
 
 def has_top_n_per_group(frame: pd.DataFrame, group_columns: list[str], top_n: int) -> bool:
@@ -398,6 +447,25 @@ def summarize_forecast_monitoring(report: dict[str, Any], stale: bool = False) -
         "warning_count": len(report.get("warnings", [])),
         "latest_actual_timestamp_utc": report.get("latest_actual_timestamp_utc"),
         "champion_model": report.get("champion_model"),
+    }
+
+
+def summarize_marginal_shift_metrics(report: dict[str, Any]) -> dict[str, Any]:
+    """Return compact causal-adjusted MVP metrics for the dashboard."""
+    future = report.get("future", report) if isinstance(report, dict) else {}
+    aggregate = future.get("aggregate", {}) if isinstance(future, dict) else {}
+    quality_guard = future.get("quality_guard", {}) if isinstance(future, dict) else {}
+    return {
+        "method": future.get("method"),
+        "quality_status": quality_guard.get("status", "unknown"),
+        "warnings": quality_guard.get("warnings", []),
+        "top_1_change_share": safe_float(aggregate.get("top_1_change_share")),
+        "mean_top_5_overlap_share": safe_float(aggregate.get("mean_top_5_overlap_share")),
+        "mean_absolute_rank_shift": safe_float(aggregate.get("mean_absolute_rank_shift")),
+        "mean_causal_adjustment_coverage": safe_float(
+            aggregate.get("mean_causal_adjustment_coverage")
+        ),
+        "mean_top_1_regret_delta": safe_float(aggregate.get("mean_top_1_regret_delta")),
     }
 
 

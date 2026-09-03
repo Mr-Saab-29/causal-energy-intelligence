@@ -61,8 +61,12 @@ make causal-recommendations
 - `reports/rankings/marginal_workload_decision_rankings.csv`
   - the existing workload candidate table re-ranked with marginal-carbon intensity
   - preserves average-carbon ranks in `average_*` columns
+- `reports/rankings/future_marginal_workload_decision_rankings.csv`
+  - the next-24-hour operational workload candidate table re-ranked with marginal-carbon intensity
 - `reports/recommendations/causal_adjusted_workload_recommendations.csv`
   - top-5 recommendations from marginal-carbon rankings with the existing uncertainty guard and confidence calibration
+- `reports/recommendations/future_causal_adjusted_workload_recommendations.csv`
+  - next-24-hour causal-adjusted MVP top-5 recommendations for the dashboard basis selector
 - `reports/metrics/marginal_ranking_shift_metrics.json`
   - top-1 change rate, top-5 overlap, rank displacement, causal coverage, and regret deltas
 

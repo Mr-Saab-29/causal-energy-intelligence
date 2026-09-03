@@ -95,6 +95,7 @@ h2 {
   gap: 12px;
   align-items: center;
   justify-content: flex-start;
+  flex-wrap: wrap;
   padding: 12px;
   border-radius: 8px;
   margin-bottom: 16px;
@@ -199,6 +200,47 @@ select:disabled {
   grid-template-columns: minmax(0, 1.12fr) minmax(360px, 0.88fr);
   gap: 16px;
   margin-bottom: 16px;
+}
+
+.causal-band {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  border: 1px solid #ded8ca;
+  border-radius: 8px;
+  background: rgba(255, 254, 250, 0.86);
+  box-shadow: 0 14px 36px rgba(32, 35, 30, 0.08);
+  padding: 12px;
+  margin-bottom: 16px;
+}
+
+.causal-band div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  border: 1px solid #e8e0d3;
+  border-radius: 6px;
+  background: #f8f5ef;
+  padding: 9px 10px;
+}
+
+.causal-band span {
+  color: #69766f;
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.causal-band strong {
+  overflow-wrap: anywhere;
+  font-size: 0.92rem;
+}
+
+.quality-chip.ok strong {
+  color: #176851;
+}
+
+.quality-chip.warning strong {
+  color: #76580b;
 }
 
 .lower-grid {
@@ -493,7 +535,8 @@ select:disabled {
 
   .kpi-grid,
   .content-grid,
-  .lower-grid {
+  .lower-grid,
+  .causal-band {
     grid-template-columns: 1fr;
   }
 

@@ -73,7 +73,7 @@ future-recommendations:
 
 operational-refresh: ingest-future operational-publish
 
-operational-publish: future-recommendations pipeline-health forecast-monitor dashboard-data frontend-build
+operational-publish: future-recommendations causal-recommendations pipeline-health forecast-monitor dashboard-data frontend-build
 
 train-all:
 	$(PYTHON) -m src.models.train_forecast --target all
