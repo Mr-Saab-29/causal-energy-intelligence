@@ -341,10 +341,7 @@ jobs:
             reports/metrics/forecast_monitoring.json
             reports/metrics/model_promotion_decision.json
             reports/metrics/future_recommendation_metadata.json
-            reports/metrics/marginal_ranking_shift_metrics.json
-            reports/rankings/future_marginal_workload_decision_rankings.csv
             reports/recommendations/future_champion_workload_recommendations.csv
-            reports/recommendations/future_causal_adjusted_workload_recommendations.csv
             reports/scenarios/future_workload_scenario_recommendations.csv
             frontend/public/data/dashboard.json
           if-no-files-found: warn

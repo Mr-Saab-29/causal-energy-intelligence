@@ -47,26 +47,3 @@ carbon_intensity_g_co2e_per_kwh = total_emissions_kg_co2e / total_generation_mwh
 ```
 
 This works because `1 kg CO2e/MWh = 1 g CO2e/kWh`.
-
-## Marginal Emissions Proxy MVP
-
-Sprint 2 uses a proxy, not a full grid-dispatch causal estimate. The operational proxy derives implied generation from total emissions and average carbon intensity, then estimates marginal intensity from positive hour-to-hour changes:
-
-```text
-implied_generation_mwh = total_emissions_kg_co2e / average_carbon_intensity_g_co2e_per_kwh
-marginal_proxy = positive_delta(total_emissions_kg_co2e) / positive_delta(implied_generation_mwh)
-```
-
-Rows without a usable positive emissions and generation delta fall back to average carbon intensity and are labelled `average_carbon_fallback`. Rows with a usable proxy are labelled `marginal_emissions_proxy`.
-
-Run:
-
-```bash
-make causal-recommendations
-```
-
-Primary outputs:
-
-- `reports/rankings/future_marginal_workload_decision_rankings.csv`
-- `reports/recommendations/future_causal_adjusted_workload_recommendations.csv`
-- `reports/metrics/marginal_ranking_shift_metrics.json`

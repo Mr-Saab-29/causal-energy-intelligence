@@ -34,7 +34,6 @@ function App() {
   const [error, setError] = useState(null);
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedScenario, setSelectedScenario] = useState("clean_first");
-  const [selectedBasis, setSelectedBasis] = useState("scenario");
 
   useEffect(() => {
     fetch(DATA_URL)
@@ -70,20 +69,8 @@ function App() {
       )
       .sort((left, right) => left.recommendation_rank - right.recommendation_rank);
   }, [payload, selectedDate, selectedScenario]);
-  const causalRecommendations = useMemo(() => {
-    if (!payload || !selectedDate) return [];
-    return (payload.causal_recommendations ?? [])
-      .filter((row) => row.decision_group === selectedDate)
-      .sort((left, right) => left.recommendation_rank - right.recommendation_rank);
-  }, [payload, selectedDate]);
   const hasScenarioMode = (payload?.filters?.scenarios ?? []).length > 0;
-  const hasCausalMode = (payload?.causal_recommendations ?? []).length > 0;
-  const recommendations =
-    selectedBasis === "causal"
-      ? causalRecommendations
-      : hasScenarioMode
-        ? scenarioRecommendations
-        : baseRecommendations;
+  const recommendations = hasScenarioMode ? scenarioRecommendations : baseRecommendations;
 
   const championMetrics = useMemo(() => {
     if (!payload?.champion?.model) return null;
@@ -114,10 +101,9 @@ function App() {
   const selectedScenarioChampion = payload.summary?.scenario_champions?.find(
     (row) => row.scenario === selectedScenario,
   );
-  const marginalShift = payload.summary?.marginal_ranking_shift ?? {};
   const carbonChart = recommendations.map((row) => ({
     hour: formatHour(row.timestamp_utc),
-    carbon: recommendationCarbonIntensity(row),
+    carbon: row.predicted_avg_carbon_intensity_g_co2e_per_kwh,
     confidence: row.confidence_score == null ? null : Math.round(row.confidence_score * 100),
   }));
   const modelScores = payload.champion.models.slice(0, 6).map((row) => ({
@@ -174,19 +160,6 @@ function App() {
             ))}
           </select>
         </label>
-        <label>
-          <Activity size={16} />
-          <span>Basis</span>
-          <select
-            value={selectedBasis}
-            onChange={(event) => setSelectedBasis(event.target.value)}
-          >
-            <option value="scenario">Scenario</option>
-            <option value="causal" disabled={!hasCausalMode}>
-              Causal-adjusted MVP
-            </option>
-          </select>
-        </label>
       </section>
 
       {isSampleData && (
@@ -211,10 +184,10 @@ function App() {
           label="Carbon intensity"
           value={
             topRecommendation
-              ? formatFixed(recommendationCarbonIntensity(topRecommendation))
+              ? formatFixed(topRecommendation.predicted_avg_carbon_intensity_g_co2e_per_kwh)
               : "-"
           }
-          detail={`${recommendationCarbonLabel(topRecommendation)} gCO2e/kWh`}
+          detail="gCO2e/kWh predicted"
         />
         <Metric
           icon={<Zap size={20} />}
@@ -253,7 +226,7 @@ function App() {
           <div className="panel-heading">
             <div>
               <h2>Clean-Hour Recommendations</h2>
-              <p>{recommendationSubtitle(selectedBasis, selectedScenario)}</p>
+              <p>Top 5 future workload start hours for {formatScenario(selectedScenario)}. Scenario rank and score update with the selector.</p>
             </div>
           </div>
           <div className="recommendation-list">
@@ -319,35 +292,6 @@ function App() {
           </div>
         </div>
       </section>
-
-      {hasCausalMode && (
-        <section className="causal-band">
-          <div>
-            <span>Basis</span>
-            <strong>{formatCausalMethod(marginalShift.method)}</strong>
-          </div>
-          <div>
-            <span>Top-1 changed</span>
-            <strong>{formatPercent(marginalShift.top_1_change_share)}</strong>
-          </div>
-          <div>
-            <span>Top-5 overlap</span>
-            <strong>{formatPercent(marginalShift.mean_top_5_overlap_share)}</strong>
-          </div>
-          <div>
-            <span>Avg rank shift</span>
-            <strong>{formatFixed(marginalShift.mean_absolute_rank_shift)}</strong>
-          </div>
-          <div>
-            <span>Proxy coverage</span>
-            <strong>{formatPercent(marginalShift.mean_causal_adjustment_coverage)}</strong>
-          </div>
-          <div className={`quality-chip ${marginalShift.quality_status ?? "unknown"}`}>
-            <span>Quality guard</span>
-            <strong>{titleCase(marginalShift.quality_status ?? "unknown")}</strong>
-          </div>
-        </section>
-      )}
 
       <section className="content-grid lower-grid">
         <div className="panel">
@@ -435,8 +379,6 @@ function RecommendationRow({ row }) {
   const confidenceAvailable = row.confidence_score != null && row.confidence_level;
   const priceRank = row.predicted_price_rank ?? row.recommendation_rank;
   const scenarioRank = row.predicted_scenario_rank ?? row.recommendation_rank;
-  const carbonIntensity = recommendationCarbonIntensity(row);
-  const carbonLabel = recommendationCarbonLabel(row);
   return (
     <details className="recommendation-row">
       <summary className="recommendation-summary">
@@ -449,8 +391,8 @@ function RecommendationRow({ row }) {
           )}
         </span>
         <span className="metric-cell">
-          <strong>{formatFixed(carbonIntensity)}</strong>
-          <small>{carbonLabel}</small>
+          <strong>{formatFixed(row.predicted_avg_carbon_intensity_g_co2e_per_kwh)}</strong>
+          <small>gCO2e/kWh</small>
         </span>
         <span className="metric-cell">
           <DirectionBadge value={row.predicted_price_direction_vs_previous_day} />
@@ -490,30 +432,6 @@ function RecommendationRow({ row }) {
           label="Predicted total emissions"
           value={`${formatNumber(row.predicted_total_emissions_kg_co2e)} kgCO2e`}
         />
-        {row.predicted_avg_carbon_intensity_g_co2e_per_kwh != null && (
-          <DetailItem
-            label="Average carbon intensity"
-            value={`${formatFixed(row.predicted_avg_carbon_intensity_g_co2e_per_kwh)} gCO2e/kWh`}
-          />
-        )}
-        {row.causal_carbon_source && (
-          <DetailItem
-            label="Causal-adjusted source"
-            value={formatCausalSource(row.causal_carbon_source)}
-          />
-        )}
-        {row.causal_adjusted_rank_shift != null && (
-          <DetailItem
-            label="Average-vs-causal rank shift"
-            value={formatSigned(row.causal_adjusted_rank_shift)}
-          />
-        )}
-        {row.predicted_marginal_proxy_confidence && (
-          <DetailItem
-            label="Marginal proxy confidence"
-            value={titleCase(row.predicted_marginal_proxy_confidence)}
-          />
-        )}
         <DetailItem
           label="Carbon rank"
           value={`${row.predicted_carbon_rank ?? scenarioRank} of ${row.candidate_count ?? "-"} candidate hours`}
@@ -645,7 +563,6 @@ function shortModel(value) {
 }
 
 function formatScenario(value) {
-  if (!value) return "-";
   return value.split("_").map(titleCase).join(" ");
 }
 
@@ -666,48 +583,6 @@ function formatNumber(value) {
 function formatFixed(value) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return "-";
   return Number(value).toFixed(2);
-}
-
-function formatPercent(value) {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) return "-";
-  return `${Math.round(Number(value) * 100)}%`;
-}
-
-function formatSigned(value) {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) return "-";
-  const numeric = Number(value);
-  return numeric > 0 ? `+${formatFixed(numeric)}` : formatFixed(numeric);
-}
-
-function formatCausalSource(value) {
-  if (value === "marginal_emissions_proxy") return "Marginal emissions proxy";
-  if (value === "average_carbon_fallback") return "Average carbon fallback";
-  return formatRecommendationStatus(value);
-}
-
-function formatCausalMethod(value) {
-  if (value === "marginal_proxy_mvp") return "Marginal proxy MVP";
-  return value ? formatRecommendationStatus(value) : "-";
-}
-
-function recommendationSubtitle(selectedBasis, selectedScenario) {
-  if (selectedBasis === "causal") {
-    return "Top 5 future workload start hours using the marginal-emissions proxy MVP.";
-  }
-  return `Top 5 future workload start hours for ${formatScenario(selectedScenario)}. Scenario rank and score update with the selector.`;
-}
-
-function recommendationCarbonIntensity(row) {
-  return (
-    row?.predicted_marginal_carbon_intensity_g_co2e_per_kwh
-    ?? row?.predicted_avg_carbon_intensity_g_co2e_per_kwh
-  );
-}
-
-function recommendationCarbonLabel(row) {
-  return row?.predicted_marginal_carbon_intensity_g_co2e_per_kwh == null
-    ? "Average predicted"
-    : "Marginal proxy";
 }
 
 function titleCase(value) {
