@@ -50,6 +50,35 @@ def test_workload_rankings_penalize_high_uncertainty_candidates() -> None:
     assert close_call["uncertainty_guard_applied"]
 
 
+def test_workload_rankings_preserve_source_generation_columns() -> None:
+    hourly = pd.DataFrame(
+        {
+            "timestamp_utc": pd.date_range("2026-08-10", periods=3, freq="h", tz="UTC"),
+            "window": ["test"] * 3,
+            "model": ["model_a"] * 3,
+            "decision_date": ["2026-08-10"] * 3,
+            "actual_price_eur_mwh": [1, 2, 3],
+            "predicted_price_eur_mwh": [1, 2, 3],
+            "previous_day_price_eur_mwh": [2, 2, 2],
+            "actual_carbon_intensity_g_co2e_per_kwh": [1, 2, 3],
+            "predicted_carbon_intensity_g_co2e_per_kwh": [1, 2, 3],
+            "actual_total_emissions_kg_co2e": [1, 2, 3],
+            "predicted_total_emissions_kg_co2e": [1, 2, 3],
+            "actual_gas_generation_mwh": [10, 20, 30],
+            "predicted_gas_generation_mwh": [11, 21, 31],
+        }
+    )
+
+    rankings = build_workload_decision_rankings(
+        hourly,
+        WorkloadConstraints(duration_hours=2),
+    )
+
+    first = rankings[rankings["timestamp_utc"] == pd.Timestamp("2026-08-10T00:00:00Z")].iloc[0]
+    assert first["actual_gas_generation_mwh"] == 30
+    assert first["predicted_gas_generation_mwh"] == 32
+
+
 def test_scenario_reranking_exports_top5_metrics_and_confidence() -> None:
     rankings = pd.DataFrame(
         {

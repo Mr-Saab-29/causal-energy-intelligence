@@ -4,10 +4,12 @@ import pandas as pd
 
 from src.models.future_recommendations import (
     append_operational_history,
+    build_future_hourly_decision_inputs,
     calculate_future_forecast_start,
     load_latest_operational_recommendation_snapshot,
     remove_duplicate_columns,
 )
+from src.models.baseline_price import PRODUCTION_SIGNAL_TARGETS
 
 
 def test_remove_duplicate_columns_preserves_first_occurrence() -> None:
@@ -32,6 +34,32 @@ def test_calculate_future_forecast_start_uses_current_future_hour_when_data_lags
     )
 
     assert result == pd.Timestamp("2026-08-10T09:00:00Z")
+
+
+def test_future_hourly_inputs_emit_source_generation_columns() -> None:
+    timestamps = pd.date_range("2026-08-10T00:00:00Z", periods=2, freq="h")
+    history = pd.DataFrame(
+        {
+            "timestamp_utc": timestamps - pd.Timedelta(days=1),
+            "price_eur_mwh": [40.0, 42.0],
+        }
+    )
+    future = pd.DataFrame(
+        {
+            "timestamp_utc": timestamps,
+            "model": ["model_a", "model_a"],
+            "predicted_price_eur_mwh": [50.0, 55.0],
+        }
+    )
+    for index, source in enumerate(PRODUCTION_SIGNAL_TARGETS[1:], start=1):
+        future[f"forecast_{source}_mwh"] = [100.0 + index, 110.0 + index]
+
+    hourly = build_future_hourly_decision_inputs(history, future)
+
+    assert "actual_gas_generation_mwh" in hourly
+    assert "predicted_gas_generation_mwh" in hourly
+    assert hourly["actual_gas_generation_mwh"].tolist() == [102.0, 112.0]
+    assert hourly["predicted_gas_generation_mwh"].tolist() == [102.0, 112.0]
 
 
 def test_append_operational_history_rewrites_when_schema_changes(tmp_path) -> None:

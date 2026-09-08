@@ -113,6 +113,30 @@ def test_rankings_from_average_proxy_warn_when_coverage_is_low() -> None:
     assert "predicted_marginal_carbon_intensity_g_co2e_per_kwh" in marginal_rankings
 
 
+def test_rankings_from_source_generation_proxy_improve_future_coverage() -> None:
+    average_rankings = sample_average_rankings()
+    average_rankings["predicted_gas_generation_mwh"] = [10.0, 20.0, 30.0]
+    average_rankings["actual_gas_generation_mwh"] = [10.0, 20.0, 30.0]
+    average_rankings["predicted_wind_generation_mwh"] = [30.0, 30.0, 30.0]
+    average_rankings["actual_wind_generation_mwh"] = [30.0, 30.0, 30.0]
+
+    marginal_rankings = build_marginal_workload_rankings(
+        average_rankings,
+        pd.DataFrame(),
+        constraints=WorkloadConstraints(price_weight=0.0, carbon_weight=1.0),
+    )
+    metrics = summarize_ranking_shifts(average_rankings, marginal_rankings, top_n=2)
+
+    assert metrics["quality_guard"]["status"] == "warning"
+    assert metrics["aggregate"]["mean_causal_adjustment_coverage"] == 2 / 3
+    second = marginal_rankings[
+        marginal_rankings["timestamp_utc"] == pd.Timestamp("2026-01-01T01:00:00Z")
+    ].iloc[0]
+    assert second["causal_carbon_source"] == "marginal_emissions_proxy"
+    assert second["predicted_marginal_source"] == "gas"
+    assert second["predicted_marginal_proxy_confidence"] == "low"
+
+
 def test_run_all_causal_adjusted_recommendations_writes_future_outputs(tmp_path) -> None:
     historical_path = tmp_path / "historical.csv"
     future_path = tmp_path / "future.csv"

@@ -386,9 +386,20 @@ def build_candidate_windows(
                     "predicted_total_emissions_kg_co2e": candidate[
                         "predicted_total_emissions_kg_co2e"
                     ].sum(),
+                    **aggregate_generation_columns(candidate),
                 }
             )
     return pd.DataFrame(records)
+
+
+def aggregate_generation_columns(candidate: pd.DataFrame) -> dict[str, float]:
+    """Aggregate optional source-generation columns into workload windows."""
+    return {
+        column: float(candidate[column].sum())
+        for column in candidate.columns
+        if column.endswith("_generation_mwh")
+        and (column.startswith("actual_") or column.startswith("predicted_"))
+    }
 
 
 def is_contiguous_hourly(timestamps: pd.Series) -> bool:

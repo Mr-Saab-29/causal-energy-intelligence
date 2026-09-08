@@ -270,6 +270,9 @@ def build_future_hourly_decision_inputs(history: pd.DataFrame, future: pd.DataFr
             "predicted_total_emissions_kg_co2e": emissions,
         }
     )
+    for source in generation.columns:
+        output[f"actual_{source}_generation_mwh"] = generation[source]
+        output[f"predicted_{source}_generation_mwh"] = generation[source]
     output = output.merge(
         previous_day.rename(columns={"price_eur_mwh": "previous_day_price_eur_mwh"}),
         on=TIMESTAMP_COLUMN,

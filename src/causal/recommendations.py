@@ -11,7 +11,12 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from src.carbon.marginal import run_marginal_emissions_proxy
+from src.carbon.intensity import load_emission_factor_config
+from src.carbon.marginal import (
+    DEFAULT_EMISSION_FACTORS_PATH,
+    confidence_label,
+    run_marginal_emissions_proxy,
+)
 from src.optimization.workload_shift import (
     TIMESTAMP_COLUMN,
     WorkloadConstraints,
@@ -59,7 +64,11 @@ def build_marginal_workload_rankings(
 
     group_columns = ["window", "model", "decision_group"]
     if marginal_proxy is None or marginal_proxy.empty:
-        rankings = add_marginal_proxy_columns_from_rankings(rankings, group_columns)
+        rankings = add_marginal_proxy_columns_from_rankings(
+            rankings,
+            group_columns,
+            methodology=methodology,
+        )
     else:
         proxy_values = prepare_marginal_proxy_values(marginal_proxy, methodology)
         rankings = rankings.merge(
@@ -147,10 +156,15 @@ def build_marginal_workload_rankings(
 def add_marginal_proxy_columns_from_rankings(
     rankings: pd.DataFrame,
     group_columns: list[str],
+    methodology: str = "direct_operational_emissions",
 ) -> pd.DataFrame:
     """Add marginal proxy columns from ranking total emissions and average intensity."""
     output = rankings.sort_values(group_columns + [TIMESTAMP_COLUMN]).copy()
+    factors = load_emission_factor_config(DEFAULT_EMISSION_FACTORS_PATH).get(methodology, {})
     for basis in ("predicted", "actual"):
+        if has_source_generation_columns(output, basis, factors):
+            output = add_source_level_marginal_proxy(output, group_columns, basis, factors)
+            continue
         emissions_column = f"{basis}_total_emissions_kg_co2e"
         intensity_column = f"{basis}_avg_carbon_intensity_g_co2e_per_kwh"
         generation_column = f"{basis}_implied_generation_mwh"
@@ -182,6 +196,54 @@ def add_marginal_proxy_columns_from_rankings(
         "marginal_emissions_proxy",
         "average_carbon_fallback",
     )
+    return output
+
+
+def has_source_generation_columns(
+    frame: pd.DataFrame,
+    basis: str,
+    factors: dict[str, float],
+) -> bool:
+    """Return whether source-level generation columns are available for the basis."""
+    if not factors:
+        return False
+    return any(f"{basis}_{source}_generation_mwh" in frame for source in factors)
+
+
+def add_source_level_marginal_proxy(
+    frame: pd.DataFrame,
+    group_columns: list[str],
+    basis: str,
+    factors: dict[str, float],
+) -> pd.DataFrame:
+    """Add source-level marginal proxy columns from positive generation deltas."""
+    output = frame.copy()
+    source_columns = {
+        source: f"{basis}_{source}_generation_mwh"
+        for source in factors
+        if f"{basis}_{source}_generation_mwh" in output
+    }
+    generation = output[list(source_columns.values())].astype(float)
+    generation.columns = list(source_columns)
+    deltas = generation.groupby([output[column] for column in group_columns], observed=True).diff()
+    positive_response = deltas.clip(lower=0)
+    total_response = positive_response.sum(axis=1)
+    response_emissions = positive_response.mul(pd.Series(factors, dtype=float), axis="columns")
+    marginal = response_emissions.sum(axis=1) / total_response.replace(0, np.nan)
+
+    available_column = f"{basis}_marginal_proxy_available"
+    marginal_column = f"{basis}_marginal_carbon_intensity_g_co2e_per_kwh"
+    confidence_column = f"{basis}_marginal_proxy_confidence"
+    source_column = f"{basis}_marginal_source"
+    output[available_column] = marginal.notna()
+    intensity_column = f"{basis}_avg_carbon_intensity_g_co2e_per_kwh"
+    output[marginal_column] = marginal.fillna(output[intensity_column])
+    shares = positive_response.div(total_response.replace(0, np.nan), axis="rows")
+    output[source_column] = shares.fillna(-1).idxmax(axis=1).where(output[available_column])
+    output[confidence_column] = [
+        confidence_label(response_mwh, source_share)
+        for response_mwh, source_share in zip(total_response, shares.max(axis=1), strict=True)
+    ]
     return output
 
 
