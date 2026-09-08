@@ -5,8 +5,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import time
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
+from json import JSONDecodeError
 from pathlib import Path
 from typing import Any
 
@@ -84,24 +86,59 @@ def fetch_open_meteo_forecast(
     latitude: float,
     longitude: float,
     horizon_hours: int,
+    json_retries: int = 3,
+    json_backoff_seconds: float = 5.0,
 ) -> dict[str, Any]:
     """Fetch one location's hourly forecast payload."""
-    response = get_with_retries(
-        client,
-        OPEN_METEO_FORECAST_ENDPOINT,
-        params={
-            "latitude": latitude,
-            "longitude": longitude,
-            "hourly": ",".join(OPEN_METEO_HOURLY_FEATURES),
-            "timezone": "UTC",
-            "wind_speed_unit": "ms",
-            "precipitation_unit": "mm",
-            "forecast_hours": horizon_hours,
-        },
-        max_retries=5,
-        backoff_seconds=10.0,
+    params = {
+        "latitude": latitude,
+        "longitude": longitude,
+        "hourly": ",".join(OPEN_METEO_HOURLY_FEATURES),
+        "timezone": "UTC",
+        "wind_speed_unit": "ms",
+        "precipitation_unit": "mm",
+        "forecast_hours": horizon_hours,
+    }
+    last_response: httpx.Response | None = None
+    for attempt in range(json_retries + 1):
+        response = get_with_retries(
+            client,
+            OPEN_METEO_FORECAST_ENDPOINT,
+            params=params,
+            max_retries=5,
+            backoff_seconds=10.0,
+        )
+        last_response = response
+        try:
+            payload = response.json()
+        except JSONDecodeError:
+            if attempt == json_retries:
+                break
+            time.sleep(json_backoff_seconds * (attempt + 1))
+            continue
+        if isinstance(payload, dict) and isinstance(payload.get("hourly"), dict):
+            return payload
+        if attempt == json_retries:
+            break
+        time.sleep(json_backoff_seconds * (attempt + 1))
+    raise ValueError(open_meteo_response_error(latitude, longitude, last_response))
+
+
+def open_meteo_response_error(
+    latitude: float,
+    longitude: float,
+    response: httpx.Response | None,
+) -> str:
+    """Return a compact diagnostic for invalid Open-Meteo forecast responses."""
+    if response is None:
+        return f"Open-Meteo forecast returned no response for {latitude},{longitude}"
+    preview = response.text[:200].replace("\n", " ")
+    return (
+        "Open-Meteo forecast returned non-JSON or malformed JSON "
+        f"for {latitude},{longitude}; status={response.status_code}; "
+        f"content_type={response.headers.get('content-type')!r}; "
+        f"body_preview={preview!r}"
     )
-    return response.json()
 
 
 def parse_open_meteo_forecast(
