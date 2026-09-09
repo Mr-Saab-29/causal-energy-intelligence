@@ -39,6 +39,10 @@ def main() -> None:
     policy_backtest = read_json(ROOT / "reports/metrics/recommendation_policy_backtest.json")
     scenario_champions = read_json(ROOT / "reports/metrics/scenario_champion_selection.json")
     marginal_shift_metrics = read_json(ROOT / "reports/metrics/marginal_ranking_shift_metrics.json")
+    operational_audit_readiness = read_json(
+        ROOT / "reports/metrics/operational_audit_readiness.json"
+    )
+    outcome_audit_metrics = read_json(ROOT / "reports/metrics/recommendation_outcome_audit.json")
     forecast_monitoring_path = ROOT / "reports/metrics/forecast_monitoring.json"
     forecast_monitoring = read_json(forecast_monitoring_path)
     recommendation_drift = read_json(ROOT / "reports/metrics/future_recommendation_drift_metrics.json")
@@ -58,6 +62,9 @@ def main() -> None:
     )
     future_marginal_rankings = read_csv(
         ROOT / "reports/rankings/future_marginal_workload_decision_rankings.csv"
+    )
+    outcome_audit = read_csv(
+        ROOT / "reports/monitoring/recommendation_outcome_audit.csv"
     )
     active_future_recommendations = build_active_future_recommendations(
         future_recommendations,
@@ -102,11 +109,13 @@ def main() -> None:
     recommendation_rows = prepare_records(active_recommendations)
     scenario_rows = prepare_records(active_scenario_recommendations)
     causal_rows = prepare_records(active_causal_recommendations)
+    outcome_rows = prepare_records(prepare_outcome_audit_rows(outcome_audit))
     filter_dates = sorted(
         set(safe_unique(active_recommendations, "decision_group"))
         | set(safe_unique(active_scenario_recommendations, "decision_group"))
         | set(safe_unique(active_causal_recommendations, "decision_group"))
     )
+    outcome_dates = sorted(safe_unique(outcome_audit, "decision_group"), reverse=True)
     payload = {
         "generated_from": {
             "champion_model_selection": "reports/metrics/champion_model_selection.json",
@@ -129,9 +138,19 @@ def main() -> None:
                 if marginal_shift_metrics
                 else None
             ),
+            "operational_audit_readiness": (
+                "reports/metrics/operational_audit_readiness.json"
+                if operational_audit_readiness
+                else None
+            ),
             "causal_adjusted_recommendations": (
                 "reports/recommendations/future_causal_adjusted_workload_recommendations.csv"
                 if not future_causal_recommendations.empty
+                else None
+            ),
+            "recommendation_outcome_audit": (
+                "reports/monitoring/recommendation_outcome_audit.csv"
+                if not outcome_audit.empty
                 else None
             ),
         },
@@ -155,6 +174,12 @@ def main() -> None:
             "scenario_champions": scenario_champions.get("champions", []),
             "marginal_ranking_shift": summarize_marginal_shift_metrics(
                 marginal_shift_metrics
+            ),
+            "operational_audit_readiness": summarize_operational_audit_readiness(
+                operational_audit_readiness
+            ),
+            "recommendation_outcome_audit": summarize_outcome_audit_metrics(
+                outcome_audit_metrics
             ),
             "date_count": int(active_recommendations["decision_group"].nunique())
             if not active_recommendations.empty
@@ -195,13 +220,17 @@ def main() -> None:
         },
         "recommendation_drift": recommendation_drift,
         "marginal_ranking_shift": marginal_shift_metrics,
+        "operational_audit_readiness": operational_audit_readiness,
+        "recommendation_outcome_audit": outcome_audit_metrics,
         "filters": {
             "dates": filter_dates,
+            "outcome_dates": outcome_dates,
             "scenarios": safe_unique(active_scenario_recommendations, "scenario"),
         },
         "recommendations": recommendation_rows,
         "scenario_recommendations": scenario_rows,
         "causal_recommendations": causal_rows,
+        "recommendation_outcomes": outcome_rows,
     }
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -316,6 +345,46 @@ def prepare_records(frame: pd.DataFrame) -> list[dict[str, Any]]:
     cleaned = frame.replace({pd.NA: None})
     cleaned = cleaned.where(pd.notna(cleaned), None)
     return sanitize_json_value(cleaned.to_dict(orient="records"))
+
+
+def prepare_outcome_audit_rows(frame: pd.DataFrame) -> pd.DataFrame:
+    """Return the compact settled outcome rows needed by the dashboard."""
+    if frame.empty:
+        return frame
+    columns = [
+        "decision_group",
+        "forecast_generated_at_utc",
+        "window",
+        "model",
+        "recommendation_rank",
+        "recommendation_status",
+        "timestamp_utc",
+        "workload_end_utc",
+        "duration_hours",
+        "predicted_avg_price_eur_mwh",
+        "actual_price_eur_mwh_observed",
+        "price_error",
+        "predicted_avg_carbon_intensity_g_co2e_per_kwh",
+        "actual_carbon_intensity_g_co2e_per_kwh_observed",
+        "carbon_intensity_error",
+        "predicted_consumption_mwh",
+        "actual_consumption_mwh_observed",
+        "consumption_error",
+        "predicted_total_production_mwh",
+        "actual_total_production_mwh_observed",
+        "total_production_error",
+        "actual_decision_rank_observed",
+        "combined_regret_observed",
+        "carbon_regret_g_co2e_per_kwh_observed",
+        "is_actual_best_observed",
+        "confidence_score",
+        "confidence_level",
+    ]
+    available = [column for column in columns if column in frame]
+    output = frame[available].copy()
+    if "forecast_generated_at_utc" in output:
+        output["forecast_generated_at_utc"] = output["forecast_generated_at_utc"].astype(str)
+    return output
 
 
 def sanitize_json_value(value: Any) -> Any:
@@ -466,6 +535,48 @@ def summarize_marginal_shift_metrics(report: dict[str, Any]) -> dict[str, Any]:
             aggregate.get("mean_causal_adjustment_coverage")
         ),
         "mean_top_1_regret_delta": safe_float(aggregate.get("mean_top_1_regret_delta")),
+    }
+
+
+def summarize_operational_audit_readiness(report: dict[str, Any]) -> dict[str, Any]:
+    """Return compact current-month audit readiness details."""
+    return {
+        "status": report.get("status", "unknown"),
+        "latest_actual_timestamp_utc": report.get("latest_actual_timestamp_utc"),
+        "current_month_actual_rows": int(report.get("current_month_actual_rows", 0) or 0),
+        "current_month_recommendation_rows": int(
+            report.get("current_month_recommendation_rows", 0) or 0
+        ),
+        "settled_current_month_recommendation_rows": int(
+            report.get("settled_current_month_recommendation_rows", 0) or 0
+        ),
+        "reasons": report.get("reasons", []),
+        "warnings": report.get("warnings", []),
+        "checks": report.get("checks", {}),
+    }
+
+
+def summarize_outcome_audit_metrics(report: dict[str, Any]) -> dict[str, Any]:
+    """Return compact settled recommendation audit metrics for the dashboard."""
+    return {
+        "available": bool(report.get("available", False)),
+        "reason": report.get("reason"),
+        "rows": int(report.get("rows", 0) or 0),
+        "decision_groups": int(report.get("decision_groups", 0) or 0),
+        "latest_actual_timestamp_utc": report.get("latest_actual_timestamp_utc"),
+        "top_1_hit_rate": safe_float(report.get("top_1_hit_rate")),
+        "top_5_hit_rate": safe_float(report.get("top_5_hit_rate")),
+        "mean_actual_rank_of_top_1": safe_float(report.get("mean_actual_rank_of_top_1")),
+        "mean_combined_regret": safe_float(report.get("mean_combined_regret")),
+        "mean_carbon_regret_g_co2e_per_kwh": safe_float(
+            report.get("mean_carbon_regret_g_co2e_per_kwh")
+        ),
+        "price_mae_eur_mwh": safe_float(report.get("price_mae_eur_mwh")),
+        "carbon_intensity_mae_g_co2e_per_kwh": safe_float(
+            report.get("carbon_intensity_mae_g_co2e_per_kwh")
+        ),
+        "consumption_mae_mwh": safe_float(report.get("consumption_mae_mwh")),
+        "total_production_mae_mwh": safe_float(report.get("total_production_mae_mwh")),
     }
 
 

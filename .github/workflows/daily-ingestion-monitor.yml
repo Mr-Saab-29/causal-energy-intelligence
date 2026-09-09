@@ -278,6 +278,9 @@ jobs:
         with:
           name: retrained-operational-state
 
+      - name: Verify current-month audit readiness
+        run: make operational-audit-readiness
+
       - name: Build recommendations and dashboard from current champion
         run: make operational-publish
 
@@ -321,7 +324,10 @@ jobs:
             reports/metrics/forecast_monitoring.json
             reports/metrics/model_promotion_decision.json
             reports/metrics/future_recommendation_metadata.json
+            reports/metrics/operational_audit_readiness.json
+            reports/metrics/recommendation_outcome_audit.json
             reports/metrics/marginal_ranking_shift_metrics.json
+            reports/monitoring/recommendation_outcome_audit.csv
             reports/rankings/future_marginal_workload_decision_rankings.csv
             reports/recommendations/future_champion_workload_recommendations.csv
             reports/recommendations/future_causal_adjusted_workload_recommendations.csv

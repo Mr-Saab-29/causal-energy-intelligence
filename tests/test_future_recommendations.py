@@ -7,6 +7,7 @@ from src.models.future_recommendations import (
     build_future_hourly_decision_inputs,
     calculate_future_forecast_start,
     load_latest_operational_recommendation_snapshot,
+    prune_operational_history,
     remove_duplicate_columns,
 )
 from src.models.baseline_price import PRODUCTION_SIGNAL_TARGETS
@@ -100,3 +101,26 @@ def test_latest_operational_snapshot_ignores_malformed_history(tmp_path) -> None
     snapshot = load_latest_operational_recommendation_snapshot(path)
 
     assert snapshot.empty
+
+
+def test_prune_operational_history_keeps_recent_rows() -> None:
+    history = pd.DataFrame(
+        {
+            "timestamp_utc": pd.to_datetime(
+                [
+                    "2026-08-01T00:00:00Z",
+                    "2026-09-01T00:00:00Z",
+                    "2026-09-09T00:00:00Z",
+                ],
+                utc=True,
+            ),
+            "model": ["model_a", "model_a", "model_a"],
+        }
+    )
+
+    pruned = prune_operational_history(history, retention_days=10)
+
+    assert pruned["timestamp_utc"].astype(str).tolist() == [
+        "2026-09-01 00:00:00+00:00",
+        "2026-09-09 00:00:00+00:00",
+    ]

@@ -8,6 +8,7 @@ import {
   ArrowUp,
   CalendarDays,
   CheckCircle2,
+  ClipboardCheck,
   Clock3,
   Gauge,
   Leaf,
@@ -33,8 +34,10 @@ function App() {
   const [payload, setPayload] = useState(null);
   const [error, setError] = useState(null);
   const [selectedDate, setSelectedDate] = useState("");
+  const [selectedOutcomeDate, setSelectedOutcomeDate] = useState("");
   const [selectedScenario, setSelectedScenario] = useState("clean_first");
   const [selectedBasis, setSelectedBasis] = useState("scenario");
+  const [selectedView, setSelectedView] = useState("live");
 
   useEffect(() => {
     fetch(DATA_URL)
@@ -47,8 +50,10 @@ function App() {
       .then((data) => {
         setPayload(data);
         const dates = data.filters?.dates ?? [];
+        const outcomeDates = data.filters?.outcome_dates ?? [];
         const scenarios = data.filters?.scenarios ?? [];
         setSelectedDate(dates[dates.length - 1] ?? "");
+        setSelectedOutcomeDate(outcomeDates[0] ?? "");
         setSelectedScenario(scenarios.includes("clean_first") ? "clean_first" : scenarios[0] ?? "");
       })
       .catch((loadError) => setError(loadError.message));
@@ -78,6 +83,17 @@ function App() {
   }, [payload, selectedDate]);
   const hasScenarioMode = (payload?.filters?.scenarios ?? []).length > 0;
   const hasCausalMode = (payload?.causal_recommendations ?? []).length > 0;
+  const outcomeRows = useMemo(() => {
+    if (!payload || !selectedOutcomeDate) return [];
+    return (payload.recommendation_outcomes ?? [])
+      .filter((row) => row.decision_group === selectedOutcomeDate)
+      .sort((left, right) => {
+        const leftGenerated = left.forecast_generated_at_utc ?? "";
+        const rightGenerated = right.forecast_generated_at_utc ?? "";
+        if (leftGenerated !== rightGenerated) return rightGenerated.localeCompare(leftGenerated);
+        return left.recommendation_rank - right.recommendation_rank;
+      });
+  }, [payload, selectedOutcomeDate]);
   const recommendations =
     selectedBasis === "causal"
       ? causalRecommendations
@@ -90,6 +106,7 @@ function App() {
     return payload.champion.models.find((row) => row.model === payload.champion.model);
   }, [payload]);
   const isSampleData = payload?.data_state?.mode === "sample";
+  const outcomeSummary = payload?.summary?.recommendation_outcome_audit ?? {};
 
   if (error) {
     return (
@@ -139,6 +156,36 @@ function App() {
           <strong>{payload.champion.display_model_name ?? "Production Model V1"}</strong>
         </div>
       </header>
+
+      <section className="view-tabs" aria-label="Dashboard view">
+        <button
+          className={selectedView === "live" ? "active" : ""}
+          type="button"
+          onClick={() => setSelectedView("live")}
+        >
+          <Gauge size={16} />
+          Live recommendations
+        </button>
+        <button
+          className={selectedView === "audit" ? "active" : ""}
+          type="button"
+          onClick={() => setSelectedView("audit")}
+        >
+          <ClipboardCheck size={16} />
+          Previous-day audit
+        </button>
+      </section>
+
+      {selectedView === "audit" ? (
+        <OutcomeAuditView
+          payload={payload}
+          outcomeRows={outcomeRows}
+          outcomeSummary={outcomeSummary}
+          selectedOutcomeDate={selectedOutcomeDate}
+          setSelectedOutcomeDate={setSelectedOutcomeDate}
+        />
+      ) : (
+        <>
 
       <section className="controls-band">
         <label>
@@ -416,7 +463,180 @@ function App() {
           )}
         </div>
       </section>
+        </>
+      )}
     </main>
+  );
+}
+
+function OutcomeAuditView({
+  payload,
+  outcomeRows,
+  outcomeSummary,
+  selectedOutcomeDate,
+  setSelectedOutcomeDate,
+}) {
+  const outcomeDates = payload.filters?.outcome_dates ?? [];
+  const latestGeneration = outcomeRows[0]?.forecast_generated_at_utc;
+  const latestRows = latestGeneration
+    ? outcomeRows.filter((row) => row.forecast_generated_at_utc === latestGeneration)
+    : outcomeRows;
+  const dayTopRows = latestRows.filter((row) => row.recommendation_rank === 1);
+  const chartRows = latestRows.map((row) => ({
+    hour: formatHour(row.timestamp_utc),
+    predicted: row.predicted_avg_carbon_intensity_g_co2e_per_kwh,
+    actual: row.actual_carbon_intensity_g_co2e_per_kwh_observed,
+  }));
+  const top1HitRate = meanBoolean(dayTopRows.map((row) => row.is_actual_best_observed));
+  const top5HitRate = meanBoolean(
+    dayTopRows.map((row) => Number(row.actual_decision_rank_observed) <= 5),
+  );
+
+  return (
+    <>
+      <section className="controls-band">
+        <label>
+          <CalendarDays size={16} />
+          <span>Outcome date</span>
+          <select
+            value={selectedOutcomeDate}
+            onChange={(event) => setSelectedOutcomeDate(event.target.value)}
+            disabled={outcomeDates.length === 0}
+          >
+            {outcomeDates.length === 0 && <option value="">No settled dates</option>}
+            {outcomeDates.map((date) => (
+              <option key={date} value={date}>
+                {date}
+              </option>
+            ))}
+          </select>
+        </label>
+      </section>
+
+      {!outcomeSummary.available && (
+        <section className="deployment-state">
+          <AlertTriangle size={20} />
+          <div>
+            <strong>No settled recommendation outcomes yet</strong>
+            <p>{outcomeSummary.reason ?? "Run recommendation-outcome-audit after actual data arrives."}</p>
+          </div>
+        </section>
+      )}
+
+      <section className="kpi-grid audit-kpis">
+        <Metric
+          icon={<CheckCircle2 size={20} />}
+          label="Top-1 hit rate"
+          value={formatPercent(top1HitRate ?? outcomeSummary.top_1_hit_rate)}
+          detail="recommended first hour was actual best"
+        />
+        <Metric
+          icon={<ClipboardCheck size={20} />}
+          label="Top-5 hit rate"
+          value={formatPercent(top5HitRate ?? outcomeSummary.top_5_hit_rate)}
+          detail="actual best inside recommendation set"
+        />
+        <Metric
+          icon={<Gauge size={20} />}
+          label="Actual rank"
+          value={formatFixed(mean(dayTopRows.map((row) => row.actual_decision_rank_observed)))}
+          detail="mean actual rank of top recommendation"
+        />
+        <Metric
+          icon={<Leaf size={20} />}
+          label="Carbon regret"
+          value={formatFixed(mean(dayTopRows.map((row) => row.carbon_regret_g_co2e_per_kwh_observed)))}
+          detail="gCO2e/kWh above actual best"
+        />
+        <Metric
+          icon={<Zap size={20} />}
+          label="Price MAE"
+          value={formatFixed(mean(latestRows.map((row) => Math.abs(Number(row.price_error)))))}
+          detail="EUR/MWh for settled recommendations"
+        />
+      </section>
+
+      <section className="content-grid">
+        <div className="panel audit-panel">
+          <div className="panel-heading">
+            <div>
+              <h2>Settled Recommendation Outcomes</h2>
+              <p>Predictions are compared with actual values after the recommended hours have landed.</p>
+            </div>
+          </div>
+          <div className="audit-table">
+            <div className="audit-header" aria-hidden="true">
+              <span>Rec</span>
+              <span>Start</span>
+              <span>Actual rank</span>
+              <span>Price pred/actual</span>
+              <span>Carbon pred/actual</span>
+              <span>Load pred/actual</span>
+            </div>
+            {latestRows.length === 0 && (
+              <div className="empty-state">No settled outcomes are available for this date.</div>
+            )}
+            {latestRows.map((row) => (
+              <div
+                className="audit-row"
+                key={`${row.forecast_generated_at_utc}-${row.decision_group}-${row.recommendation_rank}`}
+              >
+                <span className="rank-cell">#{row.recommendation_rank}</span>
+                <span>
+                  <strong>{formatHour(row.timestamp_utc)}</strong>
+                  <small>{formatDateTime(row.timestamp_utc)} UTC</small>
+                </span>
+                <span>
+                  <strong>{formatFixed(row.actual_decision_rank_observed)}</strong>
+                  <small>{row.is_actual_best_observed ? "actual best" : "not best"}</small>
+                </span>
+                <span>
+                  <strong>{formatFixed(row.predicted_avg_price_eur_mwh)} / {formatFixed(row.actual_price_eur_mwh_observed)}</strong>
+                  <small>{formatSigned(row.price_error)} EUR/MWh error</small>
+                </span>
+                <span>
+                  <strong>{formatFixed(row.predicted_avg_carbon_intensity_g_co2e_per_kwh)} / {formatFixed(row.actual_carbon_intensity_g_co2e_per_kwh_observed)}</strong>
+                  <small>{formatSigned(row.carbon_intensity_error)} gCO2e/kWh error</small>
+                </span>
+                <span>
+                  <strong>{formatFixed(row.predicted_consumption_mwh)} / {formatFixed(row.actual_consumption_mwh_observed)}</strong>
+                  <small>{formatSigned(row.consumption_error)} MWh consumption</small>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-heading">
+            <div>
+              <h2>Carbon Forecast Outcome</h2>
+              <p>Predicted vs actual carbon intensity for the latest settled recommendation snapshot.</p>
+            </div>
+          </div>
+          <div className="chart-area">
+            <ResponsiveContainer width="100%" height={260}>
+              <LineChart data={chartRows} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
+                <CartesianGrid stroke="#e7e3d8" strokeDasharray="4 4" />
+                <XAxis dataKey="hour" tickLine={false} axisLine={false} />
+                <YAxis tickLine={false} axisLine={false} width={42} />
+                <Tooltip />
+                <Line type="monotone" dataKey="predicted" stroke="#4b5563" strokeWidth={2} name="Predicted carbon" />
+                <Line type="monotone" dataKey="actual" stroke="#1f8a70" strokeWidth={3} name="Actual carbon" />
+              </LineChart>
+            </ResponsiveContainer>
+            {chartRows.length === 0 && (
+              <div className="chart-empty">No settled carbon outcome data yet.</div>
+            )}
+          </div>
+          <div className="score-breakdown">
+            <span>Carbon MAE {formatFixed(outcomeSummary.carbon_intensity_mae_g_co2e_per_kwh)}</span>
+            <span>Consumption MAE {formatFixed(outcomeSummary.consumption_mae_mwh)}</span>
+            <span>Production MAE {formatFixed(outcomeSummary.total_production_mae_mwh)}</span>
+          </div>
+        </div>
+      </section>
+    </>
   );
 }
 
@@ -688,6 +908,26 @@ function formatCausalSource(value) {
 function formatCausalMethod(value) {
   if (value === "marginal_proxy_mvp") return "Marginal proxy MVP";
   return value ? formatRecommendationStatus(value) : "-";
+}
+
+function mean(values) {
+  const numericValues = values
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value));
+  if (numericValues.length === 0) return null;
+  return numericValues.reduce((total, value) => total + value, 0) / numericValues.length;
+}
+
+function meanBoolean(values) {
+  const numericValues = values
+    .map((value) => {
+      if (value === true || value === "True" || value === "true" || value === 1) return 1;
+      if (value === false || value === "False" || value === "false" || value === 0) return 0;
+      return Number.NaN;
+    })
+    .filter((value) => Number.isFinite(value));
+  if (numericValues.length === 0) return null;
+  return numericValues.reduce((total, value) => total + value, 0) / numericValues.length;
 }
 
 function recommendationSubtitle(selectedBasis, selectedScenario) {

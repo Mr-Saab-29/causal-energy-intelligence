@@ -1,7 +1,7 @@
 PYTHON ?= .venv/bin/python
 DAGSTER ?= .venv/bin/dagster
 
-.PHONY: help ingest-latest ingest-latest-cloud ingest-plan ingest-repair ingest-future ingest-future-cloud ingest-monitor ingest-monitor-cloud forecast-monitor future-recommendations operational-refresh operational-publish train-all train-all-gated forecast-all forecast-all-candidate forecast-all-force quick-refresh daily-local-refresh forecast-price forecast-ranking forecast-decision forecast-recommendations forecast-scenarios forecast-decision-example forecast-consumption forecast-production forecast-supply-demand forecast-carbon marginal-emissions causal-recommendations pipeline-health pipeline-health-allow-stale dashboard-data frontend-install frontend-dev frontend-build mlflow-ui dagster-dev docker-build docker-up docker-down docker-observability
+.PHONY: help ingest-latest ingest-latest-cloud ingest-plan ingest-repair ingest-future ingest-future-cloud ingest-monitor ingest-monitor-cloud forecast-monitor operational-audit-readiness recommendation-outcome-audit future-recommendations operational-refresh operational-publish train-all train-all-gated forecast-all forecast-all-candidate forecast-all-force quick-refresh daily-local-refresh forecast-price forecast-ranking forecast-decision forecast-recommendations forecast-scenarios forecast-decision-example forecast-consumption forecast-production forecast-supply-demand forecast-carbon marginal-emissions causal-recommendations pipeline-health pipeline-health-allow-stale dashboard-data frontend-install frontend-dev frontend-build mlflow-ui dagster-dev docker-build docker-up docker-down docker-observability
 
 help:
 	@echo "Forecast training targets:"
@@ -14,6 +14,8 @@ help:
 	@echo "  make ingest-future           Fetch next-24h future exogenous weather"
 	@echo "  make ingest-future-cloud     Fetch next-24h weather and upsert transformed rows to Supabase"
 	@echo "  make forecast-monitor        Build reports/metrics/forecast_monitoring.json"
+	@echo "  make operational-audit-readiness  Verify current-month actuals and recommendation history"
+	@echo "  make recommendation-outcome-audit  Compare settled recommendations against actuals"
 	@echo "  make future-recommendations  Build next-24h operational recommendations"
 	@echo "  make operational-refresh     Build future recommendations, monitor, and dashboard"
 	@echo "  make operational-publish     Rebuild recommendations, monitor, dashboard data, and frontend"
@@ -68,12 +70,18 @@ ingest-future-cloud:
 forecast-monitor:
 	$(PYTHON) -m src.monitoring.forecast_monitor
 
+operational-audit-readiness:
+	$(PYTHON) -m src.monitoring.operational_readiness
+
+recommendation-outcome-audit:
+	$(PYTHON) -m src.monitoring.recommendation_outcome_audit
+
 future-recommendations:
 	$(PYTHON) -m src.models.future_recommendations --horizon-hours 24
 
 operational-refresh: ingest-future operational-publish
 
-operational-publish: future-recommendations causal-recommendations pipeline-health forecast-monitor dashboard-data frontend-build
+operational-publish: future-recommendations causal-recommendations pipeline-health forecast-monitor recommendation-outcome-audit dashboard-data frontend-build
 
 train-all:
 	$(PYTHON) -m src.models.train_forecast --target all

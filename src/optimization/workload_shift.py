@@ -387,6 +387,7 @@ def build_candidate_windows(
                         "predicted_total_emissions_kg_co2e"
                     ].sum(),
                     **aggregate_generation_columns(candidate),
+                    **aggregate_signal_columns(candidate),
                 }
             )
     return pd.DataFrame(records)
@@ -399,6 +400,21 @@ def aggregate_generation_columns(candidate: pd.DataFrame) -> dict[str, float]:
         for column in candidate.columns
         if column.endswith("_generation_mwh")
         and (column.startswith("actual_") or column.startswith("predicted_"))
+    }
+
+
+def aggregate_signal_columns(candidate: pd.DataFrame) -> dict[str, float]:
+    """Aggregate optional consumption and total-production signal columns."""
+    columns = [
+        "actual_consumption_mwh",
+        "predicted_consumption_mwh",
+        "actual_total_production_mwh",
+        "predicted_total_production_mwh",
+    ]
+    return {
+        column: float(candidate[column].sum())
+        for column in columns
+        if column in candidate
     }
 
 

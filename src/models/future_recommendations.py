@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import warnings
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -270,6 +271,12 @@ def build_future_hourly_decision_inputs(history: pd.DataFrame, future: pd.DataFr
             "predicted_total_emissions_kg_co2e": emissions,
         }
     )
+    if "forecast_consumption_mwh" in future:
+        output["actual_consumption_mwh"] = future["forecast_consumption_mwh"]
+        output["predicted_consumption_mwh"] = future["forecast_consumption_mwh"]
+    if "forecast_total_production_mwh" in future:
+        output["actual_total_production_mwh"] = future["forecast_total_production_mwh"]
+        output["predicted_total_production_mwh"] = future["forecast_total_production_mwh"]
     for source in generation.columns:
         output[f"actual_{source}_generation_mwh"] = generation[source]
         output[f"predicted_{source}_generation_mwh"] = generation[source]
@@ -469,6 +476,7 @@ def append_operational_history(
     frame: pd.DataFrame,
     path: str | Path,
     generated_at_utc: str,
+    retention_days: int | None = None,
 ) -> None:
     """Append operational forecast rows for later actual-vs-forecast monitoring."""
     output = Path(path)
@@ -476,19 +484,42 @@ def append_operational_history(
     history = frame.copy()
     history["forecast_generated_at_utc"] = generated_at_utc
     if not output.exists():
-        history.to_csv(output, index=False)
+        prune_operational_history(history, retention_days).to_csv(output, index=False)
         return
     try:
         existing = pd.read_csv(output)
     except pd.errors.ParserError:
         backup = output.with_suffix(f"{output.suffix}.malformed")
         output.replace(backup)
-        history.to_csv(output, index=False)
+        prune_operational_history(history, retention_days).to_csv(output, index=False)
         return
     aligned_columns = list(dict.fromkeys([*existing.columns.tolist(), *history.columns.tolist()]))
     existing = existing.reindex(columns=aligned_columns)
     history = history.reindex(columns=aligned_columns)
-    pd.concat([existing, history], ignore_index=True).to_csv(output, index=False)
+    combined = pd.concat([existing, history], ignore_index=True)
+    prune_operational_history(combined, retention_days).to_csv(output, index=False)
+
+
+def prune_operational_history(
+    history: pd.DataFrame,
+    retention_days: int | None = None,
+) -> pd.DataFrame:
+    """Keep operational history bounded for cache and dashboard artifact size."""
+    if history.empty or TIMESTAMP_COLUMN not in history:
+        return history
+    days = retention_days
+    if days is None:
+        days = int(os.environ.get("OPERATIONAL_HISTORY_RETENTION_DAYS", "60"))
+    if days <= 0:
+        return history
+    output = history.copy()
+    timestamps = pd.to_datetime(output[TIMESTAMP_COLUMN], utc=True, errors="coerce")
+    latest = timestamps.max()
+    if pd.isna(latest):
+        return output
+    cutoff = latest - pd.Timedelta(days=days)
+    keep = timestamps.isna() | (timestamps >= cutoff)
+    return output.loc[keep].reset_index(drop=True)
 
 
 def load_latest_operational_recommendation_snapshot(path: str | Path) -> pd.DataFrame:
