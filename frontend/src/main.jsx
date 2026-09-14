@@ -54,35 +54,37 @@ function App() {
         const scenarios = data.filters?.scenarios ?? [];
         setSelectedDate(dates[dates.length - 1] ?? "");
         setSelectedOutcomeDate(outcomeDates[0] ?? "");
-        setSelectedScenario(scenarios.includes("clean_first") ? "clean_first" : scenarios[0] ?? "");
+        setSelectedScenario(
+          scenarios.includes("clean_first") ? "clean_first" : scenarios[0] ?? "",
+        );
       })
       .catch((loadError) => setError(loadError.message));
   }, []);
 
   const baseRecommendations = useMemo(() => {
     if (!payload || !selectedDate) return [];
-    return payload.recommendations
+    return (payload.recommendations ?? [])
       .filter((row) => row.decision_group === selectedDate)
       .sort((left, right) => left.recommendation_rank - right.recommendation_rank);
   }, [payload, selectedDate]);
 
   const scenarioRecommendations = useMemo(() => {
     if (!payload || !selectedDate) return [];
-    return payload.scenario_recommendations
+    return (payload.scenario_recommendations ?? [])
       .filter(
         (row) =>
           row.decision_group === selectedDate && row.scenario === selectedScenario,
       )
       .sort((left, right) => left.recommendation_rank - right.recommendation_rank);
   }, [payload, selectedDate, selectedScenario]);
+
   const causalRecommendations = useMemo(() => {
     if (!payload || !selectedDate) return [];
     return (payload.causal_recommendations ?? [])
       .filter((row) => row.decision_group === selectedDate)
       .sort((left, right) => left.recommendation_rank - right.recommendation_rank);
   }, [payload, selectedDate]);
-  const hasScenarioMode = (payload?.filters?.scenarios ?? []).length > 0;
-  const hasCausalMode = (payload?.causal_recommendations ?? []).length > 0;
+
   const outcomeRows = useMemo(() => {
     if (!payload || !selectedOutcomeDate) return [];
     return (payload.recommendation_outcomes ?? [])
@@ -94,16 +96,18 @@ function App() {
         return left.recommendation_rank - right.recommendation_rank;
       });
   }, [payload, selectedOutcomeDate]);
+
+  const hasScenarioMode = (payload?.filters?.scenarios ?? []).length > 0;
+  const hasCausalMode = (payload?.causal_recommendations ?? []).length > 0;
   const recommendations =
     selectedBasis === "causal"
       ? causalRecommendations
       : hasScenarioMode
         ? scenarioRecommendations
         : baseRecommendations;
-
   const championMetrics = useMemo(() => {
     if (!payload?.champion?.model) return null;
-    return payload.champion.models.find((row) => row.model === payload.champion.model);
+    return (payload.champion?.models ?? []).find((row) => row.model === payload.champion.model);
   }, [payload]);
   const isSampleData = payload?.data_state?.mode === "sample";
   const outcomeSummary = payload?.summary?.recommendation_outcome_audit ?? {};
@@ -132,12 +136,13 @@ function App() {
     (row) => row.scenario === selectedScenario,
   );
   const marginalShift = payload.summary?.marginal_ranking_shift ?? {};
+  const trustSummary = buildTrustSummary(payload);
   const carbonChart = recommendations.map((row) => ({
     hour: formatHour(row.timestamp_utc),
     carbon: recommendationCarbonIntensity(row),
     confidence: row.confidence_score == null ? null : Math.round(row.confidence_score * 100),
   }));
-  const modelScores = payload.champion.models.slice(0, 6).map((row) => ({
+  const modelScores = (payload.champion?.models ?? []).slice(0, 6).map((row) => ({
     model: shortModel(row.model),
     score: row.champion_score,
   }));
@@ -153,7 +158,7 @@ function App() {
         <div className="champion-pill">
           <CheckCircle2 size={18} />
           <span>Model</span>
-          <strong>{payload.champion.display_model_name ?? "Production Model V1"}</strong>
+          <strong>{payload.champion?.display_model_name ?? "Production Model V1"}</strong>
         </div>
       </header>
 
@@ -176,6 +181,8 @@ function App() {
         </button>
       </section>
 
+      <TrustFreshnessBanner payload={payload} trustSummary={trustSummary} />
+
       {selectedView === "audit" ? (
         <OutcomeAuditView
           payload={payload}
@@ -186,286 +193,306 @@ function App() {
         />
       ) : (
         <>
+          <section className="controls-band">
+            <label>
+              <CalendarDays size={16} />
+              <span>Decision date</span>
+              <select
+                value={selectedDate}
+                onChange={(event) => setSelectedDate(event.target.value)}
+                disabled={(payload.filters?.dates ?? []).length === 0}
+              >
+                {(payload.filters?.dates ?? []).length === 0 && (
+                  <option value="">No dates available</option>
+                )}
+                {(payload.filters?.dates ?? []).map((date) => (
+                  <option key={date} value={date}>
+                    {date}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <SlidersHorizontal size={16} />
+              <span>Scenario</span>
+              <select
+                value={selectedScenario}
+                onChange={(event) => setSelectedScenario(event.target.value)}
+                disabled={(payload.filters?.scenarios ?? []).length === 0}
+              >
+                {(payload.filters?.scenarios ?? []).map((scenario) => (
+                  <option key={scenario} value={scenario}>
+                    {formatScenario(scenario)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <Activity size={16} />
+              <span>Basis</span>
+              <select
+                value={selectedBasis}
+                onChange={(event) => setSelectedBasis(event.target.value)}
+              >
+                <option value="scenario">Scenario</option>
+                <option value="causal" disabled={!hasCausalMode}>
+                  Causal-adjusted MVP
+                </option>
+              </select>
+            </label>
+          </section>
 
-      <section className="controls-band">
-        <label>
-          <CalendarDays size={16} />
-          <span>Decision date</span>
-          <select
-            value={selectedDate}
-            onChange={(event) => setSelectedDate(event.target.value)}
-            disabled={(payload.filters?.dates ?? []).length === 0}
-          >
-            {(payload.filters?.dates ?? []).length === 0 && (
-              <option value="">No dates available</option>
-            )}
-            {payload.filters.dates.map((date) => (
-              <option key={date} value={date}>
-                {date}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <SlidersHorizontal size={16} />
-          <span>Scenario</span>
-          <select
-            value={selectedScenario}
-            onChange={(event) => setSelectedScenario(event.target.value)}
-            disabled={(payload.filters?.scenarios ?? []).length === 0}
-          >
-            {payload.filters.scenarios.map((scenario) => (
-              <option key={scenario} value={scenario}>
-                {formatScenario(scenario)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <Activity size={16} />
-          <span>Basis</span>
-          <select
-            value={selectedBasis}
-            onChange={(event) => setSelectedBasis(event.target.value)}
-          >
-            <option value="scenario">Scenario</option>
-            <option value="causal" disabled={!hasCausalMode}>
-              Causal-adjusted MVP
-            </option>
-          </select>
-        </label>
-      </section>
-
-      {isSampleData && (
-        <section className="deployment-state">
-          <AlertTriangle size={20} />
-          <div>
-            <strong>Dashboard deployed without live recommendation data</strong>
-            <p>{payload.data_state.message}</p>
-          </div>
-        </section>
-      )}
-
-      <section className="kpi-grid">
-        <Metric
-          icon={<Clock3 size={20} />}
-          label="Best start"
-          value={topRecommendation ? formatHour(topRecommendation.timestamp_utc) : "-"}
-          detail={topRecommendation ? `${topRecommendation.duration_hours}h workload` : "No rows"}
-        />
-        <Metric
-          icon={<Leaf size={20} />}
-          label="Carbon intensity"
-          value={
-            topRecommendation
-              ? formatFixed(recommendationCarbonIntensity(topRecommendation))
-              : "-"
-          }
-          detail={`${recommendationCarbonLabel(topRecommendation)} gCO2e/kWh`}
-        />
-        <Metric
-          icon={<Zap size={20} />}
-          label="Carbon saving"
-          value={
-            topRecommendation
-              ? formatFixed(topRecommendation.carbon_savings_vs_run_now_g_co2e_per_kwh)
-              : "-"
-          }
-          detail="gCO2e/kWh vs run now"
-        />
-        <Metric
-          icon={<Gauge size={20} />}
-          label="Confidence"
-          value={topRecommendation ? titleCase(topRecommendation.confidence_level) || "-" : "-"}
-          detail={
-            topRecommendation?.confidence_score != null
-              ? `${Math.round(topRecommendation.confidence_score * 100)}% score`
-              : "No confidence"
-          }
-        />
-        <Metric
-          icon={<AlertTriangle size={20} />}
-          label="Risk status"
-          value={topRecommendation ? formatRecommendationStatus(topRecommendation.recommendation_status) : "-"}
-          detail={
-            topRecommendation?.decision_uncertainty_score != null
-              ? `${Math.round(topRecommendation.decision_uncertainty_score * 100)}% uncertainty`
-              : "No uncertainty score"
-          }
-        />
-      </section>
-
-      <section className="content-grid">
-        <div className="panel recommendations-panel">
-          <div className="panel-heading">
-            <div>
-              <h2>Clean-Hour Recommendations</h2>
-              <p>{recommendationSubtitle(selectedBasis, selectedScenario)}</p>
-            </div>
-          </div>
-          <div className="recommendation-list">
-            <div className="recommendation-header" aria-hidden="true">
-              <span>Rank</span>
-              <span>Start time</span>
-              <span>Carbon intensity</span>
-              <span>Price vs yesterday</span>
-              <span>Confidence</span>
-              <span>Risk</span>
-            </div>
-            {recommendations.length === 0 && (
-              <div className="empty-state">
-                {isSampleData
-                  ? "Live recommendation data has not been published for this deployment yet."
-                  : "No future recommendation rows are available for the selected date."}
+          {isSampleData && (
+            <section className="deployment-state">
+              <AlertTriangle size={20} />
+              <div>
+                <strong>Dashboard deployed without live recommendation data</strong>
+                <p>{payload.data_state.message}</p>
               </div>
-            )}
-            {recommendations.map((row) => (
-              <RecommendationRow
-                key={`${row.scenario ?? "base"}-${row.decision_group}-${row.recommendation_rank}`}
-                row={row}
-              />
-            ))}
-          </div>
-        </div>
+            </section>
+          )}
 
-        <div className="panel">
-          <div className="panel-heading">
-            <div>
-              <h2>Carbon and Confidence</h2>
-              <p>Lower carbon intensity is better; confidence combines rank, margin, and model agreement.</p>
-            </div>
-          </div>
-          <div className="chart-area">
-            <ResponsiveContainer width="100%" height={260}>
-              <LineChart data={hasRecommendationData ? carbonChart : []} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
-                <CartesianGrid stroke="#e7e3d8" strokeDasharray="4 4" />
-                <XAxis dataKey="hour" tickLine={false} axisLine={false} />
-                <YAxis tickLine={false} axisLine={false} width={42} />
-                <Tooltip />
-                <Line
-                  type="monotone"
-                  dataKey="carbon"
-                  stroke="#1f8a70"
-                  strokeWidth={3}
-                  dot={{ r: 4 }}
-                  name="Carbon intensity"
-                />
-                <Line
-                  type="monotone"
-                  dataKey="confidence"
-                  stroke="#4b5563"
-                  strokeWidth={2}
-                  dot={false}
-                  name="Confidence %"
-                />
-              </LineChart>
-            </ResponsiveContainer>
-            {!hasRecommendationData && (
-              <div className="chart-empty">No recommendation data to chart yet.</div>
-            )}
-          </div>
-        </div>
-      </section>
+          <section className="kpi-grid">
+            <Metric
+              icon={<Clock3 size={20} />}
+              label="Best start"
+              value={topRecommendation ? formatHour(topRecommendation.timestamp_utc) : "-"}
+              detail={topRecommendation ? `${topRecommendation.duration_hours}h workload` : "No rows"}
+            />
+            <Metric
+              icon={<Leaf size={20} />}
+              label="Carbon intensity"
+              value={
+                topRecommendation
+                  ? formatFixed(recommendationCarbonIntensity(topRecommendation))
+                  : "-"
+              }
+              detail={`${recommendationCarbonLabel(topRecommendation)} gCO2e/kWh`}
+            />
+            <Metric
+              icon={<Zap size={20} />}
+              label="Carbon saving"
+              value={
+                topRecommendation
+                  ? formatFixed(recommendationCarbonSaving(topRecommendation))
+                  : "-"
+              }
+              detail={recommendationReferenceLabel(topRecommendation)}
+            />
+            <Metric
+              icon={<Gauge size={20} />}
+              label="Confidence"
+              value={topRecommendation ? titleCase(topRecommendation.confidence_level) || "-" : "-"}
+              detail={
+                topRecommendation?.confidence_score != null
+                  ? `${Math.round(topRecommendation.confidence_score * 100)}% score`
+                  : "No confidence"
+              }
+            />
+            <Metric
+              icon={<AlertTriangle size={20} />}
+              label="Risk status"
+              value={
+                topRecommendation
+                  ? formatRecommendationStatus(topRecommendation.recommendation_status)
+                  : "-"
+              }
+              detail={
+                topRecommendation?.decision_uncertainty_score != null
+                  ? `${Math.round(topRecommendation.decision_uncertainty_score * 100)}% uncertainty`
+                  : "No uncertainty score"
+              }
+            />
+          </section>
 
-      {hasCausalMode && (
-        <section className="causal-band">
-          <div>
-            <span>Basis</span>
-            <strong>{formatCausalMethod(marginalShift.method)}</strong>
-          </div>
-          <div>
-            <span>Top-1 changed</span>
-            <strong>{formatPercent(marginalShift.top_1_change_share)}</strong>
-          </div>
-          <div>
-            <span>Top-5 overlap</span>
-            <strong>{formatPercent(marginalShift.mean_top_5_overlap_share)}</strong>
-          </div>
-          <div>
-            <span>Avg rank shift</span>
-            <strong>{formatFixed(marginalShift.mean_absolute_rank_shift)}</strong>
-          </div>
-          <div>
-            <span>Proxy coverage</span>
-            <strong>{formatPercent(marginalShift.mean_causal_adjustment_coverage)}</strong>
-          </div>
-          <div className={`quality-chip ${marginalShift.quality_status ?? "unknown"}`}>
-            <span>Quality guard</span>
-            <strong>{titleCase(marginalShift.quality_status ?? "unknown")}</strong>
-          </div>
-        </section>
-      )}
-
-      <section className="content-grid lower-grid">
-        <div className="panel">
-          <div className="panel-heading">
-            <div>
-              <h2>Scenario Reranking</h2>
-              <p>{formatScenario(selectedScenario)} reranks the same candidate hours using scenario-specific carbon and price weights.</p>
-            </div>
-          </div>
-          <div className="scenario-table">
-            {selectedScenarioChampion && (
-              <div className="scenario-row scenario-champion">
-                <span className="rank">Best</span>
-                <strong>{shortModel(selectedScenarioChampion.model)}</strong>
-                <span>{formatFixed(selectedScenarioChampion.mean_scenario_regret)} regret</span>
-                <span>{formatFixed(selectedScenarioChampion.top_5_f1)} top-5 F1</span>
+          <section className="content-grid">
+            <div className="panel recommendations-panel">
+              <div className="panel-heading">
+                <div>
+                  <h2>Clean-Hour Recommendations</h2>
+                  <p>{recommendationSubtitle(selectedBasis, selectedScenario)}</p>
+                </div>
               </div>
-            )}
-            {scenarioRecommendations.length === 0 && (
-              <div className="empty-state">
-                No scenario recommendations are available yet.
+              <div className="recommendation-list">
+                <div className="recommendation-header" aria-hidden="true">
+                  <span>Rank</span>
+                  <span>Start time</span>
+                  <span>Carbon intensity</span>
+                  <span>Price vs yesterday</span>
+                  <span>Confidence</span>
+                  <span>Risk</span>
+                </div>
+                {recommendations.length === 0 && (
+                  <div className="empty-state">
+                    {isSampleData
+                      ? "Live recommendation data has not been published for this deployment yet."
+                      : "No future recommendation rows are available for the selected date."}
+                  </div>
+                )}
+                {recommendations.map((row) => (
+                  <RecommendationRow
+                    key={`${row.scenario ?? selectedBasis}-${row.decision_group}-${row.recommendation_rank}`}
+                    row={row}
+                  />
+                ))}
               </div>
-            )}
-            {scenarioRecommendations.map((row) => (
-              <div className="scenario-row" key={`${row.scenario}-${row.recommendation_rank}`}>
-                <span className="rank">#{row.recommendation_rank}</span>
-                <strong>{formatHour(row.timestamp_utc)}</strong>
-                <span>{formatFixed(row.predicted_avg_carbon_intensity_g_co2e_per_kwh)} gCO2e/kWh</span>
-                {row.recommendation_status === "no_low_risk_recommendation_available" ? (
-                  <RiskBadge status={row.recommendation_status} />
-                ) : (
-                  <DirectionBadge value={row.predicted_price_direction_vs_previous_day} />
+            </div>
+
+            <div className="panel">
+              <div className="panel-heading">
+                <div>
+                  <h2>Carbon and Confidence</h2>
+                  <p>Lower carbon intensity is better; confidence combines rank, margin, and model agreement.</p>
+                </div>
+              </div>
+              <div className="chart-area">
+                <ResponsiveContainer width="100%" height={260}>
+                  <LineChart data={hasRecommendationData ? carbonChart : []} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
+                    <CartesianGrid stroke="#e7e3d8" strokeDasharray="4 4" />
+                    <XAxis dataKey="hour" tickLine={false} axisLine={false} />
+                    <YAxis tickLine={false} axisLine={false} width={42} />
+                    <Tooltip />
+                    <Line type="monotone" dataKey="carbon" stroke="#1f8a70" strokeWidth={3} dot={{ r: 4 }} name="Carbon intensity" />
+                    <Line type="monotone" dataKey="confidence" stroke="#4b5563" strokeWidth={2} dot={false} name="Confidence %" />
+                  </LineChart>
+                </ResponsiveContainer>
+                {!hasRecommendationData && (
+                  <div className="chart-empty">No recommendation data to chart yet.</div>
                 )}
               </div>
-            ))}
-          </div>
-        </div>
+            </div>
+          </section>
 
-        <div className="panel">
-          <div className="panel-heading">
-            <div>
-              <h2>Model Quality</h2>
-              <p>Lower weighted score wins under the carbon-first rule.</p>
-            </div>
-          </div>
-          <div className="chart-area compact">
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={modelScores} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
-                <CartesianGrid stroke="#e7e3d8" strokeDasharray="4 4" />
-                <XAxis dataKey="model" tickLine={false} axisLine={false} />
-                <YAxis tickLine={false} axisLine={false} width={36} />
-                <Tooltip />
-                <Bar dataKey="score" fill="#1f8a70" radius={[4, 4, 0, 0]} name="Champion score" />
-              </BarChart>
-            </ResponsiveContainer>
-            {modelScores.length === 0 && (
-              <div className="chart-empty">No model quality metrics have been published yet.</div>
-            )}
-          </div>
-          {championMetrics && (
-            <div className="score-breakdown">
-              <span>Carbon MAE {championMetrics.carbon_intensity_mae_g_co2e_per_kwh.toFixed(2)}</span>
-              <span>Carbon regret {championMetrics.carbon_regret_g_co2e_per_kwh.toFixed(2)}</span>
-              <span>Top-5 F1 {championMetrics.top_5_f1.toFixed(2)}</span>
-            </div>
+          {hasCausalMode && (
+            <section className="causal-band">
+              <div>
+                <span>Basis</span>
+                <strong>{formatCausalMethod(marginalShift.method)}</strong>
+              </div>
+              <div>
+                <span>Top-1 changed</span>
+                <strong>{formatPercent(marginalShift.top_1_change_share)}</strong>
+              </div>
+              <div>
+                <span>Top-5 overlap</span>
+                <strong>{formatPercent(marginalShift.mean_top_5_overlap_share)}</strong>
+              </div>
+              <div>
+                <span>Avg rank shift</span>
+                <strong>{formatFixed(marginalShift.mean_absolute_rank_shift)}</strong>
+              </div>
+              <div>
+                <span>Proxy coverage</span>
+                <strong>{formatPercent(marginalShift.mean_causal_adjustment_coverage)}</strong>
+              </div>
+              <div className={`quality-chip ${marginalShift.quality_status ?? "unknown"}`}>
+                <span>Quality guard</span>
+                <strong>{titleCase(marginalShift.quality_status ?? "unknown")}</strong>
+              </div>
+            </section>
           )}
-        </div>
-      </section>
+
+          <section className="content-grid lower-grid">
+            <div className="panel">
+              <div className="panel-heading">
+                <div>
+                  <h2>Scenario Reranking</h2>
+                  <p>{formatScenario(selectedScenario)} reranks the same candidate hours using scenario-specific carbon and price weights.</p>
+                </div>
+              </div>
+              <div className="scenario-table">
+                {selectedScenarioChampion && (
+                  <div className="scenario-row scenario-champion">
+                    <span className="rank">Best</span>
+                    <strong>{shortModel(selectedScenarioChampion.model)}</strong>
+                    <span>{formatFixed(selectedScenarioChampion.mean_scenario_regret)} regret</span>
+                    <span>{formatFixed(selectedScenarioChampion.top_5_f1)} top-5 F1</span>
+                  </div>
+                )}
+                {scenarioRecommendations.length === 0 && (
+                  <div className="empty-state">No scenario recommendations are available yet.</div>
+                )}
+                {scenarioRecommendations.map((row) => (
+                  <div className="scenario-row" key={`${row.scenario}-${row.recommendation_rank}`}>
+                    <span className="rank">#{row.recommendation_rank}</span>
+                    <strong>{formatHour(row.timestamp_utc)}</strong>
+                    <span>{formatFixed(row.predicted_avg_carbon_intensity_g_co2e_per_kwh)} gCO2e/kWh</span>
+                    {row.recommendation_status === "no_low_risk_recommendation_available" ? (
+                      <RiskBadge status={row.recommendation_status} />
+                    ) : (
+                      <DirectionBadge value={row.predicted_price_direction_vs_previous_day} />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="panel">
+              <div className="panel-heading">
+                <div>
+                  <h2>Model Quality</h2>
+                  <p>Lower weighted score wins under the carbon-first rule.</p>
+                </div>
+              </div>
+              <div className="chart-area compact">
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={modelScores} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+                    <CartesianGrid stroke="#e7e3d8" strokeDasharray="4 4" />
+                    <XAxis dataKey="model" tickLine={false} axisLine={false} />
+                    <YAxis tickLine={false} axisLine={false} width={36} />
+                    <Tooltip />
+                    <Bar dataKey="score" fill="#1f8a70" radius={[4, 4, 0, 0]} name="Champion score" />
+                  </BarChart>
+                </ResponsiveContainer>
+                {modelScores.length === 0 && (
+                  <div className="chart-empty">No model quality metrics have been published yet.</div>
+                )}
+              </div>
+              {championMetrics && (
+                <div className="score-breakdown">
+                  <span>Carbon MAE {formatFixed(championMetrics.carbon_intensity_mae_g_co2e_per_kwh)}</span>
+                  <span>Carbon regret {formatFixed(championMetrics.carbon_regret_g_co2e_per_kwh)}</span>
+                  <span>Top-5 F1 {formatFixed(championMetrics.top_5_f1)}</span>
+                </div>
+              )}
+            </div>
+          </section>
         </>
       )}
     </main>
+  );
+}
+
+function TrustFreshnessBanner({ payload, trustSummary }) {
+  const forecast = payload.summary?.forecast_monitoring ?? {};
+  const readiness = payload.summary?.operational_audit_readiness ?? {};
+  const reference = payload.current_reference ?? {};
+  return (
+    <section className={`trust-banner ${trustSummary.level}`}>
+      <div className="trust-status">
+        {trustSummary.level === "ready" ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
+        <div>
+          <span>Trust status</span>
+          <strong>{trustSummary.label}</strong>
+        </div>
+      </div>
+      <div className="trust-grid">
+        <TrustItem label="Latest actual" value={formatDateTime(forecast.latest_actual_timestamp_utc)} />
+        <TrustItem label="Audit coverage" value={`${readiness.settled_current_month_recommendation_rows ?? 0} settled`} />
+        <TrustItem label="Built" value={formatDateTime(payload.generated_at_utc)} />
+        <TrustItem label="Reference" value={formatDateTime(reference.reference_hour_utc)} />
+      </div>
+      {trustSummary.message && <p>{trustSummary.message}</p>}
+    </section>
+  );
+}
+
+function TrustItem({ label, value }) {
+  return (
+    <div className="trust-item">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
   );
 }
 
@@ -487,6 +514,14 @@ function OutcomeAuditView({
     predicted: row.predicted_avg_carbon_intensity_g_co2e_per_kwh,
     actual: row.actual_carbon_intensity_g_co2e_per_kwh_observed,
   }));
+  const topRecommendationOutcome = dayTopRows[0];
+  const worstCarbonMiss = latestRows.reduce((current, row) => {
+    const rowRegret = Number(row.carbon_regret_g_co2e_per_kwh_observed);
+    const currentRegret = Number(current?.carbon_regret_g_co2e_per_kwh_observed);
+    if (!Number.isFinite(rowRegret)) return current;
+    if (!current || !Number.isFinite(currentRegret) || rowRegret > currentRegret) return row;
+    return current;
+  }, null);
   const top1HitRate = meanBoolean(dayTopRows.map((row) => row.is_actual_best_observed));
   const top5HitRate = meanBoolean(
     dayTopRows.map((row) => Number(row.actual_decision_rank_observed) <= 5),
@@ -522,6 +557,25 @@ function OutcomeAuditView({
           </div>
         </section>
       )}
+
+      <section className="audit-insights">
+        <div>
+          <span>Latest snapshot</span>
+          <strong>{formatDateTime(latestGeneration)}</strong>
+        </div>
+        <div>
+          <span>Top recommendation</span>
+          <strong>{auditVerdict(topRecommendationOutcome).label}</strong>
+        </div>
+        <div>
+          <span>Actual rank</span>
+          <strong>{formatFixed(topRecommendationOutcome?.actual_decision_rank_observed)}</strong>
+        </div>
+        <div>
+          <span>Worst carbon regret</span>
+          <strong>{formatFixed(worstCarbonMiss?.carbon_regret_g_co2e_per_kwh_observed)} gCO2e/kWh</strong>
+        </div>
+      </section>
 
       <section className="kpi-grid audit-kpis">
         <Metric
@@ -567,6 +621,7 @@ function OutcomeAuditView({
           <div className="audit-table">
             <div className="audit-header" aria-hidden="true">
               <span>Rec</span>
+              <span>Verdict</span>
               <span>Start</span>
               <span>Actual rank</span>
               <span>Price pred/actual</span>
@@ -582,6 +637,7 @@ function OutcomeAuditView({
                 key={`${row.forecast_generated_at_utc}-${row.decision_group}-${row.recommendation_rank}`}
               >
                 <span className="rank-cell">#{row.recommendation_rank}</span>
+                <OutcomeVerdict row={row} />
                 <span>
                   <strong>{formatHour(row.timestamp_utc)}</strong>
                   <small>{formatDateTime(row.timestamp_utc)} UTC</small>
@@ -690,58 +746,28 @@ function RecommendationRow({ row }) {
         </span>
       </summary>
       <div className="recommendation-details">
-        <DetailItem
-          label="Recommendation status"
-          value={formatRecommendationStatus(row.recommendation_status)}
-        />
+        <DetailItem label="Recommendation status" value={formatRecommendationStatus(row.recommendation_status)} />
         {row.predicted_price_interval_half_width_eur_mwh != null && (
-          <DetailItem
-            label="Price interval half-width"
-            value={`${formatFixed(row.predicted_price_interval_half_width_eur_mwh)} EUR/MWh`}
-          />
+          <DetailItem label="Price interval half-width" value={`${formatFixed(row.predicted_price_interval_half_width_eur_mwh)} EUR/MWh`} />
         )}
         {row.predicted_carbon_interval_half_width_g_co2e_per_kwh != null && (
-          <DetailItem
-            label="Carbon interval half-width"
-            value={`${formatFixed(row.predicted_carbon_interval_half_width_g_co2e_per_kwh)} gCO2e/kWh`}
-          />
+          <DetailItem label="Carbon interval half-width" value={`${formatFixed(row.predicted_carbon_interval_half_width_g_co2e_per_kwh)} gCO2e/kWh`} />
         )}
-        <DetailItem
-          label="Predicted total emissions"
-          value={`${formatNumber(row.predicted_total_emissions_kg_co2e)} kgCO2e`}
-        />
+        <DetailItem label="Predicted total emissions" value={`${formatNumber(row.predicted_total_emissions_kg_co2e)} kgCO2e`} />
         {row.predicted_avg_carbon_intensity_g_co2e_per_kwh != null && (
-          <DetailItem
-            label="Average carbon intensity"
-            value={`${formatFixed(row.predicted_avg_carbon_intensity_g_co2e_per_kwh)} gCO2e/kWh`}
-          />
+          <DetailItem label="Average carbon intensity" value={`${formatFixed(row.predicted_avg_carbon_intensity_g_co2e_per_kwh)} gCO2e/kWh`} />
         )}
         {row.causal_carbon_source && (
-          <DetailItem
-            label="Causal-adjusted source"
-            value={formatCausalSource(row.causal_carbon_source)}
-          />
+          <DetailItem label="Causal-adjusted source" value={formatCausalSource(row.causal_carbon_source)} />
         )}
         {row.causal_adjusted_rank_shift != null && (
-          <DetailItem
-            label="Average-vs-causal rank shift"
-            value={formatSigned(row.causal_adjusted_rank_shift)}
-          />
+          <DetailItem label="Average-vs-causal rank shift" value={formatSigned(row.causal_adjusted_rank_shift)} />
         )}
         {row.predicted_marginal_proxy_confidence && (
-          <DetailItem
-            label="Marginal proxy confidence"
-            value={titleCase(row.predicted_marginal_proxy_confidence)}
-          />
+          <DetailItem label="Marginal proxy confidence" value={titleCase(row.predicted_marginal_proxy_confidence)} />
         )}
-        <DetailItem
-          label="Carbon rank"
-          value={`${row.predicted_carbon_rank ?? scenarioRank} of ${row.candidate_count ?? "-"} candidate hours`}
-        />
-        <DetailItem
-          label="Price rank"
-          value={`${priceRank} of ${row.candidate_count ?? "-"} candidate hours`}
-        />
+        <DetailItem label="Carbon rank" value={`${row.predicted_carbon_rank ?? scenarioRank} of ${row.candidate_count ?? "-"} candidate hours`} />
+        <DetailItem label="Price rank" value={`${priceRank} of ${row.candidate_count ?? "-"} candidate hours`} />
         {row.scenario && (
           <DetailItem
             label="Scenario weights"
@@ -749,32 +775,23 @@ function RecommendationRow({ row }) {
           />
         )}
         {row.predicted_scenario_score != null && (
-          <DetailItem
-            label="Scenario score"
-            value={formatFixed(row.predicted_scenario_score)}
-          />
+          <DetailItem label="Scenario score" value={formatFixed(row.predicted_scenario_score)} />
         )}
         <DetailItem
-          label="Carbon saving vs run now"
-          value={`${formatFixed(row.carbon_savings_vs_run_now_g_co2e_per_kwh)} gCO2e/kWh`}
+          label="Carbon saving vs active reference"
+          value={`${formatFixed(recommendationCarbonSaving(row))} gCO2e/kWh`}
         />
-        {row.cost_savings_vs_run_now_eur_mwh != null && (
+        {recommendationCostSaving(row) != null && (
           <DetailItem
-            label="Cost saving vs run now"
-            value={`${formatFixed(row.cost_savings_vs_run_now_eur_mwh)} EUR/MWh`}
+            label="Cost saving vs active reference"
+            value={`${formatFixed(recommendationCostSaving(row))} EUR/MWh`}
           />
         )}
         {row.empirical_top_n_hit_rate != null && (
-          <DetailItem
-            label="Historical top-5 hit rate"
-            value={`${Math.round(row.empirical_top_n_hit_rate * 100)}%`}
-          />
+          <DetailItem label="Historical top-5 hit rate" value={`${Math.round(row.empirical_top_n_hit_rate * 100)}%`} />
         )}
         {row.expected_carbon_regret_g_co2e_per_kwh != null && (
-          <DetailItem
-            label="Expected carbon regret"
-            value={`${formatFixed(row.expected_carbon_regret_g_co2e_per_kwh)} gCO2e/kWh`}
-          />
+          <DetailItem label="Expected carbon regret" value={`${formatFixed(row.expected_carbon_regret_g_co2e_per_kwh)} gCO2e/kWh`} />
         )}
         {row.heuristic_confidence_level && row.confidence_level && (
           <DetailItem
@@ -796,13 +813,18 @@ function DetailItem({ label, value }) {
   );
 }
 
+function OutcomeVerdict({ row }) {
+  const verdict = auditVerdict(row);
+  return <span className={`verdict-badge ${verdict.level}`}>{verdict.label}</span>;
+}
+
 function DirectionBadge({ value }) {
   const icon =
     value === "increase" ? <ArrowUp size={14} /> : value === "decrease" ? <ArrowDown size={14} /> : <ArrowRight size={14} />;
   return (
-    <span className={`direction-badge ${value}`}>
+    <span className={`direction-badge ${value ?? "unknown"}`}>
       {icon}
-      {titleCase(value)}
+      {titleCase(value ?? "unknown")}
     </span>
   );
 }
@@ -835,7 +857,55 @@ function RiskBadge({ status }) {
   );
 }
 
+function buildTrustSummary(payload) {
+  const pipeline = payload.summary?.pipeline_health ?? {};
+  const forecast = payload.summary?.forecast_monitoring ?? {};
+  const readiness = payload.summary?.operational_audit_readiness ?? {};
+  const outcome = payload.summary?.recommendation_outcome_audit ?? {};
+  const reasons = [
+    ...(readiness.reasons ?? []),
+    ...(readiness.warnings ?? []),
+  ];
+  if (pipeline.status === "fail" || readiness.status === "fail" || forecast.status === "fail") {
+    return {
+      level: "blocked",
+      label: "Needs attention",
+      message: formatTrustReason(reasons[0]) ?? "A required operational data check is failing.",
+    };
+  }
+  if (forecast.stale || forecast.status === "stale" || !outcome.available) {
+    return {
+      level: "warning",
+      label: "Usable with caveats",
+      message: forecast.stale
+        ? "Forecast monitoring is older than the current model artifacts."
+        : "Settled recommendation outcomes are not fully available yet.",
+    };
+  }
+  return {
+    level: "ready",
+    label: "Fresh and auditable",
+    message: "Recommendation data, monitoring, and settled outcome checks are available.",
+  };
+}
+
+function auditVerdict(row) {
+  if (!row) return { level: "unknown", label: "-" };
+  const actualRank = Number(row.actual_decision_rank_observed);
+  const carbonRegret = Number(row.carbon_regret_g_co2e_per_kwh_observed);
+  if (Number.isFinite(actualRank) && actualRank <= 1) return { level: "hit", label: "Hit" };
+  if (Number.isFinite(actualRank) && actualRank <= 5) return { level: "good", label: "Good" };
+  if (Number.isFinite(carbonRegret) && carbonRegret <= 1) return { level: "ok", label: "Close" };
+  return { level: "miss", label: "Miss" };
+}
+
+function formatTrustReason(value) {
+  if (!value) return null;
+  return String(value).split("_").map(titleCase).join(" ");
+}
+
 function formatHour(value) {
+  if (!value) return "-";
   return new Intl.DateTimeFormat("en-GB", {
     hour: "2-digit",
     minute: "2-digit",
@@ -854,7 +924,7 @@ function formatDateTime(value) {
   }).format(new Date(value));
 }
 
-function shortModel(value) {
+function shortModel(value = "") {
   return value
     .replace("hist_gradient_boosting", "HGB")
     .replace("random_forest", "RF")
@@ -878,9 +948,7 @@ function formatRecommendationStatus(value) {
 
 function formatNumber(value) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return "-";
-  return new Intl.NumberFormat("en-GB", {
-    maximumFractionDigits: 2,
-  }).format(Number(value));
+  return new Intl.NumberFormat("en-GB", { maximumFractionDigits: 2 }).format(Number(value));
 }
 
 function formatFixed(value) {
@@ -948,6 +1016,24 @@ function recommendationCarbonLabel(row) {
   return row?.predicted_marginal_carbon_intensity_g_co2e_per_kwh == null
     ? "Average predicted"
     : "Marginal proxy";
+}
+
+function recommendationCarbonSaving(row) {
+  return (
+    row?.carbon_savings_vs_current_reference_g_co2e_per_kwh
+    ?? row?.carbon_savings_vs_run_now_g_co2e_per_kwh
+  );
+}
+
+function recommendationCostSaving(row) {
+  return row?.cost_savings_vs_current_reference_eur_mwh ?? row?.cost_savings_vs_run_now_eur_mwh;
+}
+
+function recommendationReferenceLabel(row) {
+  if (row?.current_reference_start_utc) {
+    return `gCO2e/kWh vs active reference ${formatHour(row.current_reference_start_utc)} UTC`;
+  }
+  return "gCO2e/kWh vs active reference";
 }
 
 function titleCase(value) {

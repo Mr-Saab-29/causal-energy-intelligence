@@ -5,6 +5,7 @@ import math
 import pandas as pd
 
 from scripts.build_dashboard_data import (
+    add_current_reference_comparison,
     build_active_future_causal_recommendations,
     build_active_future_recommendations,
     build_active_future_scenario_recommendations,
@@ -38,6 +39,35 @@ def test_filter_future_recommendations_drops_past_rows() -> None:
         "2026-08-10T08:00:00+00:00",
         "2026-08-10T09:00:00+00:00",
     ]
+
+
+def test_add_current_reference_comparison_uses_earliest_active_hour() -> None:
+    rankings = pd.DataFrame(
+        {
+            "window": ["future_24h", "future_24h", "future_24h"],
+            "model": ["model_a", "model_a", "model_a"],
+            "decision_group": ["2026-08-10", "2026-08-10", "2026-08-10"],
+            "timestamp_utc": [
+                "2026-08-10T07:00:00+00:00",
+                "2026-08-10T08:00:00+00:00",
+                "2026-08-10T09:00:00+00:00",
+            ],
+            "predicted_avg_carbon_intensity_g_co2e_per_kwh": [50.0, 42.0, 35.0],
+            "predicted_avg_price_eur_mwh": [80.0, 70.0, 55.0],
+        }
+    )
+    recommendations = rankings.iloc[[2]].copy()
+    recommendations["recommendation_rank"] = [1]
+
+    enriched = add_current_reference_comparison(
+        recommendations,
+        rankings,
+        now=pd.Timestamp("2026-08-10T08:10:00Z"),
+    )
+
+    assert enriched.loc[0, "current_reference_start_utc"] == "2026-08-10T08:00:00+00:00"
+    assert enriched.loc[0, "carbon_savings_vs_current_reference_g_co2e_per_kwh"] == 7.0
+    assert enriched.loc[0, "cost_savings_vs_current_reference_eur_mwh"] == 15.0
 
 
 def test_enrich_scenario_recommendations_adds_confidence_context() -> None:

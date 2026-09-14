@@ -32,6 +32,7 @@ PRODUCTION_MODEL_LABEL = "Production Model V1"
 
 def main() -> None:
     """Write the dashboard JSON payload used by the frontend."""
+    generated_at_utc = pd.Timestamp.now(tz="UTC")
     champion = read_json(ROOT / "reports/metrics/champion_model_selection.json")
     decision_metrics = read_json(ROOT / "reports/metrics/workload_decision_metrics.json")
     ranking_metrics = read_json(ROOT / "reports/metrics/ranking_specific_metrics.json")
@@ -69,6 +70,7 @@ def main() -> None:
     active_future_recommendations = build_active_future_recommendations(
         future_recommendations,
         future_rankings,
+        now=generated_at_utc,
     )
     active_recommendations = (
         active_future_recommendations
@@ -84,6 +86,7 @@ def main() -> None:
     active_future_scenario_recommendations = build_active_future_scenario_recommendations(
         future_scenario_recommendations,
         future_rankings,
+        now=generated_at_utc,
     )
     active_scenario_recommendations = (
         active_future_scenario_recommendations
@@ -95,6 +98,16 @@ def main() -> None:
         active_scenario_recommendations,
         active_recommendations,
     )
+    active_recommendations = add_current_reference_comparison(
+        active_recommendations,
+        future_rankings,
+        now=generated_at_utc,
+    )
+    active_scenario_recommendations = add_current_reference_comparison(
+        active_scenario_recommendations,
+        future_rankings,
+        now=generated_at_utc,
+    )
     active_recommendations = normalize_recommendation_fields(active_recommendations)
     active_scenario_recommendations = normalize_recommendation_fields(
         active_scenario_recommendations
@@ -102,6 +115,12 @@ def main() -> None:
     active_future_causal_recommendations = build_active_future_causal_recommendations(
         future_causal_recommendations,
         future_marginal_rankings,
+        now=generated_at_utc,
+    )
+    active_future_causal_recommendations = add_current_reference_comparison(
+        active_future_causal_recommendations,
+        future_marginal_rankings,
+        now=generated_at_utc,
     )
     active_causal_recommendations = normalize_recommendation_fields(
         active_future_causal_recommendations
@@ -117,6 +136,15 @@ def main() -> None:
     )
     outcome_dates = sorted(safe_unique(outcome_audit, "decision_group"), reverse=True)
     payload = {
+        "generated_at_utc": generated_at_utc.isoformat(),
+        "current_reference": {
+            "generated_at_utc": generated_at_utc.isoformat(),
+            "reference_hour_utc": generated_at_utc.floor("h").isoformat(),
+            "description": (
+                "Savings compare each recommendation with the earliest active "
+                "workload start available when the dashboard data was built."
+            ),
+        },
         "generated_from": {
             "champion_model_selection": "reports/metrics/champion_model_selection.json",
             "recommendations": (
@@ -322,6 +350,72 @@ def build_active_future_causal_recommendations(
     if active_rankings.empty:
         return active
     return build_causal_adjusted_recommendations(active_rankings, top_n=top_n)
+
+
+def add_current_reference_comparison(
+    recommendations: pd.DataFrame,
+    rankings: pd.DataFrame,
+    now: pd.Timestamp | None = None,
+) -> pd.DataFrame:
+    """Add savings against the earliest active candidate at dashboard build time."""
+    if recommendations.empty or rankings.empty:
+        return recommendations
+    group_columns = ["window", "model", "decision_group"]
+    required_recommendation_columns = group_columns + [
+        "predicted_avg_carbon_intensity_g_co2e_per_kwh",
+        "predicted_avg_price_eur_mwh",
+    ]
+    required_ranking_columns = group_columns + [
+        "timestamp_utc",
+        "predicted_avg_carbon_intensity_g_co2e_per_kwh",
+        "predicted_avg_price_eur_mwh",
+    ]
+    if not all(column in recommendations for column in required_recommendation_columns):
+        return recommendations
+    if not all(column in rankings for column in required_ranking_columns):
+        return recommendations
+
+    active_rankings = filter_future_recommendations(rankings, now=now)
+    if active_rankings.empty:
+        return recommendations
+    reference = active_rankings.copy()
+    reference["_timestamp"] = pd.to_datetime(
+        reference["timestamp_utc"],
+        utc=True,
+        errors="coerce",
+    )
+    reference = (
+        reference.dropna(subset=["_timestamp"])
+        .sort_values(group_columns + ["_timestamp"])
+        .groupby(group_columns, dropna=False)
+        .head(1)
+    )
+    if reference.empty:
+        return recommendations
+
+    reference_columns = group_columns + [
+        "timestamp_utc",
+        "predicted_avg_carbon_intensity_g_co2e_per_kwh",
+        "predicted_avg_price_eur_mwh",
+    ]
+    reference = reference[reference_columns].rename(
+        columns={
+            "timestamp_utc": "current_reference_start_utc",
+            "predicted_avg_carbon_intensity_g_co2e_per_kwh": (
+                "current_reference_carbon_intensity_g_co2e_per_kwh"
+            ),
+            "predicted_avg_price_eur_mwh": "current_reference_price_eur_mwh",
+        }
+    )
+    output = recommendations.merge(reference, on=group_columns, how="left")
+    output["carbon_savings_vs_current_reference_g_co2e_per_kwh"] = (
+        output["current_reference_carbon_intensity_g_co2e_per_kwh"]
+        - output["predicted_avg_carbon_intensity_g_co2e_per_kwh"]
+    )
+    output["cost_savings_vs_current_reference_eur_mwh"] = (
+        output["current_reference_price_eur_mwh"] - output["predicted_avg_price_eur_mwh"]
+    )
+    return output
 
 
 def has_top_n_per_group(frame: pd.DataFrame, group_columns: list[str], top_n: int) -> bool:
