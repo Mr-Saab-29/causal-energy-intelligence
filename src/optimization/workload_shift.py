@@ -53,9 +53,9 @@ RANKING_MODEL_FEATURES = [
     "day_of_week",
 ]
 DEFAULT_SCENARIOS = [
-    {"scenario": "clean_first", "price_weight": 0.2, "carbon_weight": 0.8},
-    {"scenario": "balanced", "price_weight": 0.5, "carbon_weight": 0.5},
-    {"scenario": "cost_aware_clean", "price_weight": 0.4, "carbon_weight": 0.6},
+    {"scenario": "emissions_reduction", "price_weight": 0.2, "carbon_weight": 0.8},
+    {"scenario": "balanced_operations", "price_weight": 0.5, "carbon_weight": 0.5},
+    {"scenario": "budget_control", "price_weight": 0.7, "carbon_weight": 0.3},
 ]
 
 

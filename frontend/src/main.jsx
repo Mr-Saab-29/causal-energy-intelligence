@@ -35,7 +35,7 @@ function App() {
   const [error, setError] = useState(null);
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedOutcomeDate, setSelectedOutcomeDate] = useState("");
-  const [selectedScenario, setSelectedScenario] = useState("clean_first");
+  const [selectedScenario, setSelectedScenario] = useState("emissions_reduction");
   const [selectedBasis, setSelectedBasis] = useState("scenario");
   const [selectedView, setSelectedView] = useState("live");
 
@@ -55,7 +55,11 @@ function App() {
         setSelectedDate(dates[dates.length - 1] ?? "");
         setSelectedOutcomeDate(outcomeDates[0] ?? "");
         setSelectedScenario(
-          scenarios.includes("clean_first") ? "clean_first" : scenarios[0] ?? "",
+          scenarios.includes("emissions_reduction")
+            ? "emissions_reduction"
+            : scenarios.includes("clean_first")
+              ? "clean_first"
+              : scenarios[0] ?? "",
         );
       })
       .catch((loadError) => setError(loadError.message));
@@ -136,6 +140,7 @@ function App() {
     (row) => row.scenario === selectedScenario,
   );
   const marginalShift = payload.summary?.marginal_ranking_shift ?? {};
+  const policyBacktest = payload.summary?.policy_backtest ?? {};
   const trustSummary = buildTrustSummary(payload);
   const carbonChart = recommendations.map((row) => ({
     hour: formatHour(row.timestamp_utc),
@@ -392,6 +397,15 @@ function App() {
             </section>
           )}
 
+          <section className="content-grid analytics-grid">
+            <BacktestingSummaryPanel
+              policyBacktest={policyBacktest}
+              selectedScenario={selectedScenario}
+              championModel={payload.champion?.model}
+            />
+            <CausalAverageComparisonPanel marginalShift={marginalShift} />
+          </section>
+
           <section className="content-grid lower-grid">
             <div className="panel">
               <div className="panel-heading">
@@ -492,6 +506,126 @@ function TrustItem({ label, value }) {
     <div className="trust-item">
       <span>{label}</span>
       <strong>{value}</strong>
+    </div>
+  );
+}
+
+function BacktestingSummaryPanel({ policyBacktest, selectedScenario, championModel }) {
+  const baseRows = policyBacktest.base_policy ?? [];
+  const scenarioRows = policyBacktest.scenario_policy ?? [];
+  const championBacktest =
+    baseRows.find((row) => row.model === championModel) ?? baseRows[0] ?? null;
+  const scenarioBacktest =
+    scenarioRows.find(
+      (row) => row.scenario === selectedScenario && row.model === championModel,
+    ) ??
+    scenarioRows.find((row) => row.scenario === selectedScenario) ??
+    null;
+  const rows = [
+    { label: "Champion", row: championBacktest },
+    { label: formatScenario(selectedScenario), row: scenarioBacktest },
+  ].filter((item) => item.row);
+
+  return (
+    <div className="panel">
+      <div className="panel-heading">
+        <div>
+          <h2>Backtesting Summary</h2>
+          <p>Historical rank-1 outcomes from emitted recommendation rows.</p>
+        </div>
+      </div>
+      {rows.length === 0 ? (
+        <div className="empty-state">No recommendation backtest metrics have been published yet.</div>
+      ) : (
+        <>
+          <div className="summary-table">
+            <div className="summary-header" aria-hidden="true">
+              <span>Policy</span>
+              <span>Top-1 hit</span>
+              <span>Top-5 hit</span>
+              <span>Carbon regret</span>
+              <span>Risk blocks</span>
+            </div>
+            {rows.map(({ label, row }) => (
+              <div className="summary-row" key={`${label}-${row.model ?? "model"}`}>
+                <strong>{label}</strong>
+                <span>{formatPercent(row.top_1_hit_rate)}</span>
+                <span>{formatPercent(row.top_5_hit_rate)}</span>
+                <span>{formatFixed(row.mean_carbon_regret_g_co2e_per_kwh)}</span>
+                <span>{row.no_low_risk_groups ?? 0}</span>
+              </div>
+            ))}
+          </div>
+          <div className="score-breakdown">
+            <span>Days {championBacktest?.decision_groups ?? "-"}</span>
+            <span>Mean confidence {formatPercent(championBacktest?.mean_confidence_score)}</span>
+            <span>Combined regret {formatFixed(championBacktest?.mean_combined_regret)}</span>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function CausalAverageComparisonPanel({ marginalShift }) {
+  const hasMetrics = Object.keys(marginalShift ?? {}).length > 0 && marginalShift.method;
+  return (
+    <div className="panel">
+      <div className="panel-heading">
+        <div>
+          <h2>Causal vs Average</h2>
+          <p>Ranking movement after replacing average carbon with the marginal proxy.</p>
+        </div>
+      </div>
+      {!hasMetrics ? (
+        <div className="empty-state">No causal comparison metrics have been published yet.</div>
+      ) : (
+        <>
+          <div className="comparison-grid">
+            <div>
+              <span>Average-carbon ranking</span>
+              <strong>Baseline</strong>
+              <small>Uses predicted average carbon intensity.</small>
+            </div>
+            <div>
+              <span>Causal-adjusted MVP</span>
+              <strong>{formatCausalMethod(marginalShift.method)}</strong>
+              <small>Uses marginal-emissions proxy where coverage is available.</small>
+            </div>
+          </div>
+          <div className="summary-table causal-comparison-table">
+            <div className="summary-header" aria-hidden="true">
+              <span>Metric</span>
+              <span>Value</span>
+              <span>Read</span>
+            </div>
+            <div className="summary-row">
+              <strong>Top-1 changed</strong>
+              <span>{formatPercent(marginalShift.top_1_change_share)}</span>
+              <span>{comparisonRead(marginalShift.top_1_change_share, "changed")}</span>
+            </div>
+            <div className="summary-row">
+              <strong>Top-5 overlap</strong>
+              <span>{formatPercent(marginalShift.mean_top_5_overlap_share)}</span>
+              <span>{comparisonRead(marginalShift.mean_top_5_overlap_share, "overlap")}</span>
+            </div>
+            <div className="summary-row">
+              <strong>Avg rank shift</strong>
+              <span>{formatFixed(marginalShift.mean_absolute_rank_shift)}</span>
+              <span>{comparisonRead(marginalShift.mean_absolute_rank_shift, "shift")}</span>
+            </div>
+            <div className="summary-row">
+              <strong>Proxy coverage</strong>
+              <span>{formatPercent(marginalShift.mean_causal_adjustment_coverage)}</span>
+              <span>{comparisonRead(marginalShift.mean_causal_adjustment_coverage, "coverage")}</span>
+            </div>
+          </div>
+          <div className="score-breakdown">
+            <span>Top-1 regret delta {formatSigned(marginalShift.mean_top_1_regret_delta)}</span>
+            <span>Quality guard {titleCase(marginalShift.quality_status ?? "unknown")}</span>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -941,6 +1075,15 @@ function shortModel(value = "") {
 
 function formatScenario(value) {
   if (!value) return "-";
+  const labels = {
+    emissions_reduction: "Emissions Reduction",
+    balanced_operations: "Balanced Operations",
+    budget_control: "Budget Control",
+    clean_first: "Clean First",
+    balanced: "Balanced",
+    cost_aware_clean: "Cost Aware Clean",
+  };
+  if (labels[value]) return labels[value];
   return value.split("_").map(titleCase).join(" ");
 }
 
@@ -981,6 +1124,29 @@ function formatCausalSource(value) {
 function formatCausalMethod(value) {
   if (value === "marginal_proxy_mvp") return "Marginal proxy MVP";
   return value ? formatRecommendationStatus(value) : "-";
+}
+
+function comparisonRead(value, kind) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "-";
+  if (kind === "changed") {
+    if (numeric >= 0.5) return "often changes the first choice";
+    if (numeric > 0) return "sometimes changes the first choice";
+    return "same first choice";
+  }
+  if (kind === "overlap") {
+    if (numeric >= 0.8) return "top set mostly stable";
+    if (numeric >= 0.5) return "moderate reshuffle";
+    return "large top-set reshuffle";
+  }
+  if (kind === "coverage") {
+    if (numeric >= 0.8) return "usable coverage";
+    if (numeric >= 0.5) return "partial coverage";
+    return "thin coverage";
+  }
+  if (numeric >= 3) return "material movement";
+  if (numeric > 0) return "small movement";
+  return "no movement";
 }
 
 function mean(values) {

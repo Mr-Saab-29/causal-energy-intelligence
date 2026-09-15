@@ -58,6 +58,12 @@ The frontend lives in `frontend/` and is Vercel-ready. It reads the generated st
 prefers the operational next-24-hour recommendation artifact when it exists, so it is meant to show
 future scheduling decisions rather than historical validation rows.
 
+The live recommendation view includes a trust/freshness banner, scenario and causal-adjusted basis
+selectors, top-5 clean-hour recommendations, deterministic explanation text for each recommendation,
+an active-reference carbon saving label, a historical backtesting summary, and a causal-vs-average
+comparison panel. The previous-day audit tab compares settled recommendations with observed actuals
+and adds per-row outcome verdicts once recommendation outcome artifacts are available.
+
 ```bash
 make frontend-install
 make operational-refresh
@@ -121,22 +127,30 @@ The platform now has a working France electricity decision-support baseline:
 - The champion model is selected from generated metrics with a regret-first score: 35% realized recommendation regret, 25% carbon regret, 20% top-5 ranking loss, 10% price-direction error, and 10% carbon-intensity error.
 - Full retraining is guarded by an incumbent-vs-candidate promotion gate. A candidate retrain is promoted only when its weighted lower-is-better decision metrics beat the current production champion and recommendation/carbon regret do not regress beyond tolerance; otherwise the incumbent artifacts are restored.
 - The latest promotion decision is written to `reports/metrics/model_promotion_decision.json`.
-- Historical policy backtests evaluate the exact emitted rank-1 recommendation by model and scenario.
-- Scenario-level champion selection reports the best model separately for clean-first, balanced, and cost-aware-clean preferences.
+- Historical policy backtests evaluate the exact emitted rank-1 recommendation by model and scenario,
+  and the dashboard summarizes top-1 hit rate, top-5 hit rate, realized regret, confidence, and
+  no-low-risk guard frequency when `reports/metrics/recommendation_policy_backtest.json` is present.
+- Scenario-level champion selection reports the best model separately for emissions reduction,
+  balanced operations, and budget control preferences.
 - The ranking layer is evaluated by top-k capture, pairwise ranking loss by decision day/window, top-5 classification metrics, regret by day/window, and savings versus running immediately.
 - A ranking-specific top-5 classifier is trained on historical decision candidates and accepted only when out-of-window combined regret and carbon regret do not degrade versus the baseline ranking score.
 - Candidate hours with weak raw price/carbon score separation receive an uncertainty penalty before recommendation ranking. When no low-uncertainty candidate exists, the export marks the row as `no_low_risk_recommendation_available`.
 - Empirical prediction-interval half-widths are calibrated from historical candidate residual quantiles and reused for future recommendation uncertainty.
 - Workload recommendations support duration, earliest start, latest end, max-delay, price-weight, and carbon-weight constraints.
-- Scenario reranking is available for clean-first, balanced, and cost-aware-clean preferences. The dashboard scenario selector changes the active future top-5 recommendation list, KPIs, and chart. The dashboard also exposes a recommendation-basis selector for the causal-adjusted MVP path when marginal proxy artifacts are available.
+- Scenario reranking is available for emissions reduction, balanced operations, and budget control
+  preferences. The dashboard scenario selector changes the active future top-5 recommendation list,
+  KPIs, chart, and recommendation explanation text. The dashboard also exposes a
+  recommendation-basis selector for the causal-adjusted MVP path when marginal proxy artifacts are
+  available.
 - Ranking currently uses strict forecast-time features: calendar features, lagged prices, lagged/rolling supply-demand signals, and upstream forecasted consumption/production.
 - Upstream baselines forecast consumption, total production, and source-level production for nuclear, gas, coal, oil, wind, solar, hydro, and bioenergy.
 - Forecast diagnostics include MAE, RMSE, sMAPE, directional accuracy, top-error periods, grouped error diagnostics, ranking metrics, regret metrics, and feature importance.
 - Historical validation windows are assigned dynamically from the ingested data. The final validation/test window is the latest 90 days ending at the latest modeling timestamp.
-- The dashboard shows a health/status band from `reports/metrics/pipeline_health.json`.
+- The dashboard shows a trust/freshness banner from pipeline health, forecast monitoring, operational
+  audit readiness, generated-at timestamp, and the active recommendation reference hour.
 - The dashboard shows forecast-monitoring status from `reports/metrics/forecast_monitoring.json`, including whether retraining is recommended and why. It also marks the monitor as stale if model-quality artifacts changed after the monitor report was generated.
 - Recommendation confidence is calibrated from historical confidence bins, empirical top-5 hit rates, and observed regret, with minimum sample-size guards and scenario-specific calibration for scenario rerankings.
-- The dashboard recommendation rows now show explicit carbon intensity, price direction versus yesterday, calibrated confidence, expected regret, and expandable details.
+- The dashboard recommendation rows now show explicit carbon intensity, price direction versus yesterday, calibrated confidence, deterministic explanation text, expected regret, and expandable details.
 - MLflow tracking hooks and a Dagster refresh skeleton are in place. Docker files exist, but Docker execution is currently optional and can be skipped during local development.
 - Notebook `notebooks/02_forecasting.ipynb` reads the generated metrics and diagnostics.
 
@@ -220,8 +234,11 @@ Current key artifacts:
 - Recommendation drift metrics: `reports/metrics/future_recommendation_drift_metrics.json`
 - Pipeline health: `reports/metrics/pipeline_health.json`
 - Forecast monitoring: `reports/metrics/forecast_monitoring.json`
+- Operational audit readiness: `reports/metrics/operational_audit_readiness.json`
+- Recommendation outcome audit metrics: `reports/metrics/recommendation_outcome_audit.json`
 - Model promotion decision: `reports/metrics/model_promotion_decision.json`
 - Operational forecast history: `reports/monitoring/operational_ranking_history.csv`
+- Recommendation outcome audit rows: `reports/monitoring/recommendation_outcome_audit.csv`
 - Dashboard data contract: `frontend/public/data/dashboard.json`
 - Marginal emissions proxy: `reports/carbon/marginal_emissions_proxy.csv`
 - Marginal emissions metrics: `reports/metrics/marginal_emissions_proxy_metrics.json`
@@ -239,10 +256,12 @@ Status: in progress.
 - Continue improving the ranking-specific model until it clears the guarded acceptance gate consistently.
 - Extend uncertainty calibration beyond confidence bins with prediction intervals or conformal-style bands.
 - Tune the model promotion gate using more stable out-of-time windows and operational settled-forecast metrics once enough daily history accumulates.
-- Move the deployable daily orchestration from monitor-only refresh toward artifact publishing for the dashboard.
+- Harden the deployable daily orchestration, cache reuse, and rerun path for failed downstream
+  dashboard-publishing jobs.
 - Decide whether Docker should stay optional or be repaired for a full local compose workflow.
 - Add a live API layer after the static dashboard contract stabilizes.
-- Start causal modeling after the deployment and refresh path is reliable.
+- Move the causal MVP beyond the marginal-emissions proxy toward validated treatment effects,
+  sensitivity checks, and production-ready causal guardrails.
 - Expand workload constraints for real operational use cases, such as multi-hour jobs, deadlines, blackout windows, and regional constraints.
 
 ## Data Contracts

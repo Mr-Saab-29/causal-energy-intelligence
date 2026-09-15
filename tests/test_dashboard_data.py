@@ -75,7 +75,7 @@ def test_enrich_scenario_recommendations_adds_confidence_context() -> None:
         {
             "decision_group": ["2026-08-10"],
             "timestamp_utc": ["2026-08-10T08:00:00+00:00"],
-            "scenario": ["clean_first"],
+            "scenario": ["emissions_reduction"],
             "recommendation_rank": [1],
         }
     )
@@ -104,7 +104,7 @@ def test_enrich_scenario_recommendations_keeps_existing_scenario_confidence() ->
         {
             "decision_group": ["2026-08-10"],
             "timestamp_utc": ["2026-08-10T08:00:00+00:00"],
-            "scenario": ["clean_first"],
+            "scenario": ["emissions_reduction"],
             "confidence_score": [0.62],
             "confidence_level": ["medium"],
         }
@@ -143,7 +143,7 @@ def test_normalize_recommendation_fields_defaults_missing_risk_status() -> None:
 def test_normalize_recommendation_fields_renumbers_visible_scenario_ranks() -> None:
     frame = pd.DataFrame(
         {
-            "scenario": ["balanced", "balanced", "clean_first"],
+            "scenario": ["balanced_operations", "balanced_operations", "emissions_reduction"],
             "window": ["future_24h", "future_24h", "future_24h"],
             "model": ["model_a", "model_a", "model_a"],
             "decision_group": ["2026-08-25", "2026-08-25", "2026-08-25"],
@@ -157,10 +157,10 @@ def test_normalize_recommendation_fields_renumbers_visible_scenario_ranks() -> N
     )
 
     normalized = normalize_recommendation_fields(frame)
-    balanced = normalized[normalized["scenario"] == "balanced"]
+    balanced = normalized[normalized["scenario"] == "balanced_operations"]
 
     assert balanced["recommendation_rank"].tolist() == [1, 2]
-    assert normalized[normalized["scenario"] == "clean_first"]["recommendation_rank"].tolist() == [1]
+    assert normalized[normalized["scenario"] == "emissions_reduction"]["recommendation_rank"].tolist() == [1]
 
 
 def test_sanitize_json_value_replaces_non_finite_numbers() -> None:
@@ -249,7 +249,7 @@ def test_active_future_scenario_recommendations_refill_each_scenario_to_top5() -
     rankings = sample_future_rankings()
     scenario_top5 = pd.DataFrame(
         {
-            "scenario": ["balanced"] * 5,
+            "scenario": ["balanced_operations"] * 5,
             "window": ["future_24h"] * 5,
             "model": ["model_a"] * 5,
             "decision_group": ["2026-08-25"] * 5,
@@ -264,7 +264,11 @@ def test_active_future_scenario_recommendations_refill_each_scenario_to_top5() -
         now=pd.Timestamp("2026-08-25T02:15:00Z"),
     )
 
-    assert set(active["scenario"]) == {"balanced", "clean_first", "cost_aware_clean"}
+    assert set(active["scenario"]) == {
+        "balanced_operations",
+        "budget_control",
+        "emissions_reduction",
+    }
     assert active.groupby("scenario").size().tolist() == [5, 5, 5]
 
 

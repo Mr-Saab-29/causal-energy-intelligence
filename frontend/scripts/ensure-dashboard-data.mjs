@@ -84,7 +84,7 @@ const fallbackDashboard = {
   marginal_ranking_shift: {},
   filters: {
     dates: [],
-    scenarios: ["clean_first", "balanced", "cost_aware_clean"],
+    scenarios: ["emissions_reduction", "balanced_operations", "budget_control"],
   },
   recommendations: [],
   scenario_recommendations: [],

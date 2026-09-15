@@ -202,8 +202,8 @@ recommendations. Optional constraints include `--duration-hours`, `--earliest-st
 `--latest-end-utc`, `--max-delay-hours`, `--price-weight`, and `--carbon-weight`.
 `forecast-recommendations` exports the top 5 recommended workload start hours from the combined
 decision ranking.
-`forecast-scenarios` exports top-5 recommendations for clean-first, balanced, and cost-aware-clean
-scenario rerankings.
+`forecast-scenarios` exports top-5 recommendations for emissions reduction, balanced operations,
+and budget control scenario rerankings.
 `forecast-production` trains total production plus the individual source-level production targets.
 
 Equivalent direct Python commands:

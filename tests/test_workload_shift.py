@@ -113,7 +113,7 @@ def test_scenario_reranking_exports_top5_metrics_and_confidence() -> None:
 def test_confidence_calibration_can_be_grouped_by_scenario() -> None:
     recommendations = pd.DataFrame(
         {
-            "scenario": ["clean_first", "cost_aware_clean"],
+            "scenario": ["emissions_reduction", "budget_control"],
             "confidence_score": [0.8, 0.8],
             "actual_decision_rank": [1, 6],
             "combined_regret": [0.0, 0.4],
@@ -130,8 +130,8 @@ def test_confidence_calibration_can_be_grouped_by_scenario() -> None:
         min_group_rows=1,
     )
 
-    assert calibration["groups"]["clean_first"][0]["empirical_top_n_hit_rate"] == 1.0
-    assert calibration["groups"]["cost_aware_clean"][0]["empirical_top_n_hit_rate"] == 0.0
+    assert calibration["groups"]["emissions_reduction"][0]["empirical_top_n_hit_rate"] == 1.0
+    assert calibration["groups"]["budget_control"][0]["empirical_top_n_hit_rate"] == 0.0
 
 
 def test_champion_selection_prioritizes_recommendation_regret_over_mae(tmp_path) -> None:
@@ -221,7 +221,7 @@ def test_top_recommendations_emit_no_low_risk_status_when_all_candidates_uncerta
 def test_default_confidence_calibration_skips_small_scenario_bins() -> None:
     recommendations = pd.DataFrame(
         {
-            "scenario": ["clean_first"],
+            "scenario": ["emissions_reduction"],
             "confidence_score": [0.8],
             "actual_decision_rank": [1],
             "combined_regret": [0.0],
@@ -315,26 +315,26 @@ def test_policy_backtest_summarizes_base_and_scenario_recommendations() -> None:
             "decision_uncertainty_score": [0.3],
         }
     )
-    scenario = base.assign(scenario="clean_first", actual_scenario_rank=1)
+    scenario = base.assign(scenario="emissions_reduction", actual_scenario_rank=1)
 
     backtest = summarize_policy_backtest(base, scenario)
 
     assert backtest["base_policy"][0]["top_5_hit_rate"] == 1.0
-    assert backtest["scenario_policy"][0]["scenario"] == "clean_first"
+    assert backtest["scenario_policy"][0]["scenario"] == "emissions_reduction"
 
 
 def test_select_scenario_champions_selects_lowest_scenario_score() -> None:
     champions = select_scenario_champions(
         [
             {
-                "scenario": "clean_first",
+                "scenario": "emissions_reduction",
                 "model": "high_regret",
                 "mean_scenario_regret": 1.0,
                 "mean_carbon_regret_g_co2e_per_kwh": 1.0,
                 "top_5_f1": 0.5,
             },
             {
-                "scenario": "clean_first",
+                "scenario": "emissions_reduction",
                 "model": "low_regret",
                 "mean_scenario_regret": 0.0,
                 "mean_carbon_regret_g_co2e_per_kwh": 0.0,
