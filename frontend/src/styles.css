@@ -511,16 +511,35 @@ select:disabled {
 }
 
 .time-cell,
-.metric-cell {
+.metric-cell,
+.explanation-cell {
   display: grid;
   gap: 3px;
   min-width: 0;
 }
 
 .time-cell small,
-.metric-cell small {
+.metric-cell small,
+.explanation-cell small {
   color: #69766f;
   font-size: 0.78rem;
+}
+
+.explanation-cell {
+  grid-column: 2 / -1;
+  align-items: start;
+  border-top: 1px solid #eee7dc;
+  padding-top: 8px;
+}
+
+.explanation-cell strong {
+  color: #17201d;
+  font-size: 0.78rem;
+}
+
+.explanation-cell small {
+  max-width: 980px;
+  line-height: 1.35;
 }
 
 .recommendation-details {
@@ -791,6 +810,10 @@ select:disabled {
   .recommendation-summary .metric-cell {
     grid-column: 2;
     justify-self: start;
+  }
+
+  .recommendation-summary .explanation-cell {
+    grid-column: 1 / -1;
   }
 
   .recommendation-details {

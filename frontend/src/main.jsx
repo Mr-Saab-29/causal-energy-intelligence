@@ -713,6 +713,7 @@ function RecommendationRow({ row }) {
   const scenarioRank = row.predicted_scenario_rank ?? row.recommendation_rank;
   const carbonIntensity = recommendationCarbonIntensity(row);
   const carbonLabel = recommendationCarbonLabel(row);
+  const explanation = recommendationExplanation(row);
   return (
     <details className="recommendation-row">
       <summary className="recommendation-summary">
@@ -743,6 +744,10 @@ function RecommendationRow({ row }) {
               ? `${Math.round(row.decision_uncertainty_score * 100)}% uncertainty`
               : "uncertainty unavailable"}
           </small>
+        </span>
+        <span className="explanation-cell">
+          <strong>Why this hour</strong>
+          <small>{explanation}</small>
         </span>
       </summary>
       <div className="recommendation-details">
@@ -1034,6 +1039,64 @@ function recommendationReferenceLabel(row) {
     return `gCO2e/kWh vs active reference ${formatHour(row.current_reference_start_utc)} UTC`;
   }
   return "gCO2e/kWh vs active reference";
+}
+
+function recommendationExplanation(row) {
+  if (!row) return "-";
+  const parts = [];
+  const carbonRank = row.predicted_carbon_rank;
+  const candidateCount = row.candidate_count;
+  const carbonIntensity = recommendationCarbonIntensity(row);
+  if (carbonRank != null && candidateCount != null) {
+    parts.push(
+      `Ranked ${formatOrdinal(carbonRank)} for carbon among ${candidateCount} active candidate hours`,
+    );
+  } else if (carbonIntensity != null) {
+    parts.push(`${recommendationCarbonLabel(row)} carbon is ${formatFixed(carbonIntensity)} gCO2e/kWh`);
+  }
+
+  const carbonSaving = recommendationCarbonSaving(row);
+  if (carbonSaving != null) {
+    const referenceHour = row.current_reference_start_utc
+      ? ` against the ${formatHour(row.current_reference_start_utc)} UTC active reference`
+      : " against the active reference";
+    parts.push(`${formatSigned(carbonSaving)} gCO2e/kWh${referenceHour}`);
+  }
+
+  if (row.confidence_score != null && row.confidence_level) {
+    parts.push(
+      `${titleCase(row.confidence_level)} confidence from rank margin and historical calibration`,
+    );
+  }
+
+  if (row.recommendation_status === "no_low_risk_recommendation_available") {
+    parts.push("shown as the best available hour, but uncertainty is elevated");
+  } else if (row.decision_uncertainty_score != null && Number(row.decision_uncertainty_score) <= 0.85) {
+    parts.push("passes the uncertainty guard");
+  }
+
+  if (row.causal_carbon_source) {
+    const shift = row.causal_adjusted_rank_shift == null
+      ? ""
+      : ` with ${formatSigned(row.causal_adjusted_rank_shift)} rank shift`;
+    parts.push(`${formatCausalSource(row.causal_carbon_source)}${shift}`);
+  } else if (row.scenario) {
+    parts.push(`${formatScenario(row.scenario)} weighting sets the final order`);
+  }
+
+  const explanation = parts.filter(Boolean).join(". ");
+  return explanation ? `${explanation}.` : "No explanation metrics are available for this recommendation.";
+}
+
+function formatOrdinal(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "-";
+  const rounded = Math.round(numeric);
+  const suffix =
+    rounded % 100 >= 11 && rounded % 100 <= 13
+      ? "th"
+      : { 1: "st", 2: "nd", 3: "rd" }[rounded % 10] ?? "th";
+  return `${rounded}${suffix}`;
 }
 
 function titleCase(value) {
