@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 
-from scripts.gated_retrain import evaluate_promotion, prune_snapshots
+from scripts.gated_retrain import evaluate_operational_evidence, evaluate_promotion, prune_snapshots
 
 
 def champion_payload(model: str, carbon_mae: float, carbon_regret: float) -> dict[str, object]:
@@ -56,6 +56,62 @@ def test_evaluate_promotion_rejects_guarded_metric_regression() -> None:
 
     assert decision["promoted"] is False
     assert "carbon_regret_g_co2e_per_kwh" in decision["guarded_metric_degradations"]
+
+
+def test_evaluate_promotion_ignores_operational_metrics_with_small_sample() -> None:
+    incumbent = champion_payload("hist_gradient_boosting", carbon_mae=1.0, carbon_regret=0.5)
+    candidate = champion_payload("lightgbm", carbon_mae=0.8, carbon_regret=0.4)
+    operational = {
+        "available": True,
+        "decision_groups": 2,
+        "rows": 10,
+        "top_5_hit_rate": 0.0,
+        "mean_carbon_regret_g_co2e_per_kwh": 99.0,
+    }
+
+    decision = evaluate_promotion(
+        incumbent,
+        candidate,
+        min_improvement=0.0,
+        operational_outcome=operational,
+        min_operational_decision_groups=7,
+    )
+
+    assert decision["promoted"] is True
+    assert decision["operational_evidence"]["status"] == "insufficient_history"
+    assert decision["operational_evidence"]["blocks_promotion"] is False
+
+
+def test_evaluate_promotion_blocks_on_poor_operational_metrics_with_enough_history() -> None:
+    incumbent = champion_payload("hist_gradient_boosting", carbon_mae=1.0, carbon_regret=0.5)
+    candidate = champion_payload("lightgbm", carbon_mae=0.8, carbon_regret=0.4)
+    operational = {
+        "available": True,
+        "decision_groups": 8,
+        "rows": 40,
+        "top_5_hit_rate": 0.4,
+        "mean_carbon_regret_g_co2e_per_kwh": 3.0,
+    }
+
+    decision = evaluate_promotion(
+        incumbent,
+        candidate,
+        min_improvement=0.0,
+        operational_outcome=operational,
+        min_operational_decision_groups=7,
+    )
+
+    assert decision["promoted"] is False
+    assert decision["operational_evidence"]["status"] == "guarded_fail"
+    assert decision["operational_evidence"]["blocks_promotion"] is True
+    assert "top_5_hit_rate_below_floor" in decision["operational_evidence"]["failures"]
+
+
+def test_evaluate_operational_evidence_reports_unavailable_metrics() -> None:
+    evidence = evaluate_operational_evidence({}, min_decision_groups=7)
+
+    assert evidence["status"] == "unavailable"
+    assert evidence["blocks_promotion"] is False
 
 
 def test_prune_snapshots_keeps_newest_directories(tmp_path) -> None:

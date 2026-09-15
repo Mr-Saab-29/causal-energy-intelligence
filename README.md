@@ -199,7 +199,7 @@ Command intent:
 - `make forecast-monitor` writes `reports/metrics/forecast_monitoring.json` from existing artifacts.
 - `make dagster-dev` starts the local Dagster UI. The main jobs are `ingestion_monitor_refresh`, `daily_clean_hour_refresh`, and `quick_recommendation_refresh`.
 - Dagster schedules `ingestion_monitor_refresh` for `02:00` Europe/Paris every day. This scheduled job does not retrain models.
-- GitHub Actions workflow `.github/workflows/daily-ingestion-monitor.yml` provides a deployable no-cost daily ingestion monitor. It runs ingestion, preflight monitoring, optional gated retraining, and dashboard publishing as separate chained jobs so failed downstream jobs can be rerun without repeating a completed retrain.
+- GitHub Actions workflow `.github/workflows/daily-ingestion-monitor.yml` provides a deployable no-cost daily ingestion monitor. It runs ingestion, preflight monitoring, optional gated retraining, and dashboard publishing as separate chained jobs. Preflight and retrain jobs upload operational-state artifacts, so a failed downstream publish/deploy job can be rerun without repeating a completed retrain from the same workflow run.
 - Monitoring trigger thresholds live in `config/monitoring_thresholds.yaml`.
 
 Current key artifacts:
@@ -237,6 +237,7 @@ Current key artifacts:
 - Operational audit readiness: `reports/metrics/operational_audit_readiness.json`
 - Recommendation outcome audit metrics: `reports/metrics/recommendation_outcome_audit.json`
 - Model promotion decision: `reports/metrics/model_promotion_decision.json`
+- Daily orchestration decision: `reports/metrics/orchestration_decision.json`
 - Operational forecast history: `reports/monitoring/operational_ranking_history.csv`
 - Recommendation outcome audit rows: `reports/monitoring/recommendation_outcome_audit.csv`
 - Dashboard data contract: `frontend/public/data/dashboard.json`
@@ -255,9 +256,8 @@ Status: in progress.
 
 - Continue improving the ranking-specific model until it clears the guarded acceptance gate consistently.
 - Extend uncertainty calibration beyond confidence bins with prediction intervals or conformal-style bands.
-- Tune the model promotion gate using more stable out-of-time windows and operational settled-forecast metrics once enough daily history accumulates.
-- Harden the deployable daily orchestration, cache reuse, and rerun path for failed downstream
-  dashboard-publishing jobs.
+- Tune promotion-gate thresholds using more stable out-of-time windows once enough daily operational
+  history accumulates.
 - Decide whether Docker should stay optional or be repaired for a full local compose workflow.
 - Add a live API layer after the static dashboard contract stabilizes.
 - Move the causal MVP beyond the marginal-emissions proxy toward validated treatment effects,

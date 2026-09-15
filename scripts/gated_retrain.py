@@ -15,8 +15,12 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DECISION_PATH = ROOT / "reports/metrics/model_promotion_decision.json"
 CHAMPION_PATH = ROOT / "reports/metrics/champion_model_selection.json"
+OPERATIONAL_OUTCOME_AUDIT_PATH = ROOT / "reports/metrics/recommendation_outcome_audit.json"
 SNAPSHOT_ROOT = ROOT / ".tmp/retrain_snapshots"
 MAX_GUARDED_METRIC_DEGRADATION = 1.05
+MIN_OPERATIONAL_DECISION_GROUPS = 7
+MIN_OPERATIONAL_TOP_5_HIT_RATE = 0.6
+MAX_OPERATIONAL_CARBON_REGRET_G_CO2E_PER_KWH = 2.0
 
 SNAPSHOT_PATHS = [
     ROOT / "models",
@@ -69,6 +73,17 @@ def main(argv: list[str] | None = None) -> int:
         help="Number of latest retrain snapshots to keep.",
     )
     parser.add_argument(
+        "--operational-outcome-path",
+        default=str(OPERATIONAL_OUTCOME_AUDIT_PATH),
+        help="Settled operational outcome metrics used as promotion evidence.",
+    )
+    parser.add_argument(
+        "--min-operational-decision-groups",
+        type=int,
+        default=MIN_OPERATIONAL_DECISION_GROUPS,
+        help="Minimum settled decision days before operational metrics can block promotion.",
+    )
+    parser.add_argument(
         "command",
         nargs=argparse.REMAINDER,
         help="Candidate retraining command. Prefix with -- before the command.",
@@ -101,10 +116,13 @@ def main(argv: list[str] | None = None) -> int:
         return command_result.returncode
 
     candidate = load_json(CHAMPION_PATH)
+    operational_outcome = load_json(Path(args.operational_outcome_path))
     decision = evaluate_promotion(
         incumbent=incumbent,
         candidate=candidate,
         min_improvement=args.min_improvement,
+        operational_outcome=operational_outcome,
+        min_operational_decision_groups=args.min_operational_decision_groups,
     )
     decision.update(
         {
@@ -197,6 +215,8 @@ def evaluate_promotion(
     incumbent: dict[str, Any],
     candidate: dict[str, Any],
     min_improvement: float,
+    operational_outcome: dict[str, Any] | None = None,
+    min_operational_decision_groups: int = MIN_OPERATIONAL_DECISION_GROUPS,
 ) -> dict[str, Any]:
     """Compare candidate champion against incumbent champion."""
     incumbent_row = selected_model_row(incumbent)
@@ -242,16 +262,24 @@ def evaluate_promotion(
         }
         and ratio > MAX_GUARDED_METRIC_DEGRADATION
     }
-    promoted = promotion_score < required_score and not guarded_degradations
+    operational_evidence = evaluate_operational_evidence(
+        operational_outcome or {},
+        min_decision_groups=min_operational_decision_groups,
+    )
+    promoted = (
+        promotion_score < required_score
+        and not guarded_degradations
+        and not operational_evidence["blocks_promotion"]
+    )
+    reason = promotion_reason(
+        promoted=promoted,
+        offline_score_passed=promotion_score < required_score,
+        guarded_degradations=guarded_degradations,
+        operational_evidence=operational_evidence,
+    )
     return {
         "promoted": promoted,
-        "reason": (
-            "candidate weighted relative score improved"
-            if promoted
-            else "candidate regressed on guarded recommendation metrics"
-            if guarded_degradations
-            else "candidate did not beat incumbent weighted relative score"
-        ),
+        "reason": reason,
         "promotion_score_vs_incumbent": round(promotion_score, 6),
         "required_score": round(required_score, 6),
         "weighted_metric_ratios": {
@@ -261,9 +289,86 @@ def evaluate_promotion(
         "guarded_metric_degradations": {
             metric: round(value, 6) for metric, value in guarded_degradations.items()
         },
+        "operational_evidence": operational_evidence,
         "incumbent": summarize_champion(incumbent, incumbent_row),
         "candidate": summarize_champion(candidate, candidate_row),
     }
+
+
+def promotion_reason(
+    promoted: bool,
+    offline_score_passed: bool,
+    guarded_degradations: dict[str, float],
+    operational_evidence: dict[str, Any],
+) -> str:
+    """Return the primary promotion decision reason."""
+    if promoted:
+        return "candidate weighted relative score improved"
+    if not offline_score_passed:
+        return "candidate did not beat incumbent weighted relative score"
+    if guarded_degradations:
+        return "candidate regressed on guarded recommendation metrics"
+    if operational_evidence["blocks_promotion"]:
+        return "settled operational metrics below promotion floor"
+    return "candidate did not beat incumbent weighted relative score"
+
+
+def evaluate_operational_evidence(
+    report: dict[str, Any],
+    min_decision_groups: int = MIN_OPERATIONAL_DECISION_GROUPS,
+) -> dict[str, Any]:
+    """Summarize settled operational outcomes for the promotion decision."""
+    if not report or not report.get("available"):
+        return {
+            "status": "unavailable",
+            "blocks_promotion": False,
+            "reason": report.get("reason", "recommendation outcome audit unavailable")
+            if report
+            else "recommendation outcome audit unavailable",
+            "minimum_decision_groups": min_decision_groups,
+        }
+
+    decision_groups = int(report.get("decision_groups", 0) or 0)
+    top_5_hit_rate = as_optional_float(report.get("top_5_hit_rate"))
+    carbon_regret = as_optional_float(report.get("mean_carbon_regret_g_co2e_per_kwh"))
+    evidence = {
+        "status": "insufficient_history"
+        if decision_groups < min_decision_groups
+        else "guarded",
+        "blocks_promotion": False,
+        "decision_groups": decision_groups,
+        "rows": int(report.get("rows", 0) or 0),
+        "minimum_decision_groups": min_decision_groups,
+        "top_1_hit_rate": as_optional_float(report.get("top_1_hit_rate")),
+        "top_5_hit_rate": top_5_hit_rate,
+        "mean_actual_rank_of_top_1": as_optional_float(
+            report.get("mean_actual_rank_of_top_1")
+        ),
+        "mean_carbon_regret_g_co2e_per_kwh": carbon_regret,
+        "floors": {
+            "min_top_5_hit_rate": MIN_OPERATIONAL_TOP_5_HIT_RATE,
+            "max_mean_carbon_regret_g_co2e_per_kwh": (
+                MAX_OPERATIONAL_CARBON_REGRET_G_CO2E_PER_KWH
+            ),
+        },
+        "failures": [],
+    }
+    if decision_groups < min_decision_groups:
+        evidence["reason"] = "not enough settled operational decision days"
+        return evidence
+
+    failures: list[str] = []
+    if top_5_hit_rate is not None and top_5_hit_rate < MIN_OPERATIONAL_TOP_5_HIT_RATE:
+        failures.append("top_5_hit_rate_below_floor")
+    if (
+        carbon_regret is not None
+        and carbon_regret > MAX_OPERATIONAL_CARBON_REGRET_G_CO2E_PER_KWH
+    ):
+        failures.append("carbon_regret_above_floor")
+    evidence["failures"] = failures
+    evidence["blocks_promotion"] = bool(failures)
+    evidence["status"] = "guarded_fail" if failures else "guarded_pass"
+    return evidence
 
 
 def selected_model_row(payload: dict[str, Any]) -> dict[str, Any]:
@@ -301,6 +406,16 @@ def as_float(value: Any) -> float:
         return float(value)
     except (TypeError, ValueError):
         return float("inf")
+
+
+def as_optional_float(value: Any) -> float | None:
+    """Parse an optional metric value as float."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def load_json(path: Path) -> dict[str, Any]:

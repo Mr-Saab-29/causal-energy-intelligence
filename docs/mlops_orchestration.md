@@ -80,9 +80,9 @@ workflow can also be run manually from the GitHub Actions UI.
 The workflow runs as chained jobs:
 
 - `ingest`: runs `make ingest-latest-cloud` and `make ingest-future-cloud`; this job has a 45-minute timeout because upstream APIs and Supabase writes can exceed the normal 15-minute fast-path during slow refreshes
-- `preflight-monitor`: restores current operational state, runs health/forecast monitors, and decides whether retraining is needed
-- `retrain`: runs `make train-all-gated` only when the preflight decision requests retraining
-- `publish-dashboard`: runs `make operational-publish`, saves the refreshed operational cache, and deploys the dashboard
+- `preflight-monitor`: restores current operational state, runs health/forecast monitors, decides whether retraining is needed, and uploads the preflight operational-state artifact
+- `retrain`: runs `make train-all-gated` only when the preflight decision requests retraining, then uploads the accepted retrained operational-state artifact
+- `publish-dashboard`: downloads either the retrained operational-state artifact or the preflight operational-state artifact, runs `make operational-publish`, saves the refreshed operational cache, writes the orchestration report, and deploys the dashboard
 
 This cloud variant caps historical API ingestion to a recent 14-day lookback so
 an empty GitHub Actions cache cannot accidentally trigger a full 2023-to-present
@@ -103,7 +103,15 @@ prebuilt `frontend/dist` output to Vercel with the Vercel CLI. This keeps
 generated dashboard data out of git while still publishing fresh recommendations
 after each successful scheduled run. Because retraining and publishing are
 separate jobs, GitHub Actions can rerun a failed publish job without repeating a
-completed retrain from the same workflow run.
+completed retrain from the same workflow run. The workflow also uploads
+`reports/metrics/orchestration_decision.json`, which records the preflight
+decision, retrain result, state source used by publish, and publish outcome.
+
+The promotion gate remains candidate-vs-incumbent on offline validation metrics.
+Settled operational audit metrics are included as production evidence in
+`reports/metrics/model_promotion_decision.json`. They are advisory until the
+minimum settled decision-day threshold is reached, then they can block promotion
+if top-5 hit rate or carbon regret violates the operational floors.
 
 Required GitHub repository secrets:
 

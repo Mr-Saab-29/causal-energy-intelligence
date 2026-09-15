@@ -117,6 +117,21 @@ jobs:
             reports/metrics/forecast_monitoring.json
           if-no-files-found: warn
 
+      - name: Upload preflight operational state
+        uses: actions/upload-artifact@v7
+        with:
+          name: preflight-operational-state
+          path: |
+            models
+            reports/metrics
+            reports/predictions
+            reports/rankings
+            reports/recommendations
+            reports/scenarios
+            reports/carbon
+            reports/monitoring
+          if-no-files-found: warn
+
   retrain:
     needs: preflight-monitor
     if: needs.preflight-monitor.outputs.retrain == 'true'
@@ -278,11 +293,33 @@ jobs:
         with:
           name: retrained-operational-state
 
+      - name: Download preflight operational state
+        if: needs.preflight-monitor.outputs.retrain != 'true'
+        uses: actions/download-artifact@v7
+        with:
+          name: preflight-operational-state
+
       - name: Verify current-month audit readiness
         run: make operational-audit-readiness
 
       - name: Build recommendations and dashboard from current champion
+        id: publish_build
         run: make operational-publish
+
+      - name: Write orchestration decision report
+        if: always()
+        run: |
+          python scripts/write_orchestration_report.py \
+            --event-name "${{ github.event_name }}" \
+            --run-id "${{ github.run_id }}" \
+            --run-attempt "${{ github.run_attempt }}" \
+            --preflight-result "${{ needs.preflight-monitor.result }}" \
+            --retrain-requested "${{ needs.preflight-monitor.outputs.retrain }}" \
+            --retrain-result "${{ needs.retrain.result }}" \
+            --operational-action "${{ needs.preflight-monitor.outputs.action }}" \
+            --operational-reasons "${{ needs.preflight-monitor.outputs.reasons }}" \
+            --state-source "${{ needs.preflight-monitor.outputs.retrain == 'true' && 'retrained-operational-state' || 'preflight-operational-state' }}" \
+            --publish-status "${{ steps.publish_build.outcome }}"
 
       - name: Save operational model state
         uses: actions/cache/save@v5
@@ -323,6 +360,7 @@ jobs:
             reports/metrics/pipeline_health.json
             reports/metrics/forecast_monitoring.json
             reports/metrics/model_promotion_decision.json
+            reports/metrics/orchestration_decision.json
             reports/metrics/future_recommendation_metadata.json
             reports/metrics/operational_audit_readiness.json
             reports/metrics/recommendation_outcome_audit.json
