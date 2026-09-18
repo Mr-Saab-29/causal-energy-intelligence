@@ -7,6 +7,7 @@ import pandas as pd
 from scripts.build_dashboard_data import (
     add_current_reference_comparison,
     build_active_future_causal_recommendations,
+    build_active_future_causal_scenario_recommendations,
     build_active_future_recommendations,
     build_active_future_scenario_recommendations,
     enrich_scenario_recommendations,
@@ -301,6 +302,40 @@ def test_active_future_causal_recommendations_refill_preserves_proxy_context() -
     assert len(active) == 5
     assert active["recommendation_rank"].tolist() == [1, 2, 3, 4, 5]
     assert active["carbon_ranking_strategy"].eq("marginal_proxy").all()
+    assert "predicted_marginal_carbon_intensity_g_co2e_per_kwh" in active
+
+
+def test_active_future_causal_scenario_recommendations_refill_by_scenario() -> None:
+    rankings = sample_future_rankings()
+    rankings["carbon_ranking_strategy"] = "marginal_proxy"
+    rankings["causal_carbon_source"] = "marginal_emissions_proxy"
+    rankings["causal_adjustment_available"] = True
+    rankings["average_predicted_decision_rank"] = rankings["predicted_decision_rank"] + 1
+    rankings["average_actual_decision_rank"] = rankings["actual_decision_rank"] + 1
+    rankings["average_predicted_carbon_rank"] = rankings["predicted_carbon_rank"] + 1
+    rankings["average_actual_carbon_rank"] = rankings["actual_carbon_rank"] + 1
+    rankings["causal_adjusted_rank_shift"] = -1
+    rankings["predicted_marginal_carbon_intensity_g_co2e_per_kwh"] = (
+        rankings["predicted_avg_carbon_intensity_g_co2e_per_kwh"] + 10
+    )
+    rankings["actual_marginal_carbon_intensity_g_co2e_per_kwh"] = (
+        rankings["actual_avg_carbon_intensity_g_co2e_per_kwh"] + 10
+    )
+    rankings["predicted_marginal_proxy_confidence"] = "medium"
+
+    active = build_active_future_causal_scenario_recommendations(
+        pd.DataFrame(),
+        rankings,
+        now=pd.Timestamp("2026-08-25T02:15:00Z"),
+    )
+
+    assert set(active["scenario"]) == {
+        "balanced_operations",
+        "budget_control",
+        "emissions_reduction",
+    }
+    assert active.groupby("scenario").size().tolist() == [5, 5, 5]
+    assert active["recommendation_basis"].eq("causal_adjusted_mvp").all()
     assert "predicted_marginal_carbon_intensity_g_co2e_per_kwh" in active
 
 

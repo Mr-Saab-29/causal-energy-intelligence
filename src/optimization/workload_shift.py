@@ -669,32 +669,244 @@ def summarize_ranking_model_overlay(frame: pd.DataFrame, scored_rows: int) -> di
     """Summarize ranking-model quality against the base score."""
     predicted_best = frame[frame["predicted_decision_rank"] == 1]
     baseline_best = frame[frame["baseline_predicted_decision_rank"] == 1]
-    return {
+    learned_top_1_hit_rate = safe_float_mean(predicted_best["is_actual_best"])
+    baseline_top_1_hit_rate = safe_float_mean(baseline_best["is_actual_best"])
+    learned_mean_combined_regret = safe_float_mean(predicted_best["combined_regret"])
+    baseline_mean_combined_regret = safe_float_mean(baseline_best["combined_regret"])
+    learned_mean_carbon_regret = safe_float_mean(
+        predicted_best["carbon_regret_g_co2e_per_kwh"]
+    )
+    baseline_mean_carbon_regret = safe_float_mean(
+        baseline_best["carbon_regret_g_co2e_per_kwh"]
+    )
+    report = {
         "generated_at_utc": datetime.now(UTC).isoformat(),
         "model_type": "hist_gradient_boosting_top5_classifier",
         "feature_columns": RANKING_MODEL_FEATURES,
         "out_of_window_scored_rows": int(scored_rows),
         "rows": int(len(frame)),
-        "learned_top_1_hit_rate": safe_float_mean(predicted_best["is_actual_best"]),
-        "baseline_top_1_hit_rate": safe_float_mean(baseline_best["is_actual_best"]),
-        "learned_mean_combined_regret": safe_float_mean(predicted_best["combined_regret"]),
-        "baseline_mean_combined_regret": safe_float_mean(baseline_best["combined_regret"]),
-        "learned_mean_carbon_regret_g_co2e_per_kwh": safe_float_mean(
-            predicted_best["carbon_regret_g_co2e_per_kwh"]
+        "score_source_counts": frame["ranking_model_score_source"].value_counts().to_dict(),
+        "learned_top_1_hit_rate": learned_top_1_hit_rate,
+        "baseline_top_1_hit_rate": baseline_top_1_hit_rate,
+        "top_1_hit_rate_delta": safe_float_delta(
+            learned_top_1_hit_rate,
+            baseline_top_1_hit_rate,
         ),
-        "baseline_mean_carbon_regret_g_co2e_per_kwh": safe_float_mean(
-            baseline_best["carbon_regret_g_co2e_per_kwh"]
+        "learned_mean_combined_regret": learned_mean_combined_regret,
+        "baseline_mean_combined_regret": baseline_mean_combined_regret,
+        "mean_combined_regret_delta": safe_float_delta(
+            learned_mean_combined_regret,
+            baseline_mean_combined_regret,
+        ),
+        "learned_mean_carbon_regret_g_co2e_per_kwh": learned_mean_carbon_regret,
+        "baseline_mean_carbon_regret_g_co2e_per_kwh": baseline_mean_carbon_regret,
+        "mean_carbon_regret_delta_g_co2e_per_kwh": safe_float_delta(
+            learned_mean_carbon_regret,
+            baseline_mean_carbon_regret,
         ),
     }
+    report["day_level_diagnostics"] = summarize_ranking_model_day_diagnostics(frame)
+    report["acceptance_failures"] = ranking_model_acceptance_failures(report)
+    report["diagnostic_summary"] = build_ranking_model_diagnostic_summary(report)
+    return report
 
 
 def ranking_model_improves_objective(report: dict[str, Any]) -> bool:
     """Return whether the learned ranker clears the carbon-aware acceptance gate."""
-    return (
-        report["learned_mean_combined_regret"] <= report["baseline_mean_combined_regret"]
-        and report["learned_mean_carbon_regret_g_co2e_per_kwh"]
-        <= report["baseline_mean_carbon_regret_g_co2e_per_kwh"]
+    return not ranking_model_acceptance_failures(report)
+
+
+def ranking_model_acceptance_failures(report: dict[str, Any]) -> list[str]:
+    """Return blocking reasons when the learned ranker fails the objective gate."""
+    failures = []
+    if metric_regressed(
+        report.get("learned_mean_combined_regret"),
+        report.get("baseline_mean_combined_regret"),
+    ):
+        failures.append("combined_regret_regressed")
+    if metric_regressed(
+        report.get("learned_mean_carbon_regret_g_co2e_per_kwh"),
+        report.get("baseline_mean_carbon_regret_g_co2e_per_kwh"),
+    ):
+        failures.append("carbon_regret_regressed")
+    return failures
+
+
+def build_ranking_model_diagnostic_summary(report: dict[str, Any]) -> dict[str, Any]:
+    """Return concise learned-ranker diagnostics for promotion review."""
+    failures = ranking_model_acceptance_failures(report)
+    return {
+        "recommendation": "keep_baseline_ranker" if failures else "accept_learned_ranker",
+        "primary_failure": failures[0] if failures else None,
+        "acceptance_failures": failures,
+        "top_1_hit_rate_delta": report.get("top_1_hit_rate_delta"),
+        "combined_regret_delta_pct": safe_float_ratio_delta(
+            report.get("learned_mean_combined_regret"),
+            report.get("baseline_mean_combined_regret"),
+        ),
+        "carbon_regret_delta_pct": safe_float_ratio_delta(
+            report.get("learned_mean_carbon_regret_g_co2e_per_kwh"),
+            report.get("baseline_mean_carbon_regret_g_co2e_per_kwh"),
+        ),
+    }
+
+
+def summarize_ranking_model_day_diagnostics(
+    frame: pd.DataFrame,
+    limit: int = 10,
+) -> dict[str, Any]:
+    """Compare learned and baseline top-1 choices by decision group."""
+    group_columns = ["window", "model", "decision_group"]
+    required_columns = [
+        *group_columns,
+        TIMESTAMP_COLUMN,
+        "predicted_decision_rank",
+        "baseline_predicted_decision_rank",
+        "is_actual_best",
+        "combined_regret",
+        "carbon_regret_g_co2e_per_kwh",
+    ]
+    if frame.empty or not all(column in frame for column in required_columns):
+        return {}
+
+    learned = frame[frame["predicted_decision_rank"] == 1][
+        group_columns
+        + [
+            TIMESTAMP_COLUMN,
+            "is_actual_best",
+            "combined_regret",
+            "carbon_regret_g_co2e_per_kwh",
+        ]
+    ].rename(
+        columns={
+            TIMESTAMP_COLUMN: "learned_timestamp_utc",
+            "is_actual_best": "learned_is_actual_best",
+            "combined_regret": "learned_combined_regret",
+            "carbon_regret_g_co2e_per_kwh": "learned_carbon_regret_g_co2e_per_kwh",
+        }
     )
+    baseline = frame[frame["baseline_predicted_decision_rank"] == 1][
+        group_columns
+        + [
+            TIMESTAMP_COLUMN,
+            "is_actual_best",
+            "combined_regret",
+            "carbon_regret_g_co2e_per_kwh",
+        ]
+    ].rename(
+        columns={
+            TIMESTAMP_COLUMN: "baseline_timestamp_utc",
+            "is_actual_best": "baseline_is_actual_best",
+            "combined_regret": "baseline_combined_regret",
+            "carbon_regret_g_co2e_per_kwh": "baseline_carbon_regret_g_co2e_per_kwh",
+        }
+    )
+    comparison = learned.merge(baseline, on=group_columns, how="inner")
+    if comparison.empty:
+        return {}
+
+    comparison["combined_regret_delta"] = (
+        comparison["learned_combined_regret"] - comparison["baseline_combined_regret"]
+    )
+    comparison["carbon_regret_delta_g_co2e_per_kwh"] = (
+        comparison["learned_carbon_regret_g_co2e_per_kwh"]
+        - comparison["baseline_carbon_regret_g_co2e_per_kwh"]
+    )
+    comparison["top_1_hit_delta"] = (
+        comparison["learned_is_actual_best"].astype(int)
+        - comparison["baseline_is_actual_best"].astype(int)
+    )
+    serializable_columns = [
+        *group_columns,
+        "learned_timestamp_utc",
+        "baseline_timestamp_utc",
+        "learned_combined_regret",
+        "baseline_combined_regret",
+        "combined_regret_delta",
+        "learned_carbon_regret_g_co2e_per_kwh",
+        "baseline_carbon_regret_g_co2e_per_kwh",
+        "carbon_regret_delta_g_co2e_per_kwh",
+        "learned_is_actual_best",
+        "baseline_is_actual_best",
+        "top_1_hit_delta",
+    ]
+    return {
+        "groups_compared": int(len(comparison)),
+        "groups_learned_better_combined_regret": int(
+            comparison["combined_regret_delta"].lt(0).sum()
+        ),
+        "groups_learned_worse_combined_regret": int(
+            comparison["combined_regret_delta"].gt(0).sum()
+        ),
+        "groups_same_combined_regret": int(comparison["combined_regret_delta"].eq(0).sum()),
+        "worst_regret_regression_days": sanitize_json_value(
+            comparison.sort_values(
+                ["combined_regret_delta", "carbon_regret_delta_g_co2e_per_kwh"],
+                ascending=False,
+            )
+            .head(limit)[serializable_columns]
+            .to_dict(orient="records")
+        ),
+        "best_regret_improvement_days": sanitize_json_value(
+            comparison.sort_values(
+                ["combined_regret_delta", "carbon_regret_delta_g_co2e_per_kwh"],
+                ascending=True,
+            )
+            .head(limit)[serializable_columns]
+            .to_dict(orient="records")
+        ),
+    }
+
+
+def metric_regressed(learned: Any, baseline: Any) -> bool:
+    """Return whether a lower-is-better learned metric is worse than baseline."""
+    if learned is None or baseline is None:
+        return True
+    if pd.isna(learned) or pd.isna(baseline):
+        return True
+    return float(learned) > float(baseline)
+
+
+def safe_float_delta(left: Any, right: Any) -> float | None:
+    """Return left minus right when both values are numeric."""
+    if left is None or right is None or pd.isna(left) or pd.isna(right):
+        return None
+    return float(left) - float(right)
+
+
+def safe_float_ratio_delta(left: Any, right: Any) -> float | None:
+    """Return relative delta from right to left when the baseline is non-zero."""
+    if left is None or right is None or pd.isna(left) or pd.isna(right):
+        return None
+    baseline = float(right)
+    if baseline == 0:
+        return None
+    return (float(left) - baseline) / abs(baseline)
+
+
+def sanitize_json_value(value: Any) -> Any:
+    """Return a value that can be emitted as strict JSON."""
+    if isinstance(value, dict):
+        return {str(key): sanitize_json_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [sanitize_json_value(item) for item in value]
+    if isinstance(value, pd.Timestamp):
+        return value.isoformat()
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if np.isfinite(value) else None
+    if hasattr(value, "item"):
+        try:
+            return sanitize_json_value(value.item())
+        except (TypeError, ValueError):
+            pass
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    return value
 
 
 def refresh_predicted_rank_flags(frame: pd.DataFrame) -> None:
@@ -1630,6 +1842,7 @@ def build_top_scenario_recommendations(rankings: pd.DataFrame, top_n: int) -> pd
         TIMESTAMP_COLUMN,
         "workload_end_utc",
         "duration_hours",
+        "candidate_count",
         "predicted_scenario_score",
         "confidence_score",
         "confidence_level",
@@ -1639,6 +1852,7 @@ def build_top_scenario_recommendations(rankings: pd.DataFrame, top_n: int) -> pd
         "predicted_carbon_interval_half_width_g_co2e_per_kwh",
         "is_low_uncertainty_candidate",
         "predicted_price_direction_vs_previous_day",
+        "predicted_avg_price_eur_mwh",
         "predicted_avg_carbon_intensity_g_co2e_per_kwh",
         "predicted_total_emissions_kg_co2e",
         "predicted_carbon_rank",

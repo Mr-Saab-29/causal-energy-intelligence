@@ -15,7 +15,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.data.pipeline_health import DEFAULT_OUTPUT_PATH, build_pipeline_health
-from src.causal.recommendations import build_causal_adjusted_recommendations
+from src.causal.recommendations import (
+    build_causal_adjusted_recommendations,
+    build_causal_adjusted_scenario_recommendations,
+)
 from src.optimization.workload_shift import (
     CONFIDENCE_CALIBRATION_PATH,
     SCENARIO_CONFIDENCE_CALIBRATION_PATH,
@@ -60,6 +63,9 @@ def main() -> None:
     )
     future_causal_recommendations = read_csv(
         ROOT / "reports/recommendations/future_causal_adjusted_workload_recommendations.csv"
+    )
+    future_causal_scenario_recommendations = read_csv(
+        ROOT / "reports/scenarios/future_causal_adjusted_workload_scenario_recommendations.csv"
     )
     future_marginal_rankings = read_csv(
         ROOT / "reports/rankings/future_marginal_workload_decision_rankings.csv"
@@ -125,16 +131,37 @@ def main() -> None:
     active_causal_recommendations = normalize_recommendation_fields(
         active_future_causal_recommendations
     )
+    active_future_causal_scenario_recommendations = (
+        build_active_future_causal_scenario_recommendations(
+            future_causal_scenario_recommendations,
+            future_marginal_rankings,
+            now=generated_at_utc,
+        )
+    )
+    active_future_causal_scenario_recommendations = add_current_reference_comparison(
+        active_future_causal_scenario_recommendations,
+        future_marginal_rankings,
+        now=generated_at_utc,
+    )
+    active_causal_scenario_recommendations = normalize_recommendation_fields(
+        active_future_causal_scenario_recommendations
+    )
     recommendation_rows = prepare_records(active_recommendations)
     scenario_rows = prepare_records(active_scenario_recommendations)
     causal_rows = prepare_records(active_causal_recommendations)
+    causal_scenario_rows = prepare_records(active_causal_scenario_recommendations)
     outcome_rows = prepare_records(prepare_outcome_audit_rows(outcome_audit))
     filter_dates = sorted(
         set(safe_unique(active_recommendations, "decision_group"))
         | set(safe_unique(active_scenario_recommendations, "decision_group"))
         | set(safe_unique(active_causal_recommendations, "decision_group"))
+        | set(safe_unique(active_causal_scenario_recommendations, "decision_group"))
     )
     outcome_dates = sorted(safe_unique(outcome_audit, "decision_group"), reverse=True)
+    scenario_filters = sorted(
+        set(safe_unique(active_scenario_recommendations, "scenario"))
+        | set(safe_unique(active_causal_scenario_recommendations, "scenario"))
+    )
     payload = {
         "generated_at_utc": generated_at_utc.isoformat(),
         "current_reference": {
@@ -174,6 +201,11 @@ def main() -> None:
             "causal_adjusted_recommendations": (
                 "reports/recommendations/future_causal_adjusted_workload_recommendations.csv"
                 if not future_causal_recommendations.empty
+                else None
+            ),
+            "causal_adjusted_scenario_recommendations": (
+                "reports/scenarios/future_causal_adjusted_workload_scenario_recommendations.csv"
+                if not future_causal_scenario_recommendations.empty
                 else None
             ),
             "recommendation_outcome_audit": (
@@ -218,6 +250,9 @@ def main() -> None:
             "future_scenario_file_rows": int(len(future_scenario_recommendations)),
             "active_future_scenario_count": int(len(active_future_scenario_recommendations)),
             "active_future_causal_count": int(len(active_causal_recommendations)),
+            "active_future_causal_scenario_count": int(
+                len(active_causal_scenario_recommendations)
+            ),
             "stale_future_recommendations": bool(
                 not future_recommendations.empty and active_future_recommendations.empty
             ),
@@ -253,11 +288,12 @@ def main() -> None:
         "filters": {
             "dates": filter_dates,
             "outcome_dates": outcome_dates,
-            "scenarios": safe_unique(active_scenario_recommendations, "scenario"),
+            "scenarios": scenario_filters,
         },
         "recommendations": recommendation_rows,
         "scenario_recommendations": scenario_rows,
         "causal_recommendations": causal_rows,
+        "causal_scenario_recommendations": causal_scenario_rows,
         "recommendation_outcomes": outcome_rows,
     }
 
@@ -350,6 +386,23 @@ def build_active_future_causal_recommendations(
     if active_rankings.empty:
         return active
     return build_causal_adjusted_recommendations(active_rankings, top_n=top_n)
+
+
+def build_active_future_causal_scenario_recommendations(
+    scenario_recommendations: pd.DataFrame,
+    marginal_rankings: pd.DataFrame,
+    now: pd.Timestamp | None = None,
+    top_n: int = 5,
+) -> pd.DataFrame:
+    """Return active causal scenario top-N rows, refilling from marginal rankings when needed."""
+    active = filter_future_recommendations(scenario_recommendations, now=now)
+    if has_top_n_per_group(active, ["scenario", "window", "model", "decision_group"], top_n):
+        return active
+    active_rankings = filter_future_recommendations(marginal_rankings, now=now)
+    if active_rankings.empty:
+        return active
+    rebuilt, _ = build_causal_adjusted_scenario_recommendations(active_rankings, top_n=top_n)
+    return rebuilt
 
 
 def add_current_reference_comparison(

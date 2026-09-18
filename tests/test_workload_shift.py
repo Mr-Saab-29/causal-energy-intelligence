@@ -13,8 +13,10 @@ from src.optimization.workload_shift import (
     build_top_workload_recommendations,
     build_scenario_rerankings,
     build_workload_decision_rankings,
+    ranking_model_acceptance_failures,
     select_champion_model,
     select_scenario_champions,
+    summarize_ranking_model_overlay,
     summarize_policy_backtest,
     summarize_recommendation_drift,
     validate_columns,
@@ -272,6 +274,47 @@ def test_recommendation_drift_reports_uncertainty_and_status_counts() -> None:
         "recommended": 1,
         "no_low_risk_recommendation_available": 1,
     }
+
+
+def test_ranking_model_overlay_reports_acceptance_failure_diagnostics() -> None:
+    frame = pd.DataFrame(
+        {
+            "timestamp_utc": pd.to_datetime(
+                [
+                    "2026-08-10T00:00:00Z",
+                    "2026-08-10T01:00:00Z",
+                    "2026-08-11T00:00:00Z",
+                    "2026-08-11T01:00:00Z",
+                ]
+            ),
+            "window": ["test"] * 4,
+            "model": ["model_a"] * 4,
+            "decision_group": ["2026-08-10", "2026-08-10", "2026-08-11", "2026-08-11"],
+            "predicted_decision_rank": [1, 2, 2, 1],
+            "baseline_predicted_decision_rank": [2, 1, 1, 2],
+            "is_actual_best": [False, True, True, False],
+            "combined_regret": [0.4, 0.0, 0.0, 0.6],
+            "carbon_regret_g_co2e_per_kwh": [4.0, 0.0, 0.0, 6.0],
+            "ranking_model_score_source": [
+                "out_of_window_classifier",
+                "fallback_baseline_score",
+                "fallback_baseline_score",
+                "out_of_window_classifier",
+            ],
+        }
+    )
+
+    report = summarize_ranking_model_overlay(frame, scored_rows=2)
+
+    assert ranking_model_acceptance_failures(report) == [
+        "combined_regret_regressed",
+        "carbon_regret_regressed",
+    ]
+    assert report["diagnostic_summary"]["recommendation"] == "keep_baseline_ranker"
+    assert report["day_level_diagnostics"]["groups_learned_worse_combined_regret"] == 2
+    assert report["day_level_diagnostics"]["worst_regret_regression_days"][0][
+        "decision_group"
+    ] == "2026-08-11"
 
 
 def test_prediction_interval_calibration_adds_interval_uncertainty() -> None:

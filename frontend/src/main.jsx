@@ -27,6 +27,7 @@ import {
   YAxis,
 } from "recharts";
 import "./styles.css";
+import BenchmarkView from "./BenchmarkView.jsx";
 
 const DATA_URL = "/data/dashboard.json";
 
@@ -89,6 +90,16 @@ function App() {
       .sort((left, right) => left.recommendation_rank - right.recommendation_rank);
   }, [payload, selectedDate]);
 
+  const causalScenarioRecommendations = useMemo(() => {
+    if (!payload || !selectedDate) return [];
+    return (payload.causal_scenario_recommendations ?? [])
+      .filter(
+        (row) =>
+          row.decision_group === selectedDate && row.scenario === selectedScenario,
+      )
+      .sort((left, right) => left.recommendation_rank - right.recommendation_rank);
+  }, [payload, selectedDate, selectedScenario]);
+
   const outcomeRows = useMemo(() => {
     if (!payload || !selectedOutcomeDate) return [];
     return (payload.recommendation_outcomes ?? [])
@@ -102,13 +113,21 @@ function App() {
   }, [payload, selectedOutcomeDate]);
 
   const hasScenarioMode = (payload?.filters?.scenarios ?? []).length > 0;
-  const hasCausalMode = (payload?.causal_recommendations ?? []).length > 0;
+  const hasCausalMode =
+    (payload?.causal_recommendations ?? []).length > 0 ||
+    (payload?.causal_scenario_recommendations ?? []).length > 0;
   const recommendations =
     selectedBasis === "causal"
-      ? causalRecommendations
+      ? causalScenarioRecommendations.length > 0
+        ? causalScenarioRecommendations
+        : causalRecommendations
       : hasScenarioMode
         ? scenarioRecommendations
         : baseRecommendations;
+  const scenarioPanelRecommendations =
+    selectedBasis === "causal" && causalScenarioRecommendations.length > 0
+      ? causalScenarioRecommendations
+      : scenarioRecommendations;
   const championMetrics = useMemo(() => {
     if (!payload?.champion?.model) return null;
     return (payload.champion?.models ?? []).find((row) => row.model === payload.champion.model);
@@ -184,11 +203,19 @@ function App() {
           <ClipboardCheck size={16} />
           Previous-day audit
         </button>
+        <button
+          className={selectedView === "benchmark" ? "active" : ""}
+          type="button"
+          onClick={() => setSelectedView("benchmark")}
+        >
+          <Activity size={16} />
+          Benchmarks
+        </button>
       </section>
 
-      <TrustFreshnessBanner payload={payload} trustSummary={trustSummary} />
+      {selectedView !== "benchmark" && <TrustFreshnessBanner payload={payload} trustSummary={trustSummary} />}
 
-      {selectedView === "audit" ? (
+      {selectedView === "benchmark" ? <BenchmarkView /> : selectedView === "audit" ? (
         <OutcomeAuditView
           payload={payload}
           outcomeRows={outcomeRows}
@@ -336,7 +363,7 @@ function App() {
                 )}
                 {recommendations.map((row) => (
                   <RecommendationRow
-                    key={`${row.scenario ?? selectedBasis}-${row.decision_group}-${row.recommendation_rank}`}
+                    key={`${row.scenario ?? selectedBasis}-${row.decision_group}-${row.timestamp_utc}-${row.recommendation_rank}`}
                     row={row}
                   />
                 ))}
@@ -411,7 +438,7 @@ function App() {
               <div className="panel-heading">
                 <div>
                   <h2>Scenario Reranking</h2>
-                  <p>{formatScenario(selectedScenario)} reranks the same candidate hours using scenario-specific carbon and price weights.</p>
+                  <p>{scenarioPanelSubtitle(selectedBasis, selectedScenario)}</p>
                 </div>
               </div>
               <div className="scenario-table">
@@ -423,11 +450,14 @@ function App() {
                     <span>{formatFixed(selectedScenarioChampion.top_5_f1)} top-5 F1</span>
                   </div>
                 )}
-                {scenarioRecommendations.length === 0 && (
+                {scenarioPanelRecommendations.length === 0 && (
                   <div className="empty-state">No scenario recommendations are available yet.</div>
                 )}
-                {scenarioRecommendations.map((row) => (
-                  <div className="scenario-row" key={`${row.scenario}-${row.recommendation_rank}`}>
+                {scenarioPanelRecommendations.map((row) => (
+                  <div
+                    className="scenario-row"
+                    key={`${row.scenario}-${row.timestamp_utc}-${row.recommendation_rank}`}
+                  >
                     <span className="rank">#{row.recommendation_rank}</span>
                     <strong>{formatHour(row.timestamp_utc)}</strong>
                     <span>{formatFixed(row.predicted_avg_carbon_intensity_g_co2e_per_kwh)} gCO2e/kWh</span>
@@ -1171,9 +1201,14 @@ function meanBoolean(values) {
 
 function recommendationSubtitle(selectedBasis, selectedScenario) {
   if (selectedBasis === "causal") {
-    return "Top 5 future workload start hours using the marginal-emissions proxy MVP.";
+    return `Top 5 future workload start hours for ${formatScenario(selectedScenario)} using the marginal-emissions proxy MVP.`;
   }
   return `Top 5 future workload start hours for ${formatScenario(selectedScenario)}. Scenario rank and score update with the selector.`;
+}
+
+function scenarioPanelSubtitle(selectedBasis, selectedScenario) {
+  const carbonBasis = selectedBasis === "causal" ? "marginal-carbon proxy" : "average-carbon";
+  return `${formatScenario(selectedScenario)} reranks the same candidate hours using ${carbonBasis} and price weights.`;
 }
 
 function recommendationCarbonIntensity(row) {

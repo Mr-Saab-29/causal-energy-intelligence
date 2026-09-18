@@ -11,7 +11,11 @@
     "future_scenario_recommendations": null,
     "recommendation_drift": null,
     "policy_backtest": null,
-    "scenario_champion_selection": null
+    "scenario_champion_selection": null,
+    "marginal_ranking_shift_metrics": null,
+    "causal_adjusted_recommendations": null,
+    "causal_adjusted_scenario_recommendations": null,
+    "recommendation_outcome_audit": null
   },
   "champion": {
     "model": null,
@@ -46,6 +50,8 @@
     "active_future_recommendation_count": 0,
     "future_scenario_file_rows": 0,
     "active_future_scenario_count": 0,
+    "active_future_causal_count": 0,
+    "active_future_causal_scenario_count": 0,
     "stale_future_recommendations": false,
     "stale_future_scenarios": false,
     "average_confidence_score": null,
@@ -64,10 +70,17 @@
     "reasons": []
   },
   "recommendation_drift": {},
+  "marginal_ranking_shift": {},
+  "operational_audit_readiness": {},
+  "recommendation_outcome_audit": {},
   "filters": {
+    "outcome_dates": [],
     "dates": [],
     "scenarios": ["emissions_reduction", "balanced_operations", "budget_control"]
   },
   "recommendations": [],
-  "scenario_recommendations": []
+  "scenario_recommendations": [],
+  "causal_recommendations": [],
+  "causal_scenario_recommendations": [],
+  "recommendation_outcomes": []
 }

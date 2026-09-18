@@ -52,7 +52,13 @@ If Energy-Charts returns `429 Too Many Requests`, wait several minutes and rerun
 
 ## 4. Load Electricity Mix
 
-ODRE historical national and regional data is converted from 15-minute MW to hourly MWh.
+ODRE historical national and regional actuals are half-hourly: integrate each
+reading with a 0.5-hour weight. Real-time actuals use a 0.25-hour weight.
+Incomplete hourly fields remain missing; production totals require a complete
+generation mix. The corrected loader uses `odre_hourly_v2` checkpoints, so old
+completed windows do not prevent a corrected historical backfill. Existing
+database rows and exported features are not repaired merely by updating code:
+rerun this loader and export/retrain downstream artifacts separately.
 
 ```bash
 python - <<'PY'

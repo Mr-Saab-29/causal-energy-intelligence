@@ -98,9 +98,29 @@ def fetch_odre_records(
 def aggregate_odre_to_hourly_mwh(
     records: Iterator[dict[str, Any]],
     scope: str,
+    *,
+    dataset: str,
 ) -> list[HourlyElectricityMixObservation]:
-    """Convert ODRE quarter-hourly MW records into hourly MWh observations."""
+    """Integrate complete source intervals; leave incomplete hourly fields missing.
+
+    Historical actuals are half-hourly even though their records include empty
+    quarter-hour slots for the separately published consumption forecasts.
+    Never infer cadence from the number of surviving observations.
+    """
+    cadences = {
+        ODRE_NATIONAL_HISTORICAL_DATASET: ("national", 30),
+        ODRE_REGIONAL_HISTORICAL_DATASET: ("regional", 30),
+        ODRE_NATIONAL_DATASET: ("national", 15),
+        ODRE_REGIONAL_DATASET: ("regional", 15),
+    }
+    if dataset not in cadences or cadences[dataset][0] != scope:
+        raise ValueError(f"Unknown ODRE dataset/scope: {dataset}/{scope}")
+    minutes = cadences[dataset][1]
+    weight = Decimal(minutes) / Decimal(60)
+    expected_slots = set(range(0, 60, minutes))
     buckets: dict[tuple[str, datetime], dict[str, Decimal | str | datetime]] = defaultdict(dict)
+    slots = defaultdict(lambda: defaultdict(set))
+    seen = {}
     field_map = NATIONAL_MW_FIELDS if scope == "national" else REGIONAL_MW_FIELDS
 
     for record in records:
@@ -108,6 +128,23 @@ def aggregate_odre_to_hourly_mwh(
         hour_timestamp = timestamp.replace(minute=0, second=0, microsecond=0)
         region = NATIONAL_REGION if scope == "national" else str(record.get("libelle_region"))
         bucket_key = (region, hour_timestamp)
+        record_key = (region, timestamp)
+        # DST source rows can repeat a UTC instant with different local labels
+        # or unused forecasts. Count matching actuals once; never choose between
+        # conflicting measurements or merge complementary partial records.
+        signature = (record.get("nature"), *(
+            _to_decimal(record.get(field)) for field in [*field_map, "taux_co2"]
+        ))
+        if record_key in seen:
+            if seen[record_key] != signature:
+                raise ValueError(f"Conflicting duplicate ODRE observation: {record_key}")
+            continue
+        seen[record_key] = signature
+        nature = record.get("nature")
+        if nature in {"Données consolidées", "Données définitives", "Données temps réel"}:
+            nature_minutes = 15 if nature == "Données temps réel" else 30
+            if nature_minutes != minutes:
+                raise ValueError(f"ODRE nature contradicts dataset cadence: {dataset}/{nature}")
         bucket = buckets[bucket_key]
         bucket["region"] = region
         bucket["timestamp_utc"] = hour_timestamp
@@ -117,11 +154,17 @@ def aggregate_odre_to_hourly_mwh(
             value = _to_decimal(record.get(source_field))
             if value is None:
                 continue
+            if not value.is_finite() or timestamp.minute not in expected_slots or timestamp.second or timestamp.microsecond:
+                raise ValueError(f"Invalid ODRE value/interval: {source_field} at {timestamp}")
+            slots[bucket_key][target_field].add(timestamp.minute)
             existing = bucket.get(target_field, Decimal("0"))
-            bucket[target_field] = existing + value * Decimal("0.25")
+            bucket[target_field] = existing + value * weight
 
         carbon_value = _to_decimal(record.get("taux_co2"))
         if carbon_value is not None:
+            if not carbon_value.is_finite() or timestamp.minute not in expected_slots or timestamp.second or timestamp.microsecond:
+                raise ValueError(f"Invalid ODRE carbon interval at {timestamp}")
+            slots[bucket_key]["carbon_intensity_gco2_kwh"].add(timestamp.minute)
             existing_carbon_sum = bucket.get("_carbon_sum", Decimal("0"))
             existing_carbon_count = bucket.get("_carbon_count", Decimal("0"))
             bucket["_carbon_sum"] = existing_carbon_sum + carbon_value
@@ -130,7 +173,6 @@ def aggregate_odre_to_hourly_mwh(
     observations: list[HourlyElectricityMixObservation] = []
     production_fields = [
         "nuclear_mwh",
-        "thermal_mwh",
         "gas_mwh",
         "coal_mwh",
         "oil_mwh",
@@ -139,15 +181,21 @@ def aggregate_odre_to_hourly_mwh(
         "hydro_mwh",
         "bioenergy_mwh",
     ]
+    if scope == "regional":
+        production_fields = ["thermal_mwh", "nuclear_mwh", "wind_mwh", "solar_mwh", "hydro_mwh", "bioenergy_mwh"]
 
-    for bucket in buckets.values():
+    for bucket_key, bucket in buckets.items():
+        for field in set(field_map.values()):
+            if slots[bucket_key][field] != expected_slots:
+                bucket.pop(field, None)
         carbon_count = bucket.pop("_carbon_count", Decimal("0"))
         carbon_sum = bucket.pop("_carbon_sum", Decimal("0"))
-        if carbon_count:
+        if carbon_count and slots[bucket_key]["carbon_intensity_gco2_kwh"] == expected_slots:
             bucket["carbon_intensity_gco2_kwh"] = carbon_sum / carbon_count
 
-        total_production = sum(
-            bucket.get(field, Decimal("0")) for field in production_fields if bucket.get(field) is not None
+        total_production = (
+            sum(bucket[field] for field in production_fields)
+            if all(field in bucket for field in production_fields) else None
         )
         bucket["total_production_mwh"] = total_production
 
@@ -168,6 +216,7 @@ def fetch_france_national_hourly_mix(start_date: date, end_date: date) -> list[H
     return aggregate_odre_to_hourly_mwh(
         fetch_odre_records(ODRE_NATIONAL_HISTORICAL_DATASET, start_date, end_date),
         scope="national",
+        dataset=ODRE_NATIONAL_HISTORICAL_DATASET,
     )
 
 
@@ -176,6 +225,7 @@ def fetch_france_regional_hourly_mix(start_date: date, end_date: date) -> list[H
     return aggregate_odre_to_hourly_mwh(
         fetch_odre_records(ODRE_REGIONAL_HISTORICAL_DATASET, start_date, end_date),
         scope="regional",
+        dataset=ODRE_REGIONAL_HISTORICAL_DATASET,
     )
 
 
@@ -184,6 +234,7 @@ def fetch_france_national_realtime_hourly_mix(start_date: date, end_date: date) 
     return aggregate_odre_to_hourly_mwh(
         fetch_odre_records(ODRE_NATIONAL_DATASET, start_date, end_date),
         scope="national",
+        dataset=ODRE_NATIONAL_DATASET,
     )
 
 
@@ -192,6 +243,7 @@ def fetch_france_regional_realtime_hourly_mix(start_date: date, end_date: date) 
     return aggregate_odre_to_hourly_mwh(
         fetch_odre_records(ODRE_REGIONAL_DATASET, start_date, end_date),
         scope="regional",
+        dataset=ODRE_REGIONAL_DATASET,
     )
 
 

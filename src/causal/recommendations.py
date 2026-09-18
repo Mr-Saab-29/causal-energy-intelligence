@@ -18,6 +18,7 @@ from src.carbon.marginal import (
     run_marginal_emissions_proxy,
 )
 from src.optimization.workload_shift import (
+    SCENARIO_CONFIDENCE_CALIBRATION_PATH,
     TIMESTAMP_COLUMN,
     WorkloadConstraints,
     add_recommendation_confidence,
@@ -25,7 +26,9 @@ from src.optimization.workload_shift import (
     annotate_regret_and_savings,
     apply_confidence_calibration,
     build_confidence_calibration,
+    build_scenario_rerankings,
     build_top_workload_recommendations,
+    load_confidence_calibration,
     normalized_rank,
     rank_within_group,
 )
@@ -40,6 +43,12 @@ DEFAULT_RECOMMENDATION_OUTPUT_PATH = (
 )
 DEFAULT_FUTURE_RECOMMENDATION_OUTPUT_PATH = (
     "reports/recommendations/future_causal_adjusted_workload_recommendations.csv"
+)
+DEFAULT_SCENARIO_RECOMMENDATION_OUTPUT_PATH = (
+    "reports/scenarios/causal_adjusted_workload_scenario_recommendations.csv"
+)
+DEFAULT_FUTURE_SCENARIO_RECOMMENDATION_OUTPUT_PATH = (
+    "reports/scenarios/future_causal_adjusted_workload_scenario_recommendations.csv"
 )
 DEFAULT_METRICS_OUTPUT_PATH = "reports/metrics/marginal_ranking_shift_metrics.json"
 MIN_CAUSAL_COVERAGE = 0.80
@@ -445,11 +454,53 @@ def build_causal_adjusted_recommendations(
     return output
 
 
+def build_causal_adjusted_scenario_recommendations(
+    marginal_rankings: pd.DataFrame,
+    top_n: int = 5,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Build scenario-specific recommendations using marginal-carbon ranks."""
+    recommendations, metrics = build_scenario_rerankings(marginal_rankings, top_n=top_n)
+    recommendations = apply_confidence_calibration(
+        recommendations,
+        load_confidence_calibration(SCENARIO_CONFIDENCE_CALIBRATION_PATH),
+    )
+    context_columns = [
+        "carbon_ranking_strategy",
+        "causal_carbon_source",
+        "causal_adjustment_available",
+        "average_predicted_decision_rank",
+        "average_actual_decision_rank",
+        "average_predicted_carbon_rank",
+        "average_actual_carbon_rank",
+        "causal_adjusted_rank_shift",
+        "predicted_marginal_carbon_intensity_g_co2e_per_kwh",
+        "actual_marginal_carbon_intensity_g_co2e_per_kwh",
+        "predicted_marginal_source",
+        "actual_marginal_source",
+        "predicted_marginal_proxy_confidence",
+        "actual_marginal_proxy_confidence",
+    ]
+    context = marginal_rankings[
+        ["window", "model", "decision_group", TIMESTAMP_COLUMN]
+        + [column for column in context_columns if column in marginal_rankings]
+    ]
+    output = recommendations.merge(
+        context,
+        on=["window", "model", "decision_group", TIMESTAMP_COLUMN],
+        how="left",
+    )
+    output["recommendation_basis"] = "causal_adjusted_mvp"
+    float_columns = output.select_dtypes(include=["float"]).columns
+    output[float_columns] = output[float_columns].round(2)
+    return output, metrics
+
+
 def run_causal_adjusted_recommendations(
     average_rankings_path: str | Path = DEFAULT_AVERAGE_RANKINGS_PATH,
     marginal_proxy_path: str | Path = DEFAULT_MARGINAL_PROXY_PATH,
     ranking_output_path: str | Path = DEFAULT_RANKING_OUTPUT_PATH,
     recommendation_output_path: str | Path = DEFAULT_RECOMMENDATION_OUTPUT_PATH,
+    scenario_recommendation_output_path: str | Path | None = DEFAULT_SCENARIO_RECOMMENDATION_OUTPUT_PATH,
     metrics_output_path: str | Path = DEFAULT_METRICS_OUTPUT_PATH,
     methodology: str = "direct_operational_emissions",
     top_n: int = 5,
@@ -474,7 +525,12 @@ def run_causal_adjusted_recommendations(
         methodology=methodology,
     )
     recommendations = build_causal_adjusted_recommendations(marginal_rankings, top_n=top_n)
+    scenario_recommendations, scenario_metrics = build_causal_adjusted_scenario_recommendations(
+        marginal_rankings,
+        top_n=top_n,
+    )
     metrics = summarize_ranking_shifts(average_rankings, marginal_rankings, top_n=top_n)
+    metrics["scenario_summary"] = scenario_metrics
     metrics["generated_from"] = {
         "average_rankings": str(average_rankings_path),
         "marginal_proxy": str(marginal_proxy_path) if use_marginal_proxy_file else None,
@@ -482,10 +538,17 @@ def run_causal_adjusted_recommendations(
     metrics["outputs"] = {
         "marginal_rankings": str(ranking_output_path),
         "causal_adjusted_recommendations": str(recommendation_output_path),
+        "causal_adjusted_scenario_recommendations": (
+            str(scenario_recommendation_output_path)
+            if scenario_recommendation_output_path
+            else None
+        ),
     }
 
     write_csv(ranking_output_path, marginal_rankings)
     write_csv(recommendation_output_path, recommendations)
+    if scenario_recommendation_output_path:
+        write_csv(scenario_recommendation_output_path, scenario_recommendations)
     if metrics_output_path:
         write_json(metrics_output_path, metrics)
     return metrics
@@ -503,6 +566,7 @@ def run_all_causal_adjusted_recommendations(
             marginal_proxy_path=DEFAULT_MARGINAL_PROXY_PATH,
             ranking_output_path=DEFAULT_RANKING_OUTPUT_PATH,
             recommendation_output_path=DEFAULT_RECOMMENDATION_OUTPUT_PATH,
+            scenario_recommendation_output_path=DEFAULT_SCENARIO_RECOMMENDATION_OUTPUT_PATH,
             metrics_output_path=None,
             methodology=methodology,
             top_n=top_n,
@@ -520,6 +584,7 @@ def run_all_causal_adjusted_recommendations(
         marginal_proxy_path=DEFAULT_MARGINAL_PROXY_PATH,
         ranking_output_path=DEFAULT_FUTURE_RANKING_OUTPUT_PATH,
         recommendation_output_path=DEFAULT_FUTURE_RECOMMENDATION_OUTPUT_PATH,
+        scenario_recommendation_output_path=DEFAULT_FUTURE_SCENARIO_RECOMMENDATION_OUTPUT_PATH,
         metrics_output_path=None,
         methodology=methodology,
         top_n=top_n,
@@ -593,6 +658,10 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--marginal-proxy-path", default=DEFAULT_MARGINAL_PROXY_PATH)
     parser.add_argument("--ranking-output-path", default=DEFAULT_RANKING_OUTPUT_PATH)
     parser.add_argument("--recommendation-output-path", default=DEFAULT_RECOMMENDATION_OUTPUT_PATH)
+    parser.add_argument(
+        "--scenario-recommendation-output-path",
+        default=DEFAULT_SCENARIO_RECOMMENDATION_OUTPUT_PATH,
+    )
     parser.add_argument("--metrics-output-path", default=DEFAULT_METRICS_OUTPUT_PATH)
     parser.add_argument("--methodology", default="direct_operational_emissions")
     parser.add_argument("--top-n", type=int, default=5)
@@ -606,6 +675,8 @@ def main(argv: list[str] | None = None) -> None:
             args.marginal_proxy_path != DEFAULT_MARGINAL_PROXY_PATH,
             args.ranking_output_path != DEFAULT_RANKING_OUTPUT_PATH,
             args.recommendation_output_path != DEFAULT_RECOMMENDATION_OUTPUT_PATH,
+            args.scenario_recommendation_output_path
+            != DEFAULT_SCENARIO_RECOMMENDATION_OUTPUT_PATH,
         ]
     )
     if args.single_run or custom_single_run:
@@ -614,6 +685,7 @@ def main(argv: list[str] | None = None) -> None:
             marginal_proxy_path=args.marginal_proxy_path,
             ranking_output_path=args.ranking_output_path,
             recommendation_output_path=args.recommendation_output_path,
+            scenario_recommendation_output_path=args.scenario_recommendation_output_path,
             metrics_output_path=args.metrics_output_path,
             methodology=args.methodology,
             top_n=args.top_n,

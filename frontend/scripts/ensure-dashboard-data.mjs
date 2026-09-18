@@ -18,6 +18,7 @@ const fallbackDashboard = {
     scenario_champion_selection: null,
     marginal_ranking_shift_metrics: null,
     causal_adjusted_recommendations: null,
+    causal_adjusted_scenario_recommendations: null,
   },
   champion: {
     model: null,
@@ -63,6 +64,7 @@ const fallbackDashboard = {
     future_scenario_file_rows: 0,
     active_future_scenario_count: 0,
     active_future_causal_count: 0,
+    active_future_causal_scenario_count: 0,
     stale_future_recommendations: false,
     stale_future_scenarios: false,
     average_confidence_score: null,
@@ -89,6 +91,8 @@ const fallbackDashboard = {
   recommendations: [],
   scenario_recommendations: [],
   causal_recommendations: [],
+  causal_scenario_recommendations: [],
+  recommendation_outcomes: [],
 };
 
 if (!existsSync(dashboardPath)) {

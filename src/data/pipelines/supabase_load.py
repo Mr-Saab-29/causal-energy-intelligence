@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 
 import httpx
@@ -358,6 +358,9 @@ def _load_odre_mix_window(
     scope: str,
     batch_size: int,
 ) -> int:
+    # Earlier completed windows used incorrect quarter-hour weights for history.
+    # Keep their audit trail, but do not let them skip a corrected backfill.
+    checkpoint = replace(checkpoint, source_name="odre_hourly_v2")
     if _is_completed(engine, checkpoint):
         _log_checkpoint("skip", checkpoint)
         return 0
@@ -370,7 +373,7 @@ def _load_odre_mix_window(
             checkpoint.window_start_date,
             checkpoint.window_end_date,
         )
-        observations = aggregate_odre_to_hourly_mwh(records, scope=scope)
+        observations = aggregate_odre_to_hourly_mwh(records, scope=scope, dataset=dataset_name)
         rows = upsert_hourly_electricity_mix(engine, observations, batch_size=batch_size)
         _complete(engine, checkpoint, rows)
         _log_checkpoint("complete", checkpoint, rows)

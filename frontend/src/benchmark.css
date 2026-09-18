@@ -1,0 +1,32 @@
+.benchmark-view { display: grid; gap: 20px; }
+.benchmark-intro { padding: 24px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.benchmark-intro h2 { font-size: 1.8rem; margin: 8px 0; }
+.benchmark-intro p, .benchmark-caption, .benchmark-methodology p { color: #5c6b63; line-height: 1.6; }
+.benchmark-status { padding: 10px 14px; border-radius: 20px; white-space: nowrap; font-size: .85rem; font-weight: 650; }
+.benchmark-status.done { background: #d9efe4; color: #175b42; }
+.benchmark-status.pending, .benchmark-notice { background: #fff0d1; color: #754b05; }
+.benchmark-notice { padding: 16px 20px; border: 1px solid #e6c985; border-radius: 8px; line-height: 1.5; }
+.benchmark-controls { flex-wrap: wrap; }
+.benchmark-controls label { min-width: 160px; }
+.benchmark-experiments { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.benchmark-experiments button { display: flex; align-items: center; gap: 10px; text-align: left; padding: 14px; border-radius: 8px; border: 1px solid #ded8ca; background: #fffefa; color: #40564b; font-size: .85rem; }
+.benchmark-experiments button strong { font-size: 1rem; }
+.benchmark-experiments button.active { background: #1f513f; color: white; border-color: #1f513f; }
+.benchmark-results, .benchmark-methodology { padding: 24px; }
+.benchmark-results .panel-heading p { max-width: 1000px; line-height: 1.6; }
+.benchmark-caption { margin: 12px 0; font-size: .84rem; }
+.benchmark-table-wrap { overflow-x: auto; margin: 16px 0; }
+.benchmark-view table { width: 100%; border-collapse: collapse; font-size: .85rem; text-align: right; white-space: nowrap; }
+.benchmark-view th, .benchmark-view td { padding: 12px; border-bottom: 1px solid #e8e3d8; }
+.benchmark-view th:first-child, .benchmark-view td:first-child { text-align: left; }
+.benchmark-view thead { background: #eeeae0; }
+.benchmark-view tbody th { font-weight: 500; }
+.benchmark-view small { display: block; color: #986711; font-size: .75rem; }
+.benchmark-methodology summary { font-weight: 700; cursor: pointer; }
+.benchmark-methodology p { margin-top: 14px; }
+.benchmark-methodology li { margin: 8px 0; line-height: 1.5; }
+.benchmark-methodology a { color: #1f7357; }
+.benchmark-empty { padding: 28px; line-height: 1.7; }
+.benchmark-calibration { max-width: 600px; margin: 20px auto; }
+.benchmark-calibration p { color: #5c6b63; font-size: .85rem; }
+@media(max-width: 800px) { .benchmark-intro { align-items: flex-start; flex-direction: column; } .benchmark-experiments { grid-template-columns: repeat(2, 1fr); } .benchmark-results { padding: 14px; } .benchmark-chart { overflow-x: auto; } }

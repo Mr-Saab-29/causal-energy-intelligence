@@ -370,5 +370,6 @@ jobs:
             reports/recommendations/future_champion_workload_recommendations.csv
             reports/recommendations/future_causal_adjusted_workload_recommendations.csv
             reports/scenarios/future_workload_scenario_recommendations.csv
+            reports/scenarios/future_causal_adjusted_workload_scenario_recommendations.csv
             frontend/public/data/dashboard.json
           if-no-files-found: warn

@@ -123,6 +123,7 @@ The platform now has a working France electricity decision-support baseline:
 - Operational recommendations are written to `reports/recommendations/future_champion_workload_recommendations.csv`.
 - Future scenario recommendations are written to `reports/scenarios/future_workload_scenario_recommendations.csv`.
 - Future causal-adjusted MVP recommendations are written to `reports/recommendations/future_causal_adjusted_workload_recommendations.csv` using the marginal-emissions proxy with explicit average-carbon fallback labels.
+- Future causal-adjusted scenario recommendations are written to `reports/scenarios/future_causal_adjusted_workload_scenario_recommendations.csv`, so the dashboard basis and scenario selectors both change the active top-5 list.
 - Recommendations show price direction versus the previous day at the same time instead of presenting price as the main dashboard forecast.
 - The champion model is selected from generated metrics with a regret-first score: 35% realized recommendation regret, 25% carbon regret, 20% top-5 ranking loss, 10% price-direction error, and 10% carbon-intensity error.
 - Full retraining is guarded by an incumbent-vs-candidate promotion gate. A candidate retrain is promoted only when its weighted lower-is-better decision metrics beat the current production champion and recommendation/carbon regret do not regress beyond tolerance; otherwise the incumbent artifacts are restored.
@@ -133,15 +134,16 @@ The platform now has a working France electricity decision-support baseline:
 - Scenario-level champion selection reports the best model separately for emissions reduction,
   balanced operations, and budget control preferences.
 - The ranking layer is evaluated by top-k capture, pairwise ranking loss by decision day/window, top-5 classification metrics, regret by day/window, and savings versus running immediately.
-- A ranking-specific top-5 classifier is trained on historical decision candidates and accepted only when out-of-window combined regret and carbon regret do not degrade versus the baseline ranking score.
+- A ranking-specific top-5 classifier is trained on historical decision candidates and accepted only when out-of-window combined regret and carbon regret do not degrade versus the baseline ranking score. Its acceptance report includes blocking failure reasons, regret deltas, score-source counts, and worst day-level regressions.
 - Candidate hours with weak raw price/carbon score separation receive an uncertainty penalty before recommendation ranking. When no low-uncertainty candidate exists, the export marks the row as `no_low_risk_recommendation_available`.
 - Empirical prediction-interval half-widths are calibrated from historical candidate residual quantiles and reused for future recommendation uncertainty.
 - Workload recommendations support duration, earliest start, latest end, max-delay, price-weight, and carbon-weight constraints.
 - Scenario reranking is available for emissions reduction, balanced operations, and budget control
   preferences. The dashboard scenario selector changes the active future top-5 recommendation list,
   KPIs, chart, and recommendation explanation text. The dashboard also exposes a
-  recommendation-basis selector for the causal-adjusted MVP path when marginal proxy artifacts are
-  available.
+  recommendation-basis selector for the causal-adjusted MVP path; when causal scenario artifacts are
+  available, the scenario selector reranks the marginal-proxy list instead of falling back to one
+  scenario-agnostic causal list.
 - Ranking currently uses strict forecast-time features: calendar features, lagged prices, lagged/rolling supply-demand signals, and upstream forecasted consumption/production.
 - Upstream baselines forecast consumption, total production, and source-level production for nuclear, gas, coal, oil, wind, solar, hydro, and bioenergy.
 - Forecast diagnostics include MAE, RMSE, sMAPE, directional accuracy, top-error periods, grouped error diagnostics, ranking metrics, regret metrics, and feature importance.
@@ -193,7 +195,7 @@ Command intent:
 - `make forecast-all-candidate` is the internal ungated candidate pipeline used by the promotion gate.
 - `make forecast-all-force` retrains and overwrites artifacts without the incumbent promotion gate. Use only when you intentionally want to bypass the guard.
 - `make marginal-emissions` builds the Sprint 2 marginal-emissions proxy from hourly carbon outputs.
-- `make causal-recommendations` compares average-carbon and marginal-carbon rankings, quantifies shifts, and exports causal-adjusted recommendations.
+- `make causal-recommendations` compares average-carbon and marginal-carbon rankings, quantifies shifts, and exports causal-adjusted base and scenario recommendations.
 - `make ingest-monitor` ingests latest API data, runs pipeline health, and writes the forecast monitoring report without retraining.
 - `make ingest-monitor-cloud` is the deployable scheduled variant. It requires `DATABASE_URL`, limits historical ingestion to a recent 14-day lookback, writes transformed rows to Supabase, refreshes future weather, and avoids expensive bootstrap backfills.
 - `make forecast-monitor` writes `reports/metrics/forecast_monitoring.json` from existing artifacts.
@@ -230,6 +232,7 @@ Current key artifacts:
 - Future marginal workload rankings: `reports/rankings/future_marginal_workload_decision_rankings.csv`
 - Future champion recommendations: `reports/recommendations/future_champion_workload_recommendations.csv`
 - Future causal-adjusted recommendations: `reports/recommendations/future_causal_adjusted_workload_recommendations.csv`
+- Future causal-adjusted scenario recommendations: `reports/scenarios/future_causal_adjusted_workload_scenario_recommendations.csv`
 - Future recommendation metadata: `reports/metrics/future_recommendation_metadata.json`
 - Recommendation drift metrics: `reports/metrics/future_recommendation_drift_metrics.json`
 - Pipeline health: `reports/metrics/pipeline_health.json`
@@ -245,6 +248,7 @@ Current key artifacts:
 - Marginal emissions metrics: `reports/metrics/marginal_emissions_proxy_metrics.json`
 - Marginal workload rankings: `reports/rankings/marginal_workload_decision_rankings.csv`
 - Causal-adjusted recommendations: `reports/recommendations/causal_adjusted_workload_recommendations.csv`
+- Causal-adjusted scenario recommendations: `reports/scenarios/causal_adjusted_workload_scenario_recommendations.csv`
 - Marginal ranking shift metrics: `reports/metrics/marginal_ranking_shift_metrics.json`
 - Supply/demand metrics: `reports/metrics/supply_demand_baseline_metrics.json`
 - Supply/demand predictions: `reports/predictions/supply_demand_baseline_predictions.csv`
