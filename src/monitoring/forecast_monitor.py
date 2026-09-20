@@ -120,6 +120,7 @@ def monitor_historical_rankings(champion_model: str | None, cutoff: pd.Timestamp
         ),
         "price_direction_accuracy": safe_mean(frame["price_direction_correct"]),
     }
+    return result
 
 
 def monitor_operational_rankings(

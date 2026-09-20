@@ -6,6 +6,7 @@ from src.monitoring import forecast_monitor
 from src.monitoring.forecast_monitor import (
     evaluate_retraining_trigger,
     load_monitoring_thresholds,
+    monitor_historical_rankings,
     monitor_operational_rankings,
 )
 
@@ -56,6 +57,34 @@ def test_evaluate_retraining_trigger_flags_recommendation_drift() -> None:
     assert "recommendation_no_low_risk_share_high" in trigger["reasons"]
     assert "recommendation_average_confidence_low" in trigger["reasons"]
     assert "recommendation_rank_overlap_low" in trigger["reasons"]
+
+
+def test_monitor_historical_rankings_returns_available_metrics(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "workload_decision_rankings.csv"
+    pd.DataFrame(
+        {
+            "timestamp_utc": ["2026-09-20T08:00:00Z"],
+            "model": ["model_a"],
+            "window": ["future_24h"],
+            "decision_group": ["2026-09-20"],
+            "predicted_decision_rank": [1],
+            "is_actual_best": [True],
+            "actual_decision_rank": [1],
+            "combined_regret": [0.0],
+            "carbon_regret_g_co2e_per_kwh": [0.0],
+            "price_direction_correct": [1.0],
+        }
+    ).to_csv(path, index=False)
+    monkeypatch.setattr(forecast_monitor, "WORKLOAD_RANKINGS_PATH", path)
+
+    result = monitor_historical_rankings(
+        "model_a",
+        pd.Timestamp("2026-09-19T00:00:00Z"),
+    )
+
+    assert result["available"] is True
+    assert result["rows"] == 1
+    assert result["top_1_hit_rate"] == 1.0
 
 
 def test_monitor_operational_rankings_handles_malformed_history(tmp_path, monkeypatch) -> None:
