@@ -16,6 +16,7 @@ from scripts.build_dashboard_data import (
     sanitize_json_value,
     summarize_forecast_monitoring,
     summarize_marginal_shift_metrics,
+    summarize_pipeline_health,
 )
 from src.optimization.workload_shift import WorkloadConstraints, build_workload_decision_rankings
 
@@ -240,6 +241,30 @@ def test_dashboard_summaries_accept_null_optional_sections() -> None:
     assert monitoring["quantile_quality"]["generation_coverage_80"] is None
     assert marginal["quality_status"] == "unknown"
     assert marginal["top_1_change_share"] is None
+
+
+def test_pipeline_health_summary_exposes_critical_reasons() -> None:
+    summary = summarize_pipeline_health(
+        {
+            "mode": "cloud",
+            "status": "fail",
+            "critical_issue_count": 2,
+            "sources": {
+                "modeling_price_features": {
+                    "critical_issues": ["file_missing"],
+                }
+            },
+            "future_exogenous": {
+                "critical_issues": ["weather_has_no_future_timestamps"],
+            },
+        }
+    )
+
+    assert summary["mode"] == "cloud"
+    assert summary["critical_issues"] == [
+        "modeling_price_features:file_missing",
+        "future_exogenous:weather_has_no_future_timestamps",
+    ]
 
 
 def test_active_future_recommendations_refill_to_top5_after_past_rows_drop() -> None:

@@ -1043,6 +1043,7 @@ function buildTrustSummary(payload) {
   const readiness = payload.summary?.operational_audit_readiness ?? {};
   const outcome = payload.summary?.recommendation_outcome_audit ?? {};
   const reasons = [
+    ...(pipeline.critical_issues ?? []),
     ...(readiness.reasons ?? []),
     ...(readiness.warnings ?? []),
   ];
@@ -1081,7 +1082,10 @@ function auditVerdict(row) {
 
 function formatTrustReason(value) {
   if (!value) return null;
-  return String(value).split("_").map(titleCase).join(" ");
+  return String(value)
+    .split(":")
+    .map((part) => part.split("_").map(titleCase).join(" "))
+    .join(": ");
 }
 
 function formatHour(value) {

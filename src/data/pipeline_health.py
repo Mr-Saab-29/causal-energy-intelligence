@@ -117,6 +117,9 @@ SOURCE_CONFIGS = [
         ),
     ),
 ]
+CLOUD_SOURCE_CONFIGS = [
+    config for config in SOURCE_CONFIGS if config.name == "modeling_price_features"
+]
 
 
 def build_pipeline_health(
@@ -124,6 +127,7 @@ def build_pipeline_health(
     source_configs: list[SourceHealthConfig] | None = None,
     strict_freshness: bool = True,
     include_future: bool = True,
+    mode: str = "local",
 ) -> dict[str, Any]:
     """Build and persist a JSON health report for local source and dashboard artifacts."""
     configs = source_configs or SOURCE_CONFIGS
@@ -144,6 +148,7 @@ def build_pipeline_health(
     status = "fail" if critical_issue_count else "warn" if warning_count else "pass"
     report = {
         "generated_at_utc": datetime.now(UTC).isoformat(),
+        "mode": mode,
         "status": status,
         "critical_issue_count": critical_issue_count,
         "warning_count": warning_count,
@@ -437,8 +442,17 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Build local pipeline health report.")
     parser.add_argument("--allow-stale", action="store_true")
+    parser.add_argument(
+        "--cloud",
+        action="store_true",
+        help="Validate Supabase-exported model inputs instead of local raw CSV caches.",
+    )
     args = parser.parse_args()
-    report = build_pipeline_health(strict_freshness=not args.allow_stale)
+    report = build_pipeline_health(
+        source_configs=CLOUD_SOURCE_CONFIGS if args.cloud else None,
+        strict_freshness=not args.allow_stale,
+        mode="cloud" if args.cloud else "local",
+    )
     print(json.dumps({"status": report["status"], "output": str(DEFAULT_OUTPUT_PATH)}, indent=2))
 
 

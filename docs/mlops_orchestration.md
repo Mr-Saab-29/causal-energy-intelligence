@@ -82,7 +82,7 @@ The workflow runs as chained jobs:
 - `ingest`: runs `make ingest-latest-cloud` and `make ingest-future-cloud`; this job has a 45-minute timeout because upstream APIs and Supabase writes can exceed the normal 15-minute fast-path during slow refreshes
 - `preflight-monitor`: restores current operational state, runs health/forecast monitors, decides whether retraining is needed, and uploads the preflight operational-state artifact
 - `retrain`: runs `make train-all-gated` only when the preflight decision requests retraining, then uploads the accepted retrained operational-state artifact
-- `publish-dashboard`: downloads either the retrained operational-state artifact or the preflight operational-state artifact, runs `make operational-publish`, saves the refreshed operational cache, writes the orchestration report, and deploys the dashboard
+- `publish-dashboard`: downloads either the retrained operational-state artifact or the preflight operational-state artifact, runs `make operational-publish-cloud`, saves the refreshed operational cache, writes the orchestration report, and deploys the dashboard
 
 This cloud variant caps historical API ingestion to a recent 14-day lookback so
 an empty GitHub Actions cache cannot accidentally trigger a full 2023-to-present
@@ -235,6 +235,9 @@ timestamps, missing hourly timestamps, required columns, null counts, negative
 production/consumption values, dashboard JSON presence, and recommendation count.
 By default, source data older than two days is a critical failure. Use
 `make pipeline-health-allow-stale` only when inspecting historical demo data.
+GitHub's Supabase-backed workflow uses `make pipeline-health-cloud`, which checks
+the exported modeling cache and future artifacts without requiring local copies
+of raw source CSVs that are persisted in Supabase.
 
 Start Dagster locally:
 

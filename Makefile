@@ -1,7 +1,7 @@
 PYTHON ?= .venv/bin/python
 DAGSTER ?= .venv/bin/dagster
 
-.PHONY: help ingest-latest ingest-latest-cloud ingest-plan ingest-repair ingest-future ingest-future-cloud ingest-monitor ingest-monitor-cloud forecast-monitor operational-audit-readiness recommendation-outcome-audit future-recommendations operational-refresh operational-publish train-all train-all-gated forecast-all forecast-all-candidate forecast-all-force quick-refresh daily-local-refresh forecast-price forecast-ranking forecast-decision forecast-recommendations forecast-scenarios forecast-decision-example forecast-consumption forecast-production forecast-supply-demand forecast-carbon causal-contract marginal-emissions causal-recommendations pipeline-health pipeline-health-allow-stale dashboard-data methodology-handbook frontend-install frontend-dev frontend-build mlflow-ui dagster-dev docker-build docker-up docker-down docker-observability
+.PHONY: help ingest-latest ingest-latest-cloud ingest-plan ingest-repair ingest-future ingest-future-cloud ingest-monitor ingest-monitor-cloud forecast-monitor operational-audit-readiness recommendation-outcome-audit future-recommendations operational-refresh operational-publish operational-publish-cloud train-all train-all-gated forecast-all forecast-all-candidate forecast-all-force quick-refresh daily-local-refresh forecast-price forecast-ranking forecast-decision forecast-recommendations forecast-scenarios forecast-decision-example forecast-consumption forecast-production forecast-supply-demand forecast-carbon causal-contract marginal-emissions causal-recommendations pipeline-health pipeline-health-cloud pipeline-health-allow-stale dashboard-data dashboard-data-cloud methodology-handbook frontend-install frontend-dev frontend-build mlflow-ui dagster-dev docker-build docker-up docker-down docker-observability
 
 help:
 	@echo "Forecast training targets:"
@@ -19,6 +19,7 @@ help:
 	@echo "  make future-recommendations  Build next-24h operational recommendations"
 	@echo "  make operational-refresh     Build future recommendations, monitor, and dashboard"
 	@echo "  make operational-publish     Rebuild recommendations, monitor, dashboard data, and frontend"
+	@echo "  make operational-publish-cloud  Publish using Supabase-aware health checks"
 	@echo "  make forecast-consumption    Train/evaluate consumption baselines only"
 	@echo "  make forecast-production     Train/evaluate total + source production baselines"
 	@echo "  make forecast-carbon         Calculate carbon outputs from saved source forecasts"
@@ -39,6 +40,7 @@ help:
 	@echo "  make quick-refresh           Rebuild recommendations, monitor, dashboard data, and frontend"
 	@echo "  make daily-local-refresh     Ingest latest data, refresh recommendations, and build frontend"
 	@echo "  make pipeline-health         Build reports/metrics/pipeline_health.json"
+	@echo "  make pipeline-health-cloud   Build health report for Supabase-backed workflows"
 	@echo "  make dashboard-data          Build frontend/public/data/dashboard.json"
 	@echo "  make methodology-handbook    Build the interview methodology handbook DOCX"
 	@echo "  make frontend-dev            Start the dashboard dev server"
@@ -61,7 +63,7 @@ ingest-repair:
 
 ingest-monitor: ingest-latest ingest-future pipeline-health forecast-monitor
 
-ingest-monitor-cloud: ingest-latest-cloud ingest-future-cloud pipeline-health forecast-monitor
+ingest-monitor-cloud: ingest-latest-cloud ingest-future-cloud pipeline-health-cloud forecast-monitor
 
 ingest-future:
 	$(PYTHON) -m src.data.future_exogenous --horizon-hours 24
@@ -84,6 +86,8 @@ future-recommendations:
 operational-refresh: ingest-future operational-publish
 
 operational-publish: future-recommendations causal-recommendations pipeline-health forecast-monitor recommendation-outcome-audit dashboard-data frontend-build
+
+operational-publish-cloud: future-recommendations causal-recommendations pipeline-health-cloud forecast-monitor recommendation-outcome-audit dashboard-data-cloud frontend-build
 
 train-all:
 	$(PYTHON) -m src.models.train_forecast --target all
@@ -151,11 +155,17 @@ causal-recommendations: causal-contract marginal-emissions
 dashboard-data:
 	$(PYTHON) scripts/build_dashboard_data.py
 
+dashboard-data-cloud:
+	$(PYTHON) scripts/build_dashboard_data.py --pipeline-health-mode cloud
+
 methodology-handbook:
 	$(PYTHON) scripts/build_methodology_handbook.py
 
 pipeline-health:
 	$(PYTHON) -m src.data.pipeline_health
+
+pipeline-health-cloud:
+	$(PYTHON) -m src.data.pipeline_health --cloud
 
 pipeline-health-allow-stale:
 	$(PYTHON) -m src.data.pipeline_health --allow-stale

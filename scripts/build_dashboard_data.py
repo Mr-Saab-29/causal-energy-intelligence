@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import math
 import sys
@@ -14,7 +15,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.data.pipeline_health import DEFAULT_OUTPUT_PATH, build_pipeline_health
+from src.data.pipeline_health import (
+    CLOUD_SOURCE_CONFIGS,
+    DEFAULT_OUTPUT_PATH,
+    build_pipeline_health,
+)
 from src.causal.recommendations import (
     build_causal_adjusted_recommendations,
     build_causal_adjusted_scenario_recommendations,
@@ -33,8 +38,15 @@ OUTPUT_PATH = ROOT / "frontend/public/data/dashboard.json"
 PRODUCTION_MODEL_LABEL = "Production Model V1"
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     """Write the dashboard JSON payload used by the frontend."""
+    parser = argparse.ArgumentParser(description="Build static dashboard data.")
+    parser.add_argument(
+        "--pipeline-health-mode",
+        choices=("local", "cloud"),
+        default="local",
+    )
+    args = parser.parse_args(argv)
     generated_at_utc = pd.Timestamp.now(tz="UTC")
     champion = read_json(ROOT / "reports/metrics/champion_model_selection.json")
     decision_metrics = read_json(ROOT / "reports/metrics/workload_decision_metrics.json")
@@ -51,7 +63,13 @@ def main() -> None:
     forecast_monitoring = read_json(forecast_monitoring_path)
     recommendation_drift = read_json(ROOT / "reports/metrics/future_recommendation_drift_metrics.json")
     forecast_monitoring_stale = is_forecast_monitoring_stale(forecast_monitoring_path)
-    pipeline_health = build_pipeline_health(DEFAULT_OUTPUT_PATH)
+    pipeline_health = build_pipeline_health(
+        DEFAULT_OUTPUT_PATH,
+        source_configs=CLOUD_SOURCE_CONFIGS
+        if args.pipeline_health_mode == "cloud"
+        else None,
+        mode=args.pipeline_health_mode,
+    )
     recommendations = read_csv(
         ROOT / "reports/recommendations/champion_workload_recommendations.csv"
     )
@@ -652,10 +670,25 @@ def summarize_pipeline_health(report: dict[str, Any]) -> dict[str, Any]:
         for source in sources.values()
         if isinstance(source, dict) and source.get("max_timestamp_utc")
     ]
+    critical_issues = [
+        f"{source_name}:{issue}"
+        for source_name, source in sources.items()
+        if isinstance(source, dict)
+        for issue in source.get("critical_issues", [])
+    ]
+    for section_name in ("dashboard", "future_exogenous"):
+        section = report.get(section_name)
+        if isinstance(section, dict):
+            critical_issues.extend(
+                f"{section_name}:{issue}"
+                for issue in section.get("critical_issues", [])
+            )
     return {
+        "mode": report.get("mode", "local"),
         "status": report.get("status"),
         "generated_at_utc": report.get("generated_at_utc"),
         "critical_issue_count": report.get("critical_issue_count", 0),
+        "critical_issues": critical_issues,
         "warning_count": report.get("warning_count", 0),
         "latest_data_timestamp_utc": max(latest_timestamps) if latest_timestamps else None,
     }

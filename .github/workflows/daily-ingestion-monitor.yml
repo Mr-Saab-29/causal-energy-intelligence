@@ -98,7 +98,7 @@ jobs:
           path: data
 
       - name: Build pipeline health report
-        run: make pipeline-health
+        run: make pipeline-health-cloud
 
       - name: Build forecast monitoring report
         run: make forecast-monitor
@@ -304,7 +304,7 @@ jobs:
 
       - name: Build recommendations and dashboard from current champion
         id: publish_build
-        run: make operational-publish
+        run: make operational-publish-cloud
 
       - name: Write orchestration decision report
         if: always()
