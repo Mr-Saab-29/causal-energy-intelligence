@@ -309,7 +309,8 @@ def read_json(path: Path) -> dict[str, Any]:
     """Read a JSON file."""
     if not path.exists():
         return {}
-    return json.loads(path.read_text(encoding="utf-8"))
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return payload if isinstance(payload, dict) else {}
 
 
 def read_csv(path: Path) -> pd.DataFrame:
@@ -644,10 +645,12 @@ def safe_float(value: float) -> float | None:
 
 def summarize_pipeline_health(report: dict[str, Any]) -> dict[str, Any]:
     """Return the compact health summary shown in the dashboard."""
+    sources = report.get("sources")
+    sources = sources if isinstance(sources, dict) else {}
     latest_timestamps = [
         source.get("max_timestamp_utc")
-        for source in report.get("sources", {}).values()
-        if source.get("max_timestamp_utc")
+        for source in sources.values()
+        if isinstance(source, dict) and source.get("max_timestamp_utc")
     ]
     return {
         "status": report.get("status"),
@@ -660,15 +663,17 @@ def summarize_pipeline_health(report: dict[str, Any]) -> dict[str, Any]:
 
 def summarize_forecast_monitoring(report: dict[str, Any], stale: bool = False) -> dict[str, Any]:
     """Return compact monitoring fields for dashboard status."""
-    operational = report.get("operational_settled", {})
-    generation = report.get("source_prediction_drift", {})
+    operational = report.get("operational_settled")
+    operational = operational if isinstance(operational, dict) else {}
+    generation = report.get("source_prediction_drift")
+    generation = generation if isinstance(generation, dict) else {}
     return {
         "status": "stale" if stale else report.get("status", "unknown"),
         "generated_at_utc": report.get("generated_at_utc"),
         "retraining_recommended": bool(report.get("retraining_recommended", False)) and not stale,
         "stale": stale,
-        "reason_count": len(report.get("reasons", [])),
-        "warning_count": len(report.get("warnings", [])),
+        "reason_count": len(report.get("reasons") or []),
+        "warning_count": len(report.get("warnings") or []),
         "latest_actual_timestamp_utc": report.get("latest_actual_timestamp_utc"),
         "champion_model": report.get("champion_model"),
         "quantile_quality": {
@@ -704,8 +709,11 @@ def summarize_forecast_monitoring(report: dict[str, Any], stale: bool = False) -
 def summarize_marginal_shift_metrics(report: dict[str, Any]) -> dict[str, Any]:
     """Return compact causal-adjusted MVP metrics for the dashboard."""
     future = report.get("future", report) if isinstance(report, dict) else {}
-    aggregate = future.get("aggregate", {}) if isinstance(future, dict) else {}
-    quality_guard = future.get("quality_guard", {}) if isinstance(future, dict) else {}
+    future = future if isinstance(future, dict) else {}
+    aggregate = future.get("aggregate")
+    aggregate = aggregate if isinstance(aggregate, dict) else {}
+    quality_guard = future.get("quality_guard")
+    quality_guard = quality_guard if isinstance(quality_guard, dict) else {}
     return {
         "method": future.get("method"),
         "quality_status": quality_guard.get("status", "unknown"),

@@ -14,6 +14,7 @@ from scripts.build_dashboard_data import (
     filter_future_recommendations,
     normalize_recommendation_fields,
     sanitize_json_value,
+    summarize_forecast_monitoring,
     summarize_marginal_shift_metrics,
 )
 from src.optimization.workload_shift import WorkloadConstraints, build_workload_decision_rankings
@@ -213,6 +214,32 @@ def test_summarize_marginal_shift_metrics_prefers_future_report() -> None:
         "mean_causal_adjustment_coverage": 0.75,
         "mean_top_1_regret_delta": -0.2,
     }
+
+
+def test_dashboard_summaries_accept_null_optional_sections() -> None:
+    monitoring = summarize_forecast_monitoring(
+        {
+            "reasons": None,
+            "warnings": None,
+            "operational_settled": None,
+            "source_prediction_drift": None,
+        }
+    )
+    marginal = summarize_marginal_shift_metrics(
+        {
+            "future": {
+                "aggregate": None,
+                "quality_guard": None,
+            }
+        }
+    )
+
+    assert monitoring["reason_count"] == 0
+    assert monitoring["warning_count"] == 0
+    assert monitoring["quantile_quality"]["price_coverage_80"] is None
+    assert monitoring["quantile_quality"]["generation_coverage_80"] is None
+    assert marginal["quality_status"] == "unknown"
+    assert marginal["top_1_change_share"] is None
 
 
 def test_active_future_recommendations_refill_to_top5_after_past_rows_drop() -> None:
