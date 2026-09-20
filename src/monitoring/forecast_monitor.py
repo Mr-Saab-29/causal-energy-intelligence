@@ -15,6 +15,7 @@ import yaml
 from src.carbon.intensity import load_emission_factor_config
 from src.data.pipeline_health import DEFAULT_OUTPUT_PATH as PIPELINE_HEALTH_PATH
 from src.models.baseline_price import TIMESTAMP_COLUMN
+from src.models.quantile_forecast import quantile_metrics
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT_PATH = ROOT / "reports/metrics/forecast_monitoring.json"
@@ -107,7 +108,7 @@ def monitor_historical_rankings(champion_model: str | None, cutoff: pd.Timestamp
     if frame.empty:
         return unavailable("no recent historical ranking rows")
     predicted_best = frame[frame["predicted_decision_rank"] == 1]
-    return {
+    result = {
         "available": True,
         "rows": int(len(frame)),
         "decision_groups": int(frame[["window", "decision_group"]].drop_duplicates().shape[0]),
@@ -167,7 +168,7 @@ def monitor_operational_rankings(
         return unavailable("settled forecasts did not join to actual rows")
     settled = recompute_operational_actual_ranks(settled)
     predicted_best = settled[settled["predicted_decision_rank"] == 1]
-    return {
+    result = {
         "available": True,
         "rows": int(len(settled)),
         "settled_forecast_generations": int(settled["forecast_generated_at_utc"].nunique()),
@@ -188,6 +189,27 @@ def monitor_operational_rankings(
         ),
         "price_direction_accuracy": safe_mean(predicted_best["price_direction_correct_observed"]),
     }
+    result.update(
+        prefixed_quantile_metrics(
+            predicted_best,
+            actual_column="actual_price_eur_mwh_observed",
+            lower_column="predicted_avg_price_q10_eur_mwh",
+            median_column="predicted_avg_price_q50_eur_mwh",
+            upper_column="predicted_avg_price_q90_eur_mwh",
+            prefix="price",
+        )
+    )
+    result.update(
+        prefixed_quantile_metrics(
+            predicted_best,
+            actual_column="actual_carbon_intensity_g_co2e_per_kwh_observed",
+            lower_column="predicted_avg_carbon_intensity_q10_g_co2e_per_kwh",
+            median_column="predicted_avg_carbon_intensity_q50_g_co2e_per_kwh",
+            upper_column="predicted_avg_carbon_intensity_q90_g_co2e_per_kwh",
+            prefix="carbon_intensity",
+        )
+    )
+    return result
 
 
 def build_actual_decision_actuals(features: pd.DataFrame) -> pd.DataFrame:
@@ -282,12 +304,48 @@ def monitor_source_prediction_drift(champion_model: str | None, cutoff: pd.Times
     recent = model_frame[model_frame[TIMESTAMP_COLUMN] >= cutoff].copy()
     if model_frame.empty or recent.empty:
         return unavailable("no recent source prediction rows for champion model")
-    return {
+    result = {
         "available": True,
         "rows": int(len(recent)),
         "recent_smape": smape(recent["actual_mwh"], recent["predicted_mwh"]),
         "reference_smape": smape(model_frame["actual_mwh"], model_frame["predicted_mwh"]),
         "by_source": summarize_source_smape(recent),
+    }
+    result.update(
+        prefixed_quantile_metrics(
+            recent,
+            actual_column="actual_mwh",
+            lower_column="predicted_mwh_q10",
+            median_column="predicted_mwh_q50",
+            upper_column="predicted_mwh_q90",
+            prefix="generation",
+        )
+    )
+    return result
+
+
+def prefixed_quantile_metrics(
+    frame: pd.DataFrame,
+    *,
+    actual_column: str,
+    lower_column: str,
+    median_column: str,
+    upper_column: str,
+    prefix: str,
+) -> dict[str, Any]:
+    """Return quantile diagnostics when the artifact contains interval columns."""
+    required = {actual_column, lower_column, median_column, upper_column}
+    if not required.issubset(frame.columns):
+        return {f"{prefix}_quantiles_available": False}
+    metrics = quantile_metrics(
+        frame[actual_column],
+        frame[lower_column],
+        frame[median_column],
+        frame[upper_column],
+    )
+    return {
+        f"{prefix}_quantiles_available": bool(metrics["quantile_rows"]),
+        **{f"{prefix}_{key}": value for key, value in metrics.items()},
     }
 
 

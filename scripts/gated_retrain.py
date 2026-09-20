@@ -13,6 +13,11 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from src.models.baseline_price import PRODUCTION_SIGNAL_TARGETS
+
 DEFAULT_DECISION_PATH = ROOT / "reports/metrics/model_promotion_decision.json"
 CHAMPION_PATH = ROOT / "reports/metrics/champion_model_selection.json"
 OPERATIONAL_OUTCOME_AUDIT_PATH = ROOT / "reports/metrics/recommendation_outcome_audit.json"
@@ -94,6 +99,7 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("candidate command is required, for example: -- make forecast-all-candidate")
 
     incumbent = load_json(CHAMPION_PATH)
+    incumbent_missing_quantile_artifacts = missing_quantile_artifacts()
     snapshot_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     snapshot_dir = SNAPSHOT_ROOT / snapshot_id
     snapshot_entries = create_snapshot(snapshot_dir)
@@ -116,14 +122,30 @@ def main(argv: list[str] | None = None) -> int:
         return command_result.returncode
 
     candidate = load_json(CHAMPION_PATH)
+    candidate_missing_quantile_artifacts = missing_quantile_artifacts()
     operational_outcome = load_json(Path(args.operational_outcome_path))
-    decision = evaluate_promotion(
-        incumbent=incumbent,
-        candidate=candidate,
-        min_improvement=args.min_improvement,
-        operational_outcome=operational_outcome,
-        min_operational_decision_groups=args.min_operational_decision_groups,
-    )
+    if candidate_missing_quantile_artifacts:
+        decision = {
+            "promoted": False,
+            "reason": "candidate_missing_quantile_artifacts",
+            "missing_quantile_artifacts": candidate_missing_quantile_artifacts,
+        }
+    elif incumbent_missing_quantile_artifacts:
+        decision = {
+            "promoted": True,
+            "reason": "required_quantile_artifact_migration",
+            "replaced_incumbent_missing_quantile_artifacts": (
+                incumbent_missing_quantile_artifacts
+            ),
+        }
+    else:
+        decision = evaluate_promotion(
+            incumbent=incumbent,
+            candidate=candidate,
+            min_improvement=args.min_improvement,
+            operational_outcome=operational_outcome,
+            min_operational_decision_groups=args.min_operational_decision_groups,
+        )
     decision.update(
         {
             "generated_at_utc": datetime.now(UTC).isoformat(),
@@ -149,6 +171,17 @@ def normalize_command(command: list[str]) -> list[str]:
     if command and command[0] == "--":
         return command[1:]
     return command
+
+
+def missing_quantile_artifacts(root: Path = ROOT) -> list[str]:
+    """List forecast targets missing the production quantile artifact contract."""
+    model_dir = root / "models"
+    targets = ["price", "consumption", *PRODUCTION_SIGNAL_TARGETS]
+    return [
+        target
+        for target in targets
+        if not list(model_dir.glob(f"*_{target}_quantile.joblib"))
+    ]
 
 
 def create_snapshot(snapshot_dir: Path) -> list[SnapshotEntry]:

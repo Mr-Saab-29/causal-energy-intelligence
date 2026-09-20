@@ -509,9 +509,15 @@ def prepare_outcome_audit_rows(frame: pd.DataFrame) -> pd.DataFrame:
         "workload_end_utc",
         "duration_hours",
         "predicted_avg_price_eur_mwh",
+        "predicted_avg_price_q10_eur_mwh",
+        "predicted_avg_price_q50_eur_mwh",
+        "predicted_avg_price_q90_eur_mwh",
         "actual_price_eur_mwh_observed",
         "price_error",
         "predicted_avg_carbon_intensity_g_co2e_per_kwh",
+        "predicted_avg_carbon_intensity_q10_g_co2e_per_kwh",
+        "predicted_avg_carbon_intensity_q50_g_co2e_per_kwh",
+        "predicted_avg_carbon_intensity_q90_g_co2e_per_kwh",
         "actual_carbon_intensity_g_co2e_per_kwh_observed",
         "carbon_intensity_error",
         "predicted_consumption_mwh",
@@ -654,6 +660,8 @@ def summarize_pipeline_health(report: dict[str, Any]) -> dict[str, Any]:
 
 def summarize_forecast_monitoring(report: dict[str, Any], stale: bool = False) -> dict[str, Any]:
     """Return compact monitoring fields for dashboard status."""
+    operational = report.get("operational_settled", {})
+    generation = report.get("source_prediction_drift", {})
     return {
         "status": "stale" if stale else report.get("status", "unknown"),
         "generated_at_utc": report.get("generated_at_utc"),
@@ -663,6 +671,33 @@ def summarize_forecast_monitoring(report: dict[str, Any], stale: bool = False) -
         "warning_count": len(report.get("warnings", [])),
         "latest_actual_timestamp_utc": report.get("latest_actual_timestamp_utc"),
         "champion_model": report.get("champion_model"),
+        "quantile_quality": {
+            "price_coverage_80": safe_float(operational.get("price_interval_coverage_80")),
+            "price_mean_width_80": safe_float(
+                operational.get("price_mean_interval_width_80")
+            ),
+            "price_mean_pinball_loss": safe_float(
+                operational.get("price_mean_pinball_loss")
+            ),
+            "carbon_coverage_80": safe_float(
+                operational.get("carbon_intensity_interval_coverage_80")
+            ),
+            "carbon_mean_width_80": safe_float(
+                operational.get("carbon_intensity_mean_interval_width_80")
+            ),
+            "carbon_mean_pinball_loss": safe_float(
+                operational.get("carbon_intensity_mean_pinball_loss")
+            ),
+            "generation_coverage_80": safe_float(
+                generation.get("generation_interval_coverage_80")
+            ),
+            "generation_mean_width_80": safe_float(
+                generation.get("generation_mean_interval_width_80")
+            ),
+            "generation_mean_pinball_loss": safe_float(
+                generation.get("generation_mean_pinball_loss")
+            ),
+        },
     }
 
 

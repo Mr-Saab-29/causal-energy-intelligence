@@ -1,7 +1,7 @@
 PYTHON ?= .venv/bin/python
 DAGSTER ?= .venv/bin/dagster
 
-.PHONY: help ingest-latest ingest-latest-cloud ingest-plan ingest-repair ingest-future ingest-future-cloud ingest-monitor ingest-monitor-cloud forecast-monitor operational-audit-readiness recommendation-outcome-audit future-recommendations operational-refresh operational-publish train-all train-all-gated forecast-all forecast-all-candidate forecast-all-force quick-refresh daily-local-refresh forecast-price forecast-ranking forecast-decision forecast-recommendations forecast-scenarios forecast-decision-example forecast-consumption forecast-production forecast-supply-demand forecast-carbon marginal-emissions causal-recommendations pipeline-health pipeline-health-allow-stale dashboard-data frontend-install frontend-dev frontend-build mlflow-ui dagster-dev docker-build docker-up docker-down docker-observability
+.PHONY: help ingest-latest ingest-latest-cloud ingest-plan ingest-repair ingest-future ingest-future-cloud ingest-monitor ingest-monitor-cloud forecast-monitor operational-audit-readiness recommendation-outcome-audit future-recommendations operational-refresh operational-publish train-all train-all-gated forecast-all forecast-all-candidate forecast-all-force quick-refresh daily-local-refresh forecast-price forecast-ranking forecast-decision forecast-recommendations forecast-scenarios forecast-decision-example forecast-consumption forecast-production forecast-supply-demand forecast-carbon causal-contract marginal-emissions causal-recommendations pipeline-health pipeline-health-allow-stale dashboard-data methodology-handbook frontend-install frontend-dev frontend-build mlflow-ui dagster-dev docker-build docker-up docker-down docker-observability
 
 help:
 	@echo "Forecast training targets:"
@@ -22,6 +22,7 @@ help:
 	@echo "  make forecast-consumption    Train/evaluate consumption baselines only"
 	@echo "  make forecast-production     Train/evaluate total + source production baselines"
 	@echo "  make forecast-carbon         Calculate carbon outputs from saved source forecasts"
+	@echo "  make causal-contract         Validate and export the versioned causal estimand and DAGs"
 	@echo "  make marginal-emissions      Build marginal-emissions proxy from carbon outputs"
 	@echo "  make causal-recommendations  Compare average vs marginal rankings and export causal recommendations"
 	@echo "  make forecast-supply-demand  Train/evaluate consumption + all production baselines"
@@ -39,6 +40,7 @@ help:
 	@echo "  make daily-local-refresh     Ingest latest data, refresh recommendations, and build frontend"
 	@echo "  make pipeline-health         Build reports/metrics/pipeline_health.json"
 	@echo "  make dashboard-data          Build frontend/public/data/dashboard.json"
+	@echo "  make methodology-handbook    Build the interview methodology handbook DOCX"
 	@echo "  make frontend-dev            Start the dashboard dev server"
 	@echo "  make frontend-build          Build the Vercel-ready dashboard"
 	@echo "  make mlflow-ui               Start local MLflow tracking UI"
@@ -140,11 +142,17 @@ forecast-carbon:
 marginal-emissions:
 	$(PYTHON) -m src.carbon.marginal
 
-causal-recommendations: marginal-emissions
+causal-contract:
+	$(PYTHON) -m src.causal.estimand
+
+causal-recommendations: causal-contract marginal-emissions
 	$(PYTHON) -m src.causal.recommendations
 
 dashboard-data:
 	$(PYTHON) scripts/build_dashboard_data.py
+
+methodology-handbook:
+	$(PYTHON) scripts/build_methodology_handbook.py
 
 pipeline-health:
 	$(PYTHON) -m src.data.pipeline_health

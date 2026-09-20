@@ -1,0 +1,77 @@
+{
+  "estimand_version": "short_run_workload_shift_v1",
+  "name": "Conditional short-run emissions effect of shifting a flexible workload",
+  "status": "design_contract",
+  "treatment": {
+    "graph_node": "workload_timing",
+    "type": "paired_continuous_intervention",
+    "description": "Move an energy-conserving workload from the baseline start time to a candidate start time.",
+    "energy_mwh": 1.0,
+    "duration_hours": 1,
+    "energy_conservation_required": true
+  },
+  "baseline": {
+    "default_source": "dashboard_access_time",
+    "optional_override": "user_planned_start_time",
+    "override_precedence": true,
+    "timezone": "UTC"
+  },
+  "outcome": {
+    "graph_node": "total_operational_emissions",
+    "name": "total_interconnected_grid_operational_emissions_delta",
+    "unit": "kg_co2e",
+    "direction": "lower_is_better",
+    "accounting_methodology": "direct_operational_emissions",
+    "spatial_boundary": "France and responding interconnected European bidding zones"
+  },
+  "time_horizon": {
+    "candidate_window_hours": 24,
+    "response_horizon_reference": "workload_completion",
+    "primary_response_horizon_hours": 6,
+    "sensitivity_response_horizon_hours": [6, 12, 24]
+  },
+  "target_population": {
+    "workload_location": "France",
+    "primary_workload_profiles": [
+      "data_center_batch",
+      "ev_battery_charging"
+    ],
+    "eligibility": "Flexible workloads that can move within the next 24 hours without violating user constraints"
+  },
+  "objective": {
+    "primary": "maximize_confidently_avoided_kg_co2e",
+    "decision_statistic": "lower_confidence_bound_of_avoided_emissions",
+    "secondary_constraints": [
+      "electricity_cost",
+      "service_level_risk",
+      "workload_feasibility"
+    ]
+  },
+  "adjustment_set": [
+    "calendar",
+    "weather_forecast",
+    "baseline_load_forecast",
+    "renewable_generation_forecast",
+    "known_generation_outages",
+    "fuel_price",
+    "carbon_price",
+    "interconnector_capacity",
+    "initial_storage_state"
+  ],
+  "mediators": [
+    "net_load",
+    "generator_dispatch",
+    "cross_border_flows",
+    "storage_dispatch",
+    "renewable_curtailment",
+    "balancing_activation"
+  ],
+  "identification_assumptions": [
+    "The adjustment set is measured before the workload decision.",
+    "No material common cause of workload timing and emissions remains unmeasured after adjustment.",
+    "Candidate workload timings have sufficient overlap in comparable pre-decision grid states.",
+    "The response horizon captures material dispatch, storage, balancing, and cross-border effects.",
+    "The estimated effect is valid only for workload sizes represented by the treatment definition or an explicitly validated size range."
+  ],
+  "evidence_tier": "causal_design_contract"
+}

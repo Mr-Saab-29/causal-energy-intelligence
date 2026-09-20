@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import os
 
-from scripts.gated_retrain import evaluate_operational_evidence, evaluate_promotion, prune_snapshots
+from scripts.gated_retrain import (
+    evaluate_operational_evidence,
+    evaluate_promotion,
+    missing_quantile_artifacts,
+    prune_snapshots,
+)
 
 
 def champion_payload(model: str, carbon_mae: float, carbon_regret: float) -> dict[str, object]:
@@ -128,3 +133,15 @@ def test_prune_snapshots_keeps_newest_directories(tmp_path) -> None:
     assert not old_snapshot.exists()
     assert middle_snapshot.exists()
     assert new_snapshot.exists()
+
+
+def test_missing_quantile_artifacts_requires_every_operational_target(tmp_path) -> None:
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    (model_dir / "ridge_price_quantile.joblib").touch()
+
+    missing = missing_quantile_artifacts(tmp_path)
+
+    assert "price" not in missing
+    assert "consumption" in missing
+    assert "production" in missing

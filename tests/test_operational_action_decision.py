@@ -15,7 +15,7 @@ def test_decision_recommends_when_monitor_clean_and_models_exist(tmp_path, monke
     model_dir = tmp_path / "models"
     model_dir.mkdir()
     for target in ["consumption", *PRODUCTION_SIGNAL_TARGETS, "price"]:
-        (model_dir / f"model_{target}_baseline.joblib").touch()
+        (model_dir / f"model_{target}_quantile.joblib").touch()
 
     result = decision.decide_operational_action()
 

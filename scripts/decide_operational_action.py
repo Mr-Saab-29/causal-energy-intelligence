@@ -56,9 +56,9 @@ def missing_required_model_artifacts() -> list[str]:
     missing: list[str] = []
     model_dir = ROOT / "models"
     for target in ["consumption", *PRODUCTION_SIGNAL_TARGETS]:
-        if not list(model_dir.glob(f"*_{target}_baseline.joblib")):
+        if not list(model_dir.glob(f"*_{target}_quantile.joblib")):
             missing.append(target)
-    if not list(model_dir.glob("*_price_baseline.joblib")):
+    if not list(model_dir.glob("*_price_quantile.joblib")):
         missing.append("price")
     return missing
 

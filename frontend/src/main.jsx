@@ -509,6 +509,7 @@ function App() {
 
 function TrustFreshnessBanner({ payload, trustSummary }) {
   const forecast = payload.summary?.forecast_monitoring ?? {};
+  const quantileQuality = forecast.quantile_quality ?? {};
   const readiness = payload.summary?.operational_audit_readiness ?? {};
   const reference = payload.current_reference ?? {};
   return (
@@ -525,6 +526,12 @@ function TrustFreshnessBanner({ payload, trustSummary }) {
         <TrustItem label="Audit coverage" value={`${readiness.settled_current_month_recommendation_rows ?? 0} settled`} />
         <TrustItem label="Built" value={formatDateTime(payload.generated_at_utc)} />
         <TrustItem label="Reference" value={formatDateTime(reference.reference_hour_utc)} />
+        {quantileQuality.price_coverage_80 != null && (
+          <TrustItem label="Price P80 coverage" value={formatPercent(quantileQuality.price_coverage_80)} />
+        )}
+        {quantileQuality.carbon_coverage_80 != null && (
+          <TrustItem label="Carbon P80 coverage" value={formatPercent(quantileQuality.carbon_coverage_80)} />
+        )}
       </div>
       {trustSummary.message && <p>{trustSummary.message}</p>}
     </section>
@@ -916,12 +923,16 @@ function RecommendationRow({ row }) {
       </summary>
       <div className="recommendation-details">
         <DetailItem label="Recommendation status" value={formatRecommendationStatus(row.recommendation_status)} />
-        {row.predicted_price_interval_half_width_eur_mwh != null && (
+        {row.predicted_avg_price_q10_eur_mwh != null && row.predicted_avg_price_q90_eur_mwh != null ? (
+          <DetailItem label="Price 80% interval" value={`${formatFixed(row.predicted_avg_price_q10_eur_mwh)} to ${formatFixed(row.predicted_avg_price_q90_eur_mwh)} EUR/MWh`} />
+        ) : row.predicted_price_interval_half_width_eur_mwh != null ? (
           <DetailItem label="Price interval half-width" value={`${formatFixed(row.predicted_price_interval_half_width_eur_mwh)} EUR/MWh`} />
-        )}
-        {row.predicted_carbon_interval_half_width_g_co2e_per_kwh != null && (
+        ) : null}
+        {row.predicted_avg_carbon_intensity_q10_g_co2e_per_kwh != null && row.predicted_avg_carbon_intensity_q90_g_co2e_per_kwh != null ? (
+          <DetailItem label="Carbon 80% interval" value={`${formatFixed(row.predicted_avg_carbon_intensity_q10_g_co2e_per_kwh)} to ${formatFixed(row.predicted_avg_carbon_intensity_q90_g_co2e_per_kwh)} gCO2e/kWh`} />
+        ) : row.predicted_carbon_interval_half_width_g_co2e_per_kwh != null ? (
           <DetailItem label="Carbon interval half-width" value={`${formatFixed(row.predicted_carbon_interval_half_width_g_co2e_per_kwh)} gCO2e/kWh`} />
-        )}
+        ) : null}
         <DetailItem label="Predicted total emissions" value={`${formatNumber(row.predicted_total_emissions_kg_co2e)} kgCO2e`} />
         {row.predicted_avg_carbon_intensity_g_co2e_per_kwh != null && (
           <DetailItem label="Average carbon intensity" value={`${formatFixed(row.predicted_avg_carbon_intensity_g_co2e_per_kwh)} gCO2e/kWh`} />

@@ -19,6 +19,15 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
+from src.models.quantile_forecast import (
+    QUANTILE_NAMES,
+    add_expanding_quantiles,
+    build_quantile_artifact,
+    is_quantile_artifact,
+    predict_quantile_artifact,
+    quantile_metrics,
+)
+
 TARGET_COLUMN = "price_eur_mwh"
 CONSUMPTION_TARGET_COLUMN = "consumption_mwh"
 PRODUCTION_TARGET_COLUMN = "total_production_mwh"
@@ -515,6 +524,18 @@ def run_price_baselines(
             if is_final_test_window(window) and model_name != NAIVE_MODEL_NAME:
                 final_price_models[model_name] = fitted_model
 
+    predictions_frame = add_probabilistic_forecasts(
+        pd.concat(all_predictions, ignore_index=True),
+        actual_column="actual_price_eur_mwh",
+        prediction_column="predicted_price_eur_mwh",
+        group_columns=["model"],
+    )
+    all_metrics = attach_quantile_metrics(
+        all_metrics,
+        predictions_frame,
+        actual_column="actual_price_eur_mwh",
+        prediction_prefix="predicted_price_eur_mwh",
+    )
     metrics_summary = summarize_metrics(all_metrics)
     selected_price_model = save_selected_model(
         final_price_models,
@@ -523,6 +544,15 @@ def run_price_baselines(
         artifact_suffix="price_baseline",
     )
     if selected_price_model is not None:
+        save_quantile_model_artifact(
+            selected_price_model,
+            final_price_models[selected_price_model],
+            predictions_frame[predictions_frame["model"] == selected_price_model],
+            artifacts,
+            artifact_suffix="price_quantile",
+            actual_column="actual_price_eur_mwh",
+            point_column="point_predicted_price_eur_mwh",
+        )
         importance = extract_feature_importance(
             selected_price_model,
             final_price_models[selected_price_model],
@@ -531,7 +561,6 @@ def run_price_baselines(
         if importance is not None:
             all_feature_importance.append(importance)
 
-    predictions_frame = pd.concat(all_predictions, ignore_index=True)
     diagnostics = build_error_diagnostics(predictions_frame)
     top_errors = build_top_error_periods(predictions_frame)
     rankings = build_price_decision_rankings(predictions_frame)
@@ -544,6 +573,19 @@ def run_price_baselines(
     write_diagnostics(feature_importance_path, feature_importance)
     write_predictions(ranking_path, rankings)
     write_json(ranking_metrics_path, {"summary": ranking_metrics})
+    signal_predictions_frame = add_probabilistic_forecasts(
+        pd.concat(all_signal_predictions, ignore_index=True),
+        actual_column="actual_mwh",
+        prediction_column="predicted_mwh",
+        group_columns=["target", "model"],
+    )
+    all_signal_metrics = attach_quantile_metrics(
+        all_signal_metrics,
+        signal_predictions_frame,
+        actual_column="actual_mwh",
+        prediction_prefix="predicted_mwh",
+        target_column="target",
+    )
     signal_summary = summarize_signal_metrics(all_signal_metrics)
     for signal_name, models in final_signal_models.items():
         selected_signal_model = save_selected_signal_model(
@@ -553,6 +595,18 @@ def run_price_baselines(
             signal_name=signal_name,
         )
         if selected_signal_model is not None:
+            save_quantile_model_artifact(
+                selected_signal_model,
+                models[selected_signal_model],
+                signal_predictions_frame[
+                    (signal_predictions_frame["target"] == signal_name)
+                    & (signal_predictions_frame["model"] == selected_signal_model)
+                ],
+                artifacts,
+                artifact_suffix=f"{signal_name}_quantile",
+                actual_column="actual_mwh",
+                point_column="point_predicted_mwh",
+            )
             _, prefix = SUPPLY_DEMAND_TARGETS[signal_name]
             importance = extract_feature_importance(
                 model_name=selected_signal_model,
@@ -569,7 +623,7 @@ def run_price_baselines(
     )
     write_predictions(
         supply_demand_predictions_path,
-        pd.concat(all_signal_predictions, ignore_index=True),
+        signal_predictions_frame,
     )
     signal_feature_importance_frame = combine_feature_importance(all_signal_feature_importance)
     write_diagnostics(supply_demand_feature_importance_path, signal_feature_importance_frame)
@@ -794,6 +848,19 @@ def run_supply_demand_baselines(
             if target_result["final_models"]:
                 final_signal_models[target_name] = target_result["final_models"]
 
+    predictions_frame = add_probabilistic_forecasts(
+        pd.concat(all_predictions, ignore_index=True),
+        actual_column="actual_mwh",
+        prediction_column="predicted_mwh",
+        group_columns=["target", "model"],
+    )
+    all_metrics = attach_quantile_metrics(
+        all_metrics,
+        predictions_frame,
+        actual_column="actual_mwh",
+        prediction_prefix="predicted_mwh",
+        target_column="target",
+    )
     metrics_summary = summarize_signal_metrics(all_metrics)
     for target_name, models in final_signal_models.items():
         selected_model = save_selected_signal_model(
@@ -803,6 +870,18 @@ def run_supply_demand_baselines(
             signal_name=target_name,
         )
         if selected_model is not None:
+            save_quantile_model_artifact(
+                selected_model,
+                models[selected_model],
+                predictions_frame[
+                    (predictions_frame["target"] == target_name)
+                    & (predictions_frame["model"] == selected_model)
+                ],
+                artifacts,
+                artifact_suffix=f"{target_name}_quantile",
+                actual_column="actual_mwh",
+                point_column="point_predicted_mwh",
+            )
             _, prefix = SUPPLY_DEMAND_TARGETS[target_name]
             importance = extract_feature_importance(
                 model_name=selected_model,
@@ -814,7 +893,7 @@ def run_supply_demand_baselines(
             if importance is not None:
                 all_feature_importance.append(importance)
     write_json(metrics_path, {"metrics": all_metrics, "summary": metrics_summary})
-    write_predictions(predictions_path, pd.concat(all_predictions, ignore_index=True))
+    write_predictions(predictions_path, predictions_frame)
     write_diagnostics(feature_importance_path, combine_feature_importance(all_feature_importance))
     return {"metrics": all_metrics, "summary": metrics_summary}
 
@@ -918,7 +997,23 @@ def predict_signal_model(
     if model_name == NAIVE_MODEL_NAME:
         return frame[f"{prefix}_lag_24h"].to_numpy(dtype=float)
 
+    if is_quantile_artifact(model):
+        return predict_quantile_artifact(model, frame[feature_columns])[:, 1]
+
     return model.predict(frame[feature_columns])
+
+
+def predict_signal_quantiles(
+    model_name: str,
+    model: Any,
+    frame: pd.DataFrame,
+    feature_columns: list[str],
+    prefix: str,
+) -> np.ndarray:
+    """Predict q10, q50, and q90 for one supply/demand target."""
+    if not is_quantile_artifact(model):
+        raise ValueError(f"Model {model_name!r} is not a quantile forecast artifact")
+    return predict_quantile_artifact(model, frame[feature_columns])
 
 
 def build_models() -> dict[str, Any]:
@@ -1046,7 +1141,17 @@ def predict_model(model_name: str, model: Any, test_frame: pd.DataFrame) -> np.n
     if model_name == NAIVE_MODEL_NAME:
         return test_frame["price_lag_24h"].to_numpy(dtype=float)
 
+    if is_quantile_artifact(model):
+        return predict_quantile_artifact(model, test_frame[STRICT_FORECAST_FEATURES])[:, 1]
+
     return model.predict(test_frame[STRICT_FORECAST_FEATURES])
+
+
+def predict_model_quantiles(model_name: str, model: Any, frame: pd.DataFrame) -> np.ndarray:
+    """Predict q10, q50, and q90 prices from a persisted quantile artifact."""
+    if not is_quantile_artifact(model):
+        raise ValueError(f"Model {model_name!r} is not a quantile forecast artifact")
+    return predict_quantile_artifact(model, frame[STRICT_FORECAST_FEATURES])
 
 
 def evaluate_predictions(actuals: np.ndarray, predictions: np.ndarray) -> dict[str, float]:
@@ -1069,11 +1174,94 @@ def evaluate_predictions(actuals: np.ndarray, predictions: np.ndarray) -> dict[s
     }
 
 
+def add_probabilistic_forecasts(
+    predictions: pd.DataFrame,
+    *,
+    actual_column: str,
+    prediction_column: str,
+    group_columns: list[str],
+) -> pd.DataFrame:
+    """Add leakage-safe q10/q50/q90 columns to walk-forward predictions."""
+    point_column = f"point_{prediction_column}"
+    output = predictions.copy()
+    output[point_column] = output[prediction_column]
+    output = add_expanding_quantiles(
+        output,
+        group_columns=group_columns,
+        actual_column=actual_column,
+        point_column=point_column,
+        output_prefix=prediction_column,
+    )
+    median_column = f"{prediction_column}_q50"
+    has_quantiles = output[median_column].notna()
+    output.loc[has_quantiles, prediction_column] = output.loc[has_quantiles, median_column]
+    return output
+
+
+def attach_quantile_metrics(
+    metrics: list[dict[str, Any]],
+    predictions: pd.DataFrame,
+    *,
+    actual_column: str,
+    prediction_prefix: str,
+    target_column: str | None = None,
+) -> list[dict[str, Any]]:
+    """Attach probabilistic metrics to matching walk-forward metric rows."""
+    output: list[dict[str, Any]] = []
+    for metric in metrics:
+        window_name = metric["window"]["name"]
+        mask = (predictions["window"] == window_name) & (
+            predictions["model"] == metric["model"]
+        )
+        if target_column is not None:
+            mask &= predictions[target_column] == metric[target_column]
+        frame = predictions.loc[mask]
+        probabilistic = quantile_metrics(
+            frame[actual_column],
+            frame[f"{prediction_prefix}_q10"],
+            frame[f"{prediction_prefix}_q50"],
+            frame[f"{prediction_prefix}_q90"],
+        )
+        output.append({**metric, **probabilistic})
+    return output
+
+
+def save_quantile_model_artifact(
+    model_name: str,
+    base_model: Any,
+    predictions: pd.DataFrame,
+    artifacts: Path,
+    *,
+    artifact_suffix: str,
+    actual_column: str,
+    point_column: str,
+) -> Path:
+    """Persist a model with quantiles calibrated on walk-forward residuals."""
+    if predictions.empty:
+        raise ValueError(f"No calibration predictions available for {model_name!r}")
+    artifact = build_quantile_artifact(
+        base_model,
+        predictions[actual_column],
+        predictions[point_column],
+    )
+    prune_model_artifacts(artifacts, f"*_{artifact_suffix}.joblib")
+    path = artifacts / f"{model_name}_{artifact_suffix}.joblib"
+    joblib.dump(artifact, path)
+    return path
+
+
 def summarize_metrics(metrics: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Aggregate metrics by model across all walk-forward windows."""
     frame = pd.DataFrame(metrics)
+    summary_columns = [
+        "mae",
+        "rmse",
+        "smape",
+        "directional_accuracy",
+        *quantile_metric_columns(frame),
+    ]
     summary = (
-        frame.groupby("model", as_index=False)[["mae", "rmse", "smape", "directional_accuracy"]]
+        frame.groupby("model", as_index=False)[summary_columns]
         .mean()
         .sort_values("mae")
     )
@@ -1083,12 +1271,40 @@ def summarize_metrics(metrics: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def summarize_signal_metrics(metrics: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Aggregate supply/demand metrics by target and model."""
     frame = pd.DataFrame(metrics)
+    summary_columns = [
+        "mae",
+        "rmse",
+        "smape",
+        "directional_accuracy",
+        *quantile_metric_columns(frame),
+    ]
     summary = (
-        frame.groupby(["target", "model"], as_index=False)[["mae", "rmse", "smape", "directional_accuracy"]]
+        frame.groupby(["target", "model"], as_index=False)[summary_columns]
         .mean()
         .sort_values("mae")
     )
     return summary.to_dict(orient="records")
+
+
+def quantile_metric_columns(frame: pd.DataFrame) -> list[str]:
+    """Return available numeric quantile metrics for aggregation."""
+    return [
+        column
+        for column in [
+            "quantile_rows",
+            *(f"pinball_loss_{name}" for name in QUANTILE_NAMES),
+            "mean_pinball_loss",
+            "interval_coverage_80",
+            "interval_coverage_error_80",
+            "mean_interval_width_80",
+            "median_interval_width_80",
+            "normalized_interval_width_80",
+            "below_interval_rate_80",
+            "above_interval_rate_80",
+            "winkler_interval_score_80",
+        ]
+        if column in frame
+    ]
 
 
 def build_price_decision_rankings(predictions: pd.DataFrame) -> pd.DataFrame:

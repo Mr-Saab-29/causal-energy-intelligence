@@ -10,6 +10,8 @@ import numpy as np
 import pandas as pd
 import yaml
 
+from src.models.quantile_forecast import quantile_metrics
+
 TIMESTAMP_COLUMN = "timestamp_utc"
 DEFAULT_SOURCE_TARGETS = ("nuclear", "gas", "coal", "oil", "wind", "solar", "hydro", "bioenergy")
 
@@ -76,6 +78,12 @@ def build_carbon_outputs_from_predictions(
         for (window, model), model_frame in frame.groupby(group_columns, observed=True):
             actual_generation = pivot_generation(model_frame, "actual_mwh", source_targets)
             predicted_generation = pivot_generation(model_frame, "predicted_mwh", source_targets)
+            predicted_quantiles = {
+                quantile: pivot_generation(model_frame, f"predicted_mwh_{quantile}", source_targets)
+                for quantile in ("q10", "q50", "q90")
+                if f"predicted_mwh_{quantile}" in model_frame
+                and model_frame[f"predicted_mwh_{quantile}"].notna().all()
+            }
             hourly = build_hourly_carbon_frame(
                 actual_generation=actual_generation,
                 predicted_generation=predicted_generation,
@@ -83,6 +91,7 @@ def build_carbon_outputs_from_predictions(
                 methodology=methodology,
                 window=str(window),
                 model=str(model),
+                predicted_quantiles=predicted_quantiles,
             )
             hourly_outputs.append(hourly)
             contribution_outputs.append(build_contribution_frame(hourly, source_targets))
@@ -117,6 +126,7 @@ def build_hourly_carbon_frame(
     methodology: str,
     window: str,
     model: str,
+    predicted_quantiles: dict[str, pd.DataFrame] | None = None,
 ) -> pd.DataFrame:
     """Calculate hourly actual and predicted emissions and carbon intensity."""
     factor_series = pd.Series(factors, dtype=float)
@@ -145,6 +155,31 @@ def build_hourly_carbon_frame(
         output["predicted_total_emissions_kg_co2e"],
         output["predicted_total_generation_mwh"],
     )
+
+    if predicted_quantiles and set(predicted_quantiles) == {"q10", "q50", "q90"}:
+        quantile_generation = {
+            name: generation.clip(lower=0) for name, generation in predicted_quantiles.items()
+        }
+        quantile_emissions = {
+            name: generation.mul(factor_series, axis="columns").sum(axis=1)
+            for name, generation in quantile_generation.items()
+        }
+        for name in ("q10", "q50", "q90"):
+            output[f"predicted_total_emissions_{name}_kg_co2e"] = quantile_emissions[
+                name
+            ].to_numpy()
+        output["predicted_carbon_intensity_q10_g_co2e_per_kwh"] = divide_or_nan(
+            quantile_emissions["q10"],
+            quantile_generation["q90"].sum(axis=1),
+        ).to_numpy()
+        output["predicted_carbon_intensity_q50_g_co2e_per_kwh"] = divide_or_nan(
+            quantile_emissions["q50"],
+            quantile_generation["q50"].sum(axis=1),
+        ).to_numpy()
+        output["predicted_carbon_intensity_q90_g_co2e_per_kwh"] = divide_or_nan(
+            quantile_emissions["q90"],
+            quantile_generation["q10"].sum(axis=1),
+        ).to_numpy()
 
     for source in actual_generation.columns:
         output[f"actual_{source}_generation_mwh"] = actual_generation[source].to_numpy()
@@ -199,7 +234,7 @@ def evaluate_carbon_outputs(
         hourly["predicted_carbon_intensity_g_co2e_per_kwh"]
         - hourly["actual_carbon_intensity_g_co2e_per_kwh"]
     )
-    return {
+    metrics = {
         "methodology": methodology,
         "window": window,
         "model": model,
@@ -219,6 +254,34 @@ def evaluate_carbon_outputs(
             hourly["predicted_carbon_intensity_g_co2e_per_kwh"],
         ),
     }
+    if {
+        "predicted_total_emissions_q10_kg_co2e",
+        "predicted_total_emissions_q50_kg_co2e",
+        "predicted_total_emissions_q90_kg_co2e",
+    }.issubset(hourly.columns):
+        metrics.update(
+            {
+                f"emissions_{key}": value
+                for key, value in quantile_metrics(
+                    hourly["actual_total_emissions_kg_co2e"],
+                    hourly["predicted_total_emissions_q10_kg_co2e"],
+                    hourly["predicted_total_emissions_q50_kg_co2e"],
+                    hourly["predicted_total_emissions_q90_kg_co2e"],
+                ).items()
+            }
+        )
+        metrics.update(
+            {
+                f"carbon_intensity_{key}": value
+                for key, value in quantile_metrics(
+                    hourly["actual_carbon_intensity_g_co2e_per_kwh"],
+                    hourly["predicted_carbon_intensity_q10_g_co2e_per_kwh"],
+                    hourly["predicted_carbon_intensity_q50_g_co2e_per_kwh"],
+                    hourly["predicted_carbon_intensity_q90_g_co2e_per_kwh"],
+                ).items()
+            }
+        )
+    return metrics
 
 
 def mae(errors: pd.Series) -> float:
@@ -281,6 +344,13 @@ def summarize_carbon_metrics(metrics: pd.DataFrame) -> list[dict[str, Any]]:
         "carbon_intensity_bias_g_co2e_per_kwh",
         "carbon_intensity_smape",
     ]
+    summary_columns.extend(
+        column
+        for column in metrics.columns
+        if (column.startswith("emissions_") or column.startswith("carbon_intensity_"))
+        and column not in summary_columns
+        and pd.api.types.is_numeric_dtype(metrics[column])
+    )
     return (
         metrics.groupby(["methodology", "model"], as_index=False)[summary_columns]
         .mean()

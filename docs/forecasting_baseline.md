@@ -7,6 +7,8 @@ It also trains upstream consumption and total-production forecasters, then feeds
 supply/demand signals into the price models.
 Separate source-level generation forecasters are trained for nuclear, gas, coal, oil, wind, solar,
 hydro, and bioenergy so those forecasts can feed later carbon-footprint estimates.
+Every production forecast now emits `q10`, `q50`, and `q90`. The median `q50` is the central
+forecast used for ranking, while `q10-q90` is a nominal 80% predictive interval.
 
 ## Decision Target
 
@@ -83,12 +85,27 @@ Ranking and decision metrics:
 - mean actual rank of the predicted-best hour
 - Spearman rank correlation
 
-Point-forecast diagnostics are still retained as supporting signals:
+Central-forecast diagnostics are retained as supporting signals:
 
 - MAE
 - RMSE
 - sMAPE
 - directional accuracy
+
+Probabilistic diagnostics are calculated for every target and model:
+
+- pinball loss for `q10`, `q50`, and `q90`
+- mean pinball loss across the three quantiles
+- observed 80% interval coverage and deviation from the nominal 80% target
+- mean and median 80% interval width
+- interval width normalized by mean absolute actual value
+- below-interval and above-interval miss rates
+- Winkler interval score, which penalizes both excessive width and misses outside the interval
+
+Quantiles are calibrated from residuals observed in earlier walk-forward predictions. The first
+calibration rows are not scored as probabilistic forecasts. Persisted production artifacts use all
+available out-of-sample walk-forward residuals. This is empirical calibration, not a mathematical
+coverage guarantee; observed coverage must be monitored after deployment.
 
 The pipeline also writes error diagnostics by:
 
@@ -146,8 +163,9 @@ has no low-uncertainty candidates, the top row is marked as
 Confidence calibration uses minimum sample-size guards before trusting a bin or scenario slice.
 Retrain promotion also rejects candidates that improve the weighted score by trading off a
 material regression in recommendation regret or carbon regret.
-Prediction-interval half-widths are calibrated from historical candidate residual quantiles
-and reused in future recommendations as an additional uncertainty signal. The historical
+Candidate-specific interval widths come directly from the production `q10-q90` forecasts and are
+used in future recommendations as an additional uncertainty signal. The older model-wide residual
+width remains only as a compatibility fallback. The historical
 policy backtest evaluates the exact emitted rank-1 recommendation rows, including scenario
 rerankings. Scenario champion selection reports the best model per scenario.
 
@@ -252,6 +270,7 @@ python -m src.models.train_forecast \
 - Historical recommendation drift metrics: `reports/metrics/recommendation_drift_metrics.json`
 - Future recommendation drift metrics: `reports/metrics/future_recommendation_drift_metrics.json`
 - Prediction interval calibration: `reports/metrics/recommendation_prediction_interval_calibration.json`
+- Quantile model artifacts: `models/*_quantile.joblib`
 - Recommendation policy backtest: `reports/metrics/recommendation_policy_backtest.json`
 - Scenario champion selection: `reports/metrics/scenario_champion_selection.json`
 - Supply/demand metrics: `reports/metrics/supply_demand_baseline_metrics.json`

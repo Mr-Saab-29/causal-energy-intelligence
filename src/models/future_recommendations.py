@@ -23,8 +23,8 @@ from src.models.baseline_price import (
     PRODUCTION_SIGNAL_TARGETS,
     STRICT_FORECAST_FEATURES,
     TIMESTAMP_COLUMN,
-    predict_model,
-    predict_signal_model,
+    predict_model_quantiles,
+    predict_signal_quantiles,
     supply_demand_feature_columns,
 )
 from src.optimization.workload_shift import (
@@ -216,13 +216,16 @@ def add_future_signal_predictions(future: pd.DataFrame) -> pd.DataFrame:
     for target in ["consumption", *PRODUCTION_SIGNAL_TARGETS]:
         model_name, model = load_model_for_target(target)
         _, prefix = target_to_column_prefix(target)
-        predictions = predict_signal_model(
+        quantiles = predict_signal_quantiles(
             model_name,
             model,
             output,
             supply_demand_feature_columns(prefix),
             prefix,
         )
+        predictions = quantiles[:, 1]
+        for index, quantile in enumerate(("q10", "q50", "q90")):
+            output[f"forecast_{target}_{quantile}_mwh"] = quantiles[:, index]
         if target == "consumption":
             output["forecast_consumption_mwh"] = predictions
         elif target == "production":
@@ -243,7 +246,11 @@ def add_future_price_predictions(future: pd.DataFrame) -> pd.DataFrame:
     output = future.copy()
     output["model"] = model_name
     output["window"] = "future_24h"
-    output["predicted_price_eur_mwh"] = predict_model(model_name, model, output)
+    quantiles = predict_model_quantiles(model_name, model, output)
+    output["predicted_price_q10_eur_mwh"] = quantiles[:, 0]
+    output["predicted_price_q50_eur_mwh"] = quantiles[:, 1]
+    output["predicted_price_q90_eur_mwh"] = quantiles[:, 2]
+    output["predicted_price_eur_mwh"] = quantiles[:, 1]
     return output
 
 
@@ -254,7 +261,23 @@ def build_future_hourly_decision_inputs(history: pd.DataFrame, future: pd.DataFr
     generation = future[source_columns].clip(lower=0)
     generation.columns = PRODUCTION_SIGNAL_TARGETS[1:]
     emissions = sum(generation[source] * factors[source] for source in generation.columns)
-    total_generation = generation.sum(axis=1).replace(0, np.nan)
+    generation_q10 = source_quantile_frame(future, "q10", generation)
+    generation_q50 = source_quantile_frame(future, "q50", generation)
+    generation_q90 = source_quantile_frame(future, "q90", generation)
+    for frame in (generation_q10, generation_q50, generation_q90):
+        frame.columns = PRODUCTION_SIGNAL_TARGETS[1:]
+    emissions_q10 = sum(
+        generation_q10[source] * factors[source] for source in generation_q10.columns
+    )
+    emissions_q50 = sum(
+        generation_q50[source] * factors[source] for source in generation_q50.columns
+    )
+    emissions_q90 = sum(
+        generation_q90[source] * factors[source] for source in generation_q90.columns
+    )
+    carbon_q10 = emissions_q10 / generation_q90.sum(axis=1).replace(0, np.nan)
+    carbon_q50 = emissions_q50 / generation_q50.sum(axis=1).replace(0, np.nan)
+    carbon_q90 = emissions_q90 / generation_q10.sum(axis=1).replace(0, np.nan)
     previous_day = history[[TIMESTAMP_COLUMN, "price_eur_mwh"]].copy()
     previous_day[TIMESTAMP_COLUMN] = previous_day[TIMESTAMP_COLUMN] + pd.Timedelta(days=1)
     output = pd.DataFrame(
@@ -265,10 +288,22 @@ def build_future_hourly_decision_inputs(history: pd.DataFrame, future: pd.DataFr
             "decision_date": future[TIMESTAMP_COLUMN].dt.date.astype(str),
             "actual_price_eur_mwh": future["predicted_price_eur_mwh"],
             "predicted_price_eur_mwh": future["predicted_price_eur_mwh"],
-            "actual_carbon_intensity_g_co2e_per_kwh": emissions / total_generation,
-            "predicted_carbon_intensity_g_co2e_per_kwh": emissions / total_generation,
+            "predicted_price_q10_eur_mwh": future.get(
+                "predicted_price_q10_eur_mwh", future["predicted_price_eur_mwh"]
+            ),
+            "predicted_price_q50_eur_mwh": future.get(
+                "predicted_price_q50_eur_mwh", future["predicted_price_eur_mwh"]
+            ),
+            "predicted_price_q90_eur_mwh": future.get(
+                "predicted_price_q90_eur_mwh", future["predicted_price_eur_mwh"]
+            ),
+            "actual_carbon_intensity_g_co2e_per_kwh": carbon_q50,
+            "predicted_carbon_intensity_g_co2e_per_kwh": carbon_q50,
+            "predicted_carbon_intensity_q10_g_co2e_per_kwh": carbon_q10,
+            "predicted_carbon_intensity_q50_g_co2e_per_kwh": carbon_q50,
+            "predicted_carbon_intensity_q90_g_co2e_per_kwh": carbon_q90,
             "actual_total_emissions_kg_co2e": emissions,
-            "predicted_total_emissions_kg_co2e": emissions,
+            "predicted_total_emissions_kg_co2e": emissions_q50,
         }
     )
     if "forecast_consumption_mwh" in future:
@@ -286,6 +321,18 @@ def build_future_hourly_decision_inputs(history: pd.DataFrame, future: pd.DataFr
         how="left",
     )
     return output
+
+
+def source_quantile_frame(
+    future: pd.DataFrame,
+    quantile: str,
+    fallback: pd.DataFrame,
+) -> pd.DataFrame:
+    """Return source-generation quantiles with a legacy median fallback."""
+    columns = [f"forecast_{source}_{quantile}_mwh" for source in PRODUCTION_SIGNAL_TARGETS[1:]]
+    if not set(columns).issubset(future.columns):
+        return fallback.copy()
+    return future[columns].clip(lower=0).copy()
 
 
 def load_future_weather_aggregates() -> pd.DataFrame:
@@ -378,19 +425,21 @@ def required_weather_columns() -> list[str]:
 
 def load_model_for_target(target: str) -> tuple[str, Any]:
     """Load the persisted selected model for a signal target."""
-    matches = sorted((ROOT / "models").glob(f"*_{target}_baseline.joblib"))
+    matches = sorted((ROOT / "models").glob(f"*_{target}_quantile.joblib"))
     if not matches:
-        raise FileNotFoundError(f"No saved model artifact found for target {target!r}")
-    model_name = matches[0].name.removesuffix(f"_{target}_baseline.joblib")
+        raise FileNotFoundError(
+            f"No quantile model artifact found for target {target!r}; run forecast training"
+        )
+    model_name = matches[0].name.removesuffix(f"_{target}_quantile.joblib")
     return model_name, joblib.load(matches[0])
 
 
 def load_price_model() -> tuple[str, Any]:
     """Load the persisted selected price model."""
-    matches = sorted((ROOT / "models").glob("*_price_baseline.joblib"))
+    matches = sorted((ROOT / "models").glob("*_price_quantile.joblib"))
     if not matches:
-        raise FileNotFoundError("No saved price model artifact found")
-    model_name = matches[0].name.removesuffix("_price_baseline.joblib")
+        raise FileNotFoundError("No quantile price model artifact found; run forecast training")
+    model_name = matches[0].name.removesuffix("_price_quantile.joblib")
     return model_name, joblib.load(matches[0])
 
 
@@ -433,6 +482,12 @@ def validate_future_recommendation_artifacts(
             "predicted_decision_rank",
             "decision_uncertainty_score",
             "uncertainty_guard_applied",
+            "predicted_avg_price_q10_eur_mwh",
+            "predicted_avg_price_q50_eur_mwh",
+            "predicted_avg_price_q90_eur_mwh",
+            "predicted_avg_carbon_intensity_q10_g_co2e_per_kwh",
+            "predicted_avg_carbon_intensity_q50_g_co2e_per_kwh",
+            "predicted_avg_carbon_intensity_q90_g_co2e_per_kwh",
         ],
         "future workload rankings",
     )
@@ -450,6 +505,9 @@ def validate_future_recommendation_artifacts(
             "expected_combined_regret",
             "decision_uncertainty_score",
             "prediction_interval_uncertainty_score",
+            "predicted_avg_price_q10_eur_mwh",
+            "predicted_avg_price_q50_eur_mwh",
+            "predicted_avg_price_q90_eur_mwh",
         ],
         "future recommendations",
     )
@@ -467,6 +525,9 @@ def validate_future_recommendation_artifacts(
             "confidence_level",
             "expected_combined_regret",
             "decision_uncertainty_score",
+            "predicted_avg_price_q10_eur_mwh",
+            "predicted_avg_price_q50_eur_mwh",
+            "predicted_avg_price_q90_eur_mwh",
         ],
         "future scenario recommendations",
     )

@@ -365,6 +365,7 @@ jobs:
             reports/metrics/operational_audit_readiness.json
             reports/metrics/recommendation_outcome_audit.json
             reports/metrics/marginal_ranking_shift_metrics.json
+            reports/causal/estimand_spec.json
             reports/monitoring/recommendation_outcome_audit.csv
             reports/rankings/future_marginal_workload_decision_rankings.csv
             reports/recommendations/future_champion_workload_recommendations.csv

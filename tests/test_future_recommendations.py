@@ -50,10 +50,16 @@ def test_future_hourly_inputs_emit_source_generation_columns() -> None:
             "timestamp_utc": timestamps,
             "model": ["model_a", "model_a"],
             "predicted_price_eur_mwh": [50.0, 55.0],
+            "predicted_price_q10_eur_mwh": [45.0, 50.0],
+            "predicted_price_q50_eur_mwh": [50.0, 55.0],
+            "predicted_price_q90_eur_mwh": [60.0, 65.0],
         }
     )
     for index, source in enumerate(PRODUCTION_SIGNAL_TARGETS[1:], start=1):
         future[f"forecast_{source}_mwh"] = [100.0 + index, 110.0 + index]
+        future[f"forecast_{source}_q10_mwh"] = [90.0 + index, 100.0 + index]
+        future[f"forecast_{source}_q50_mwh"] = [100.0 + index, 110.0 + index]
+        future[f"forecast_{source}_q90_mwh"] = [115.0 + index, 125.0 + index]
 
     hourly = build_future_hourly_decision_inputs(history, future)
 
@@ -61,6 +67,15 @@ def test_future_hourly_inputs_emit_source_generation_columns() -> None:
     assert "predicted_gas_generation_mwh" in hourly
     assert hourly["actual_gas_generation_mwh"].tolist() == [102.0, 112.0]
     assert hourly["predicted_gas_generation_mwh"].tolist() == [102.0, 112.0]
+    assert hourly["predicted_price_q10_eur_mwh"].tolist() == [45.0, 50.0]
+    assert (
+        hourly["predicted_carbon_intensity_q10_g_co2e_per_kwh"]
+        <= hourly["predicted_carbon_intensity_q50_g_co2e_per_kwh"]
+    ).all()
+    assert (
+        hourly["predicted_carbon_intensity_q50_g_co2e_per_kwh"]
+        <= hourly["predicted_carbon_intensity_q90_g_co2e_per_kwh"]
+    ).all()
 
 
 def test_append_operational_history_rewrites_when_schema_changes(tmp_path) -> None:

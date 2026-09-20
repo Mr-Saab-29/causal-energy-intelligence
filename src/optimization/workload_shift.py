@@ -194,6 +194,15 @@ def load_hourly_decision_inputs(
         "predicted_total_emissions_kg_co2e",
         "actual_total_emissions_kg_co2e",
     ]
+    carbon_columns.extend(
+        column
+        for column in [
+            "predicted_carbon_intensity_q10_g_co2e_per_kwh",
+            "predicted_carbon_intensity_q50_g_co2e_per_kwh",
+            "predicted_carbon_intensity_q90_g_co2e_per_kwh",
+        ]
+        if column in carbon
+    )
     merged = prices.merge(
         carbon[carbon_columns],
         on=[TIMESTAMP_COLUMN, "window", "model"],
@@ -386,11 +395,35 @@ def build_candidate_windows(
                     "predicted_total_emissions_kg_co2e": candidate[
                         "predicted_total_emissions_kg_co2e"
                     ].sum(),
+                    **aggregate_quantile_columns(candidate),
                     **aggregate_generation_columns(candidate),
                     **aggregate_signal_columns(candidate),
                 }
             )
     return pd.DataFrame(records)
+
+
+def aggregate_quantile_columns(candidate: pd.DataFrame) -> dict[str, float]:
+    """Aggregate optional hourly quantiles into workload-window quantiles."""
+    mappings = {
+        "predicted_price_q10_eur_mwh": "predicted_avg_price_q10_eur_mwh",
+        "predicted_price_q50_eur_mwh": "predicted_avg_price_q50_eur_mwh",
+        "predicted_price_q90_eur_mwh": "predicted_avg_price_q90_eur_mwh",
+        "predicted_carbon_intensity_q10_g_co2e_per_kwh": (
+            "predicted_avg_carbon_intensity_q10_g_co2e_per_kwh"
+        ),
+        "predicted_carbon_intensity_q50_g_co2e_per_kwh": (
+            "predicted_avg_carbon_intensity_q50_g_co2e_per_kwh"
+        ),
+        "predicted_carbon_intensity_q90_g_co2e_per_kwh": (
+            "predicted_avg_carbon_intensity_q90_g_co2e_per_kwh"
+        ),
+    }
+    return {
+        output_column: float(candidate[input_column].mean())
+        for input_column, output_column in mappings.items()
+        if input_column in candidate
+    }
 
 
 def aggregate_generation_columns(candidate: pd.DataFrame) -> dict[str, float]:
@@ -1039,12 +1072,24 @@ def apply_prediction_interval_uncertainty(
     if frame.empty:
         return frame
     interval_rows = [prediction_interval_row(str(model), calibration) for model in frame["model"]]
-    frame["predicted_price_interval_half_width_eur_mwh"] = [
+    calibrated_price_width = pd.Series([
         row["price_interval_half_width_eur_mwh"] for row in interval_rows
-    ]
-    frame["predicted_carbon_interval_half_width_g_co2e_per_kwh"] = [
+    ], index=frame.index, dtype=float)
+    calibrated_carbon_width = pd.Series([
         row["carbon_interval_half_width_g_co2e_per_kwh"] for row in interval_rows
-    ]
+    ], index=frame.index, dtype=float)
+    frame["predicted_price_interval_half_width_eur_mwh"] = quantile_half_width(
+        frame,
+        "predicted_avg_price_q10_eur_mwh",
+        "predicted_avg_price_q90_eur_mwh",
+        calibrated_price_width,
+    )
+    frame["predicted_carbon_interval_half_width_g_co2e_per_kwh"] = quantile_half_width(
+        frame,
+        "predicted_avg_carbon_intensity_q10_g_co2e_per_kwh",
+        "predicted_avg_carbon_intensity_q90_g_co2e_per_kwh",
+        calibrated_carbon_width,
+    )
     group_columns = ["window", "model", "decision_group"]
     price_range = frame.groupby(group_columns, observed=True)[
         "predicted_avg_price_eur_mwh"
@@ -1088,6 +1133,19 @@ def apply_prediction_interval_uncertainty(
     return frame.sort_values(
         group_columns + ["predicted_decision_rank", TIMESTAMP_COLUMN]
     ).reset_index(drop=True)
+
+
+def quantile_half_width(
+    frame: pd.DataFrame,
+    lower_column: str,
+    upper_column: str,
+    fallback: pd.Series,
+) -> pd.Series:
+    """Prefer candidate-specific quantile widths over legacy global widths."""
+    if lower_column not in frame or upper_column not in frame:
+        return fallback
+    width = (frame[upper_column] - frame[lower_column]).clip(lower=0) / 2.0
+    return width.where(width.notna(), fallback)
 
 
 def prediction_interval_row(model: str, calibration: dict[str, Any] | None) -> dict[str, float]:
@@ -1219,7 +1277,14 @@ def build_top_workload_recommendations(rankings: pd.DataFrame, top_n: int = 5) -
         "uncertainty_guard_applied",
         "is_low_uncertainty_candidate",
         "predicted_price_direction_vs_previous_day",
+        "predicted_avg_price_eur_mwh",
+        "predicted_avg_price_q10_eur_mwh",
+        "predicted_avg_price_q50_eur_mwh",
+        "predicted_avg_price_q90_eur_mwh",
         "predicted_avg_carbon_intensity_g_co2e_per_kwh",
+        "predicted_avg_carbon_intensity_q10_g_co2e_per_kwh",
+        "predicted_avg_carbon_intensity_q50_g_co2e_per_kwh",
+        "predicted_avg_carbon_intensity_q90_g_co2e_per_kwh",
         "predicted_total_emissions_kg_co2e",
         "predicted_price_rank",
         "predicted_carbon_rank",
@@ -1853,7 +1918,13 @@ def build_top_scenario_recommendations(rankings: pd.DataFrame, top_n: int) -> pd
         "is_low_uncertainty_candidate",
         "predicted_price_direction_vs_previous_day",
         "predicted_avg_price_eur_mwh",
+        "predicted_avg_price_q10_eur_mwh",
+        "predicted_avg_price_q50_eur_mwh",
+        "predicted_avg_price_q90_eur_mwh",
         "predicted_avg_carbon_intensity_g_co2e_per_kwh",
+        "predicted_avg_carbon_intensity_q10_g_co2e_per_kwh",
+        "predicted_avg_carbon_intensity_q50_g_co2e_per_kwh",
+        "predicted_avg_carbon_intensity_q90_g_co2e_per_kwh",
         "predicted_total_emissions_kg_co2e",
         "predicted_carbon_rank",
         "actual_scenario_rank",

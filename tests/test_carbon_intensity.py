@@ -44,6 +44,9 @@ def test_build_carbon_outputs_from_predictions_calculates_hourly_totals_and_metr
         ]
     )
     factors = {"direct": {"gas": 400.0, "wind": 0.0}}
+    predictions["predicted_mwh_q10"] = predictions["predicted_mwh"] - 3.0
+    predictions["predicted_mwh_q50"] = predictions["predicted_mwh"]
+    predictions["predicted_mwh_q90"] = predictions["predicted_mwh"] + 3.0
 
     hourly, contributions, metrics = build_carbon_outputs_from_predictions(
         predictions,
@@ -66,3 +69,7 @@ def test_build_carbon_outputs_from_predictions_calculates_hourly_totals_and_metr
     assert gas_contribution["actual_emissions_share"] == 1.0
     assert len(metrics) == 1
     assert metrics.iloc[0]["emissions_mae_kg_co2e"] == 1400.0
+    assert first_hour["predicted_carbon_intensity_q10_g_co2e_per_kwh"] < 120.0
+    assert first_hour["predicted_carbon_intensity_q90_g_co2e_per_kwh"] > 120.0
+    assert metrics.iloc[0]["carbon_intensity_quantile_rows"] == 2
+    assert metrics.iloc[0]["carbon_intensity_mean_interval_width_80"] > 0
