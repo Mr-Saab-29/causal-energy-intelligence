@@ -101,6 +101,15 @@ than spread evenly across all 24 leads:
 | t0-alpha | Hours 1–12 | **665** | **220.8** | 57.1% | +219 MWh |
 | t0-alpha | Hours 13–24 | 1,413 | 501.9 | 47.6% | +1,392 MWh |
 
+![Late-horizon t0 failure analysis](docs/assets/t0-failure-analysis.png)
+
+*Late-horizon degradation of t0-alpha on final-week consumption forecasts.* t0
+performs strongly over hours 1–12 (665 MWh MAE) but develops systematic positive
+bias over hours 13–24 (1,413 MWh MAE). Despite wider prediction intervals,
+nominal 80% coverage falls to 47.6% in the second half of the horizon. Panel A
+shows August 20–22; Panel B covers all seven forecast origins from August 17–23.
+This is a diagnostic pattern rather than evidence of a general seasonal effect.
+
 t0 was strongest during hours 1–12, then its late-horizon MAE more than doubled
 and its forecasts became systematically high. August 20–22 were the clearest
 failures: late-horizon mean errors were approximately +2.0 to +2.3 GWh and daily
