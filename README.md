@@ -2,6 +2,88 @@
 
 Clean-hour scheduling, decision ranking, and future causal analysis for carbon-aware workload shifting.
 
+## Time-Series Foundation Model Benchmark — t0
+
+**What did you test?**
+
+I evaluated Retrocast's `t0-alpha` as a zero-shot, multivariate time-series
+foundation model for 24-hour-ahead forecasts of French electricity consumption,
+total production, and eight generation sources. The benchmark also tests
+covariates, 7/30/90-day context lengths, 6/12/24-hour horizons, missing and noisy
+weather, unusual operating conditions, probabilistic calibration, and downstream
+low-carbon workload scheduling.
+
+**Against what baselines?**
+
+The primary trained baselines are fixed LightGBM point and quantile models, with
+Ridge and 24-hour/168-hour seasonal-naive models as additional references. All
+local models are benchmark-specific artifacts trained only on observations before
+the evaluation period; t0 receives no fine-tuning.
+
+**On what data?**
+
+Hourly national French electricity observations from ODRE: consumption, total
+production, nuclear, gas, coal, oil, wind, solar, hydro, and bioenergy, joined
+with historical weather and deterministic calendar signals. The final benchmark
+uses source-cadence-aware MW-to-MWh aggregation: 30-minute historical actuals and
+15-minute real-time actuals are integrated separately, with incomplete intervals
+rejected rather than silently undercounted.
+
+**Under what temporal evaluation protocol?**
+
+Local training labels end at `2026-05-25 23:00 UTC`. Evaluation uses 90 daily
+origins from May 26 through August 23, 2026, with a fixed 24-hour horizon and no
+evaluation labels used for fitting or calibration. Results are reported over the
+full 90 days and the nested final 28- and 7-day windows. All 90 origins are
+eligible for 7-, 30-, and 90-day t0 contexts. The benchmark is retrospective:
+historical publication vintages and possible foundation-model pretraining overlap
+cannot be verified.
+
+**Which metrics?**
+
+MAE, RMSE, seasonal MASE, quantile pinball loss, central 80% interval coverage and
+width, plus scheduling metrics: combined regret, carbon regret, cost regret,
+top-5 overlap, best-hour capture, and carbon/cost savings versus immediate
+execution.
+
+**What happened?**
+
+There was no universal winner. For consumption with the fixed calendar reference,
+quantile LightGBM had the lowest 90-day MAE (`905 MWh` versus t0's `927 MWh`), t0
+won the final 28 days (`792` versus `840 MWh`), and original LightGBM won the final
+7 days (`991` versus t0's `1,039 MWh`). Across all ten targets, t0 beat original
+LightGBM on 10/10 targets over 90 days, 9/10 over 28 days, and 7/10 over 7 days.
+Original LightGBM produced the lowest combined scheduling regret in every window,
+while t0 produced the lowest carbon regret and highest top-5 overlap.
+
+**Where did t0 fail?**
+
+Its 30-day calendar reference lost 90-day consumption MAE to quantile LightGBM
+and final-week MAE to original LightGBM. Its nominal 80% consumption interval
+covered only `52.4%` of final-week observations, showing severe undercoverage.
+The benchmark also contains no cold, high-demand, or high-generation evaluation
+hours under the frozen thresholds, so it cannot support claims in those regimes.
+
+**Where did it win?**
+
+Weather and longer history were especially useful for t0. Historical weather
+reduced its consumption MAE to `850/721/765 MWh` over the 90/28/7-day windows,
+beating both local model configurations in each window. A six-hour weather outage
+raised original LightGBM's MAE by `21–38%` and quantile LightGBM's by `14–21%`,
+while t0 remained effectively stable. A 90-day t0 context also beat its 30-day
+context in every window. For scheduling, t0 consistently found a better low-carbon
+shortlist even when LightGBM won the combined carbon/cost objective.
+
+**What did you learn?**
+
+Foundation-model value depends on the input configuration, forecast horizon, and
+downstream decision metric. Zero-shot t0 was strongest when it could use richer
+history and covariates, while trained local models remained highly competitive on
+the fixed reference task. Calibration and decision quality must be evaluated
+separately from point accuracy. The exercise also exposed a historical energy
+aggregation error, reinforcing that data-contract and temporal-validity audits
+are part of the benchmark—not cleanup after it.
+
 ## Architecture
 
 ```text
