@@ -400,6 +400,17 @@ The versioned contract validates that the graph is acyclic, that a treatment-to-
 
 The next causal stage needs actual and forecast load, renewable forecasts and errors, cross-border physical and scheduled flows, outages, balancing activation, storage state, curtailment, interconnector capacity, fuel prices, EU ETS prices, and preferably more granular dispatch. ENTSO-E is the main European source for this expansion.
 
+The first ENTSO-E data contract covers France and its directly connected bidding zones. It stores
+directional physical flows, scheduled exchanges, transfer capacity, versioned load and renewable
+forecasts, outage revisions, and native-resolution balancing data. Operational forecast snapshots
+can be joined to later settled actuals to measure what the system genuinely knew at decision time.
+Historical downloads are marked `historical_final`: they help exploratory modeling, but they do not
+prove that the same forecast vintage was available at a past decision time.
+
+Analogy: an operational snapshot is a photograph taken before the match; a historical final value is
+the edited match report. Both contain useful information, but only the photograph can establish what
+was visible before play began.
+
 ### Constrained Marginal Response Regression
 
 The first estimator should model how generation technologies and connected zones respond to changes in French net load while controlling for pre-decision conditions. Physical constraints can regularize the estimates. Total marginal response should approximately balance the demand change, subject to storage, losses, and imports. Sign and monotonicity assumptions must be tested by regime rather than imposed blindly.

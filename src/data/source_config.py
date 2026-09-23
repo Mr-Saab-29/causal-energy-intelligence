@@ -11,6 +11,15 @@ FRANCE_END_DATE = date.fromisoformat(
 )
 
 FRANCE_ENTSOE_BIDDING_ZONE = "10YFR-RTE------C"
+FRANCE_ENTSOE_AREA = "FR"
+FRANCE_DIRECT_ENTSOE_NEIGHBORS = (
+    "BE",
+    "DE_LU",
+    "CH",
+    "IT_NORD",
+    "ES",
+    "GB",
+)
 
 ODRE_BASE_URL = "https://odre.opendatasoft.com"
 ODRE_NATIONAL_DATASET = "eco2mix-national-tr"

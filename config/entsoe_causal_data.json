@@ -1,0 +1,35 @@
+{
+  "version": "entsoe_causal_data_v1",
+  "primary_area": "FR",
+  "direct_neighbors": ["BE", "DE_LU", "CH", "IT_NORD", "ES", "GB"],
+  "history_start_date": "2023-01-01",
+  "canonical_modeling_resolution": "1h",
+  "retain_native_balancing_resolution": true,
+  "datasets": {
+    "cross_border": ["physical_flow", "scheduled_exchange", "day_ahead_capacity"],
+    "outages": ["planned", "unplanned"],
+    "forecasts": ["load", "wind_onshore", "wind_offshore", "solar"],
+    "balancing": [
+      "activated_energy",
+      "activated_energy_price",
+      "imbalance_volume",
+      "imbalance_price"
+    ]
+  },
+  "temporal_roles": {
+    "scheduled_exchange": "pre_treatment_if_published_before_decision",
+    "day_ahead_capacity": "pre_treatment_if_published_before_decision",
+    "physical_flow": "post_treatment_mediator",
+    "known_outage": "pre_treatment_if_published_before_decision",
+    "realized_unplanned_outage": "response_period_shock",
+    "lagged_forecast_error": "pre_treatment",
+    "contemporaneous_forecast_error": "response_period_shock",
+    "balancing_activation": "post_treatment_mediator"
+  },
+  "historical_vintage_policy": {
+    "accepted": true,
+    "backfilled_rows_label": "historical_final",
+    "operational_rows_label": "operational_snapshot",
+    "strict_causal_evaluation_requires": "operational_snapshot"
+  }
+}

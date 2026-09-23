@@ -13,7 +13,11 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
 from src.data.contracts import (
+    BalancingObservation,
+    CrossBorderObservation,
     ElectricityPriceObservation,
+    GenerationOutageObservation,
+    GridForecastObservation,
     HourlyElectricityMixObservation,
     WeatherObservation,
 )
@@ -93,6 +97,75 @@ FUTURE_WEATHER_FORECAST_COLUMNS = [
     *WEATHER_COLUMNS,
     "forecast_generated_at_utc",
     "forecast_horizon_hours",
+]
+
+CROSS_BORDER_COLUMNS = [
+    "source",
+    "source_record_id",
+    "region",
+    "timestamp_utc",
+    "granularity",
+    "from_bidding_zone",
+    "to_bidding_zone",
+    "metric",
+    "value_mw",
+    "snapshot_at_utc",
+    "vintage_quality",
+    "ingestion_timestamp_utc",
+]
+
+GRID_FORECAST_COLUMNS = [
+    "source",
+    "source_record_id",
+    "region",
+    "timestamp_utc",
+    "granularity",
+    "forecast_type",
+    "forecast_mw",
+    "snapshot_at_utc",
+    "forecast_generated_at_utc",
+    "forecast_horizon_hours",
+    "vintage_quality",
+    "ingestion_timestamp_utc",
+]
+
+GENERATION_OUTAGE_COLUMNS = [
+    "source",
+    "source_record_id",
+    "region",
+    "timestamp_utc",
+    "granularity",
+    "outage_mrid",
+    "revision_number",
+    "outage_type",
+    "status",
+    "end_utc",
+    "production_resource_id",
+    "production_resource_name",
+    "production_type",
+    "nominal_capacity_mw",
+    "available_capacity_mw",
+    "unavailable_capacity_mw",
+    "publication_timestamp_utc",
+    "snapshot_at_utc",
+    "vintage_quality",
+    "ingestion_timestamp_utc",
+]
+
+BALANCING_COLUMNS = [
+    "source",
+    "source_record_id",
+    "region",
+    "timestamp_utc",
+    "granularity",
+    "metric",
+    "value",
+    "unit",
+    "direction",
+    "reserve_type",
+    "snapshot_at_utc",
+    "vintage_quality",
+    "ingestion_timestamp_utc",
 ]
 
 CONFLICT_COLUMNS = ["source", "source_record_id"]
@@ -356,6 +429,66 @@ def upsert_future_weather_forecasts(
         columns=FUTURE_WEATHER_FORECAST_COLUMNS,
         rows=rows,
         batch_size=batch_size,
+    )
+
+
+def upsert_cross_border_observations(
+    engine: Engine,
+    observations: Sequence[CrossBorderObservation],
+    batch_size: int = 1_000,
+) -> int:
+    """Upsert directional flow, schedule, and capacity observations."""
+    return _upsert_observations(
+        engine,
+        "cross_border_observations",
+        CROSS_BORDER_COLUMNS,
+        observations,
+        batch_size,
+    )
+
+
+def upsert_grid_forecasts(
+    engine: Engine,
+    observations: Sequence[GridForecastObservation],
+    batch_size: int = 1_000,
+) -> int:
+    """Upsert versioned load and renewable forecasts."""
+    return _upsert_observations(
+        engine,
+        "grid_forecasts",
+        GRID_FORECAST_COLUMNS,
+        observations,
+        batch_size,
+    )
+
+
+def upsert_generation_outages(
+    engine: Engine,
+    observations: Sequence[GenerationOutageObservation],
+    batch_size: int = 1_000,
+) -> int:
+    """Upsert versioned generation-unit outages."""
+    return _upsert_observations(
+        engine,
+        "generation_outages",
+        GENERATION_OUTAGE_COLUMNS,
+        observations,
+        batch_size,
+    )
+
+
+def upsert_balancing_observations(
+    engine: Engine,
+    observations: Sequence[BalancingObservation],
+    batch_size: int = 1_000,
+) -> int:
+    """Upsert native-resolution balancing observations."""
+    return _upsert_observations(
+        engine,
+        "balancing_observations",
+        BALANCING_COLUMNS,
+        observations,
+        batch_size,
     )
 
 

@@ -301,12 +301,15 @@ Status: in progress.
 - Decide whether Docker should stay optional or be repaired for a full local compose workflow.
 - Add a live API layer after the static dashboard contract stabilizes.
 - Move the causal MVP beyond the marginal-emissions proxy toward validated treatment effects,
-  sensitivity checks, and production-ready causal guardrails.
+  sensitivity checks, and production-ready causal guardrails. The ENTSO-E cross-border, outage,
+  balancing, and forecast-error data contract, monthly quality gate, and checksum-gated
+  archive/compaction path are implemented. `make causal-backfill-history` resumes the checked
+  month-by-month historical backfill; completing the multi-year run remains pending.
 - Expand workload constraints for real operational use cases, such as multi-hour jobs, deadlines, blackout windows, and regional constraints.
 
 ## Data Contracts
 
-Canonical contracts are defined in `src/data/contracts.py` and documented in `docs/data_contracts.md`. Apply the Supabase/Postgres setup from `db/schema.sql`, `db/feature_views.sql`, and `db/modeling_features.sql`.
+Canonical contracts are defined in `src/data/contracts.py` and documented in `docs/data_contracts.md`. Apply the Supabase/Postgres setup from `db/schema.sql`, `db/feature_views.sql`, and `db/modeling_features.sql`. The optional ENTSO-E causal-grid extension is in `db/causal_grid_data.sql`, its bounded hourly layer is in `db/causal_grid_compact.sql`, and both are documented in `docs/entsoe_causal_data.md`.
 
 Source-specific extraction notes are documented in `docs/data_sources.md`.
 

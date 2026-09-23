@@ -5,6 +5,13 @@
 Apply `db/schema.sql`, `db/feature_views.sql`, and `db/modeling_features.sql`
 in the Supabase SQL editor before running loaders.
 
+For the optional ENTSO-E causal-grid inputs, also apply `db/causal_grid_data.sql`. This migration
+is separate so the existing production ingestion remains usable while ENTSO-E API access is
+pending.
+Apply `db/causal_grid_compact.sql` before archiving completed causal-grid months. The archive command
+uses a private Supabase Storage bucket and retains hourly analytical features in Postgres; see
+`docs/entsoe_causal_data.md` for the checksum-gated purge procedure.
+
 Required tables:
 
 - `ingestion_checkpoints`

@@ -117,6 +117,18 @@ Next-24-hour weather covariates used by operational recommendations.
 
 Required fields: `source`, `region`, `timestamp_utc`, `granularity`, `forecast_generated_at_utc`, `forecast_horizon_hours`.
 
+### ENTSO-E causal-grid tables
+
+`cross_border_observations` stores directional physical flow, scheduled exchange, and day-ahead
+capacity in MW. `grid_forecasts` stores versioned load, wind, and solar forecasts.
+`generation_outages` stores planned and unplanned unit-unavailability revisions.
+`balancing_observations` stores native-resolution balancing activation, balancing prices, imbalance
+volumes, and imbalance prices.
+
+All four tables include `snapshot_at_utc` and `vintage_quality`. Strict point-in-time analysis uses
+`operational_snapshot`; historical final-version downloads are labeled `historical_final`. The full
+contract and temporal-role rules are documented in `docs/entsoe_causal_data.md`.
+
 ### `workload_windows`
 
 Schedulable workloads used by what-if optimization.
@@ -125,18 +137,25 @@ Required fields: `workload_id`, `region`, `earliest_start_utc`, `latest_end_utc`
 
 ## Supabase Storage
 
-Supabase should be treated as managed Postgres for this project. Use:
+Supabase provides managed Postgres and object Storage for this project. Use:
 
 - `DATABASE_URL` for backend ETL/API writes through SQLAlchemy.
+- `SUPABASE_PROJECT_URL` and the backend-only `SUPABASE_SERVICE_ROLE_KEY` for verified causal-grid
+  archive uploads.
 - Supabase SQL editor or migrations to apply `db/schema.sql`.
 - Row Level Security disabled initially for backend-only tables, or enabled later with explicit service-role access policies.
+
+Native-resolution completed causal-grid months are archived as Parquet in the private
+`causal-grid-archive` bucket. The compact hourly tables remain in Postgres. A source month cannot be
+purged until every archive object has been uploaded, downloaded, and checksum-verified.
 
 ## Information Still Needed
 
 To implement source-specific ingestion, we need:
 
 1. Supabase `DATABASE_URL`.
-2. ENTSO-E API token.
+2. ENTSO-E API token. Access has been requested; live causal-grid ingestion remains disabled until
+   the token is issued and validated.
 3. Weather locations for national and regional France coverage.
 4. Whether regional weather should use one representative coordinate per administrative region or multiple coordinates averaged per region.
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -126,6 +127,84 @@ class WeatherObservation(BaseObservation):
     weather_code: int | None = None
     solar_irradiance_wm2: Decimal | None = Field(default=None, ge=0)
     humidity_pct: Decimal | None = Field(default=None, ge=0, le=100)
+
+
+class CrossBorderObservation(BaseObservation):
+    """Directional cross-border flow, schedule, or available-capacity observation."""
+
+    from_bidding_zone: str = Field(min_length=1)
+    to_bidding_zone: str = Field(min_length=1)
+    metric: Literal["physical_flow", "scheduled_exchange", "day_ahead_capacity"]
+    value_mw: Decimal = Field(ge=0)
+    snapshot_at_utc: datetime
+    vintage_quality: Literal["operational_snapshot", "historical_final"]
+
+    @field_validator("snapshot_at_utc")
+    @classmethod
+    def require_snapshot_timezone(cls, value: datetime) -> datetime:
+        return cls.require_timezone(value)
+
+
+class GridForecastObservation(BaseObservation):
+    """Load or renewable forecast as observed in one ingestion snapshot."""
+
+    forecast_type: Literal["load", "wind_onshore", "wind_offshore", "solar"]
+    forecast_mw: Decimal = Field(ge=0)
+    snapshot_at_utc: datetime
+    forecast_generated_at_utc: datetime | None = None
+    forecast_horizon_hours: int | None = Field(default=None, ge=0)
+    vintage_quality: Literal["operational_snapshot", "historical_final"]
+
+    @field_validator("snapshot_at_utc", "forecast_generated_at_utc")
+    @classmethod
+    def require_forecast_timezone(cls, value: datetime | None) -> datetime | None:
+        return cls.require_timezone(value) if value is not None else None
+
+
+class GenerationOutageObservation(BaseObservation):
+    """One versioned generation-unit unavailability interval."""
+
+    outage_mrid: str = Field(min_length=1)
+    revision_number: int = Field(ge=0)
+    outage_type: Literal["planned", "unplanned", "other"]
+    status: str | None = None
+    end_utc: datetime
+    production_resource_id: str | None = None
+    production_resource_name: str | None = None
+    production_type: str | None = None
+    nominal_capacity_mw: Decimal | None = Field(default=None, ge=0)
+    available_capacity_mw: Decimal | None = Field(default=None, ge=0)
+    unavailable_capacity_mw: Decimal | None = Field(default=None, ge=0)
+    publication_timestamp_utc: datetime | None = None
+    snapshot_at_utc: datetime
+    vintage_quality: Literal["operational_snapshot", "historical_final"]
+
+    @field_validator("end_utc", "publication_timestamp_utc", "snapshot_at_utc")
+    @classmethod
+    def require_outage_timezone(cls, value: datetime | None) -> datetime | None:
+        return cls.require_timezone(value) if value is not None else None
+
+
+class BalancingObservation(BaseObservation):
+    """Native-resolution balancing or imbalance observation."""
+
+    metric: Literal[
+        "activated_energy",
+        "activated_energy_price",
+        "imbalance_volume",
+        "imbalance_price",
+    ]
+    value: Decimal
+    unit: str = Field(min_length=1)
+    direction: str | None = None
+    reserve_type: str | None = None
+    snapshot_at_utc: datetime
+    vintage_quality: Literal["operational_snapshot", "historical_final"]
+
+    @field_validator("snapshot_at_utc")
+    @classmethod
+    def require_balancing_timezone(cls, value: datetime) -> datetime:
+        return cls.require_timezone(value)
 
 
 class WorkloadWindow(BaseModel):

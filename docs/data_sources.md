@@ -55,6 +55,15 @@ Representative cities:
 - Weather date window: 31 days.
 - Price date window: 365 days.
 
+## ENTSO-E Causal Grid Inputs
+
+- Scope: France and its direct connected bidding zones.
+- Inputs: physical flows, scheduled exchanges, day-ahead transfer capacity, load and renewable
+  forecasts, generation outages, balancing activation, and imbalance data.
+- Operational snapshots preserve retrieval time; historical final-version rows are explicitly
+  labeled and cannot support strict point-in-time claims.
+- Contract and commands: `docs/entsoe_causal_data.md`.
+
 ## Implementation Files
 
 - Contracts: `src/data/contracts.py`.
@@ -66,4 +75,6 @@ Representative cities:
 - Open-Meteo adapter: `src/data/sources/open_meteo.py`.
 - Energy-Charts adapter: `src/data/sources/energy_charts.py`.
 - ENTSO-E adapter: `src/data/sources/entsoe.py`.
+- ENTSO-E causal-grid adapter: `src/data/sources/entsoe_causal.py`.
+- ENTSO-E causal-grid ingestion: `src/data/entsoe_causal_ingest.py`.
 - Supabase schema: `db/schema.sql`.
