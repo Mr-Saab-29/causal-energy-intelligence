@@ -4,7 +4,30 @@ Clean-hour scheduling, decision ranking, and future causal analysis for carbon-a
 
 ## Time-Series Foundation Model Benchmark — t0
 
-**Testing:**
+### Headline results
+
+The table uses the fixed 90-day, 24-hour consumption reference (`calendar_30d`)
+and the matching 90-day scheduling evaluation. Lower is better except coverage,
+whose nominal target is 80%. The benchmark reports mean pinball loss across the
+10th/50th/90th quantiles rather than claiming CRPS from only three quantiles.
+
+| Model | MAE / MASE ↓ | Mean pinball ↓ | 80% coverage | Carbon regret (gCO2e/kWh) ↓ | Median inference runtime |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Weekly seasonal naive | 2,382 / 0.683 | — | — | 1.736 | Not timed |
+| LightGBM | 957 / 0.274 | — | — | 0.870 | 0.98 ms / target |
+| LightGBM quantile | **905 / 0.260** | 310.6 | 65.6% | 0.822 | 3.00 ms / target |
+| t0-alpha zero-shot | 927 / 0.266 | **307.9** | **77.7%** | **0.805** | 0.75 s / 10 targets |
+
+**Key finding:** t0 delivered the best probabilistic forecast and lowest carbon
+regret, while quantile LightGBM retained the best point accuracy; the winner
+depends on whether the system values point error, calibrated uncertainty, or the
+downstream carbon decision.
+
+Runtime is end-to-end API latency for one t0 request containing all ten targets,
+but local prediction time for one LightGBM target. It shows deployment cost, not
+a hardware-normalized speed comparison.
+
+**What did you test?**
 
 I evaluated Retrocast's `t0-alpha` as a zero-shot, multivariate time-series
 foundation model for 24-hour-ahead forecasts of French electricity consumption,
@@ -13,14 +36,14 @@ covariates, 7/30/90-day context lengths, 6/12/24-hour horizons, missing and nois
 weather, unusual operating conditions, probabilistic calibration, and downstream
 low-carbon workload scheduling.
 
-**The Baselines:**
+**Against what baselines?**
 
 The primary trained baselines are fixed LightGBM point and quantile models, with
 Ridge and 24-hour/168-hour seasonal-naive models as additional references. All
 local models are benchmark-specific artifacts trained only on observations before
 the evaluation period; t0 receives no fine-tuning.
 
-**Data Considered:**
+**On what data?**
 
 Hourly national French electricity observations from ODRE: consumption, total
 production, nuclear, gas, coal, oil, wind, solar, hydro, and bioenergy, joined
@@ -29,7 +52,7 @@ uses source-cadence-aware MW-to-MWh aggregation: 30-minute historical actuals an
 15-minute real-time actuals are integrated separately, with incomplete intervals
 rejected rather than silently undercounted.
 
-**The Temporal Evaluation Protocol:**
+**Under what temporal evaluation protocol?**
 
 Local training labels end at `2026-05-25 23:00 UTC`. Evaluation uses 90 daily
 origins from May 26 through August 23, 2026, with a fixed 24-hour horizon and no
@@ -39,14 +62,14 @@ eligible for 7-, 30-, and 90-day t0 contexts. The benchmark is retrospective:
 historical publication vintages and possible foundation-model pretraining overlap
 cannot be verified.
 
-**Metrics:**
+**Which metrics?**
 
 MAE, RMSE, seasonal MASE, quantile pinball loss, central 80% interval coverage and
 width, plus scheduling metrics: combined regret, carbon regret, cost regret,
 top-5 overlap, best-hour capture, and carbon/cost savings versus immediate
 execution.
 
-**Results:**
+**What happened?**
 
 There was no universal winner. For consumption with the fixed calendar reference,
 quantile LightGBM had the lowest 90-day MAE (`905 MWh` versus t0's `927 MWh`), t0
@@ -56,7 +79,7 @@ LightGBM on 10/10 targets over 90 days, 9/10 over 28 days, and 7/10 over 7 days.
 Original LightGBM produced the lowest combined scheduling regret in every window,
 while t0 produced the lowest carbon regret and highest top-5 overlap.
 
-**T0 Failure:**
+**Where did t0 fail?**
 
 Its 30-day calendar reference lost 90-day consumption MAE to quantile LightGBM
 and final-week MAE to original LightGBM. Its nominal 80% consumption interval
@@ -64,7 +87,29 @@ covered only `52.4%` of final-week observations, showing severe undercoverage.
 The benchmark also contains no cold, high-demand, or high-generation evaluation
 hours under the frozen thresholds, so it cannot support claims in those regimes.
 
-**T0 Win:**
+### Failure analysis — final-week late-horizon overprediction
+
+The final-week loss was concentrated in the back half of the forecast rather
+than spread evenly across all 24 leads:
+
+| Model | Segment | MAE ↓ | Mean pinball ↓ | 80% coverage | Mean signed error |
+| --- | --- | ---: | ---: | ---: | ---: |
+| LightGBM | Hours 1–12 | 848 | — | — | +444 MWh |
+| LightGBM | Hours 13–24 | 1,135 | — | — | +872 MWh |
+| LightGBM quantile | Hours 1–12 | 788 | 285.2 | 58.3% | +348 MWh |
+| LightGBM quantile | Hours 13–24 | 1,230 | 399.3 | 51.2% | +833 MWh |
+| t0-alpha | Hours 1–12 | **665** | **220.8** | 57.1% | +219 MWh |
+| t0-alpha | Hours 13–24 | 1,413 | 501.9 | 47.6% | +1,392 MWh |
+
+t0 was strongest during hours 1–12, then its late-horizon MAE more than doubled
+and its forecasts became systematically high. August 20–22 were the clearest
+failures: late-horizon mean errors were approximately +2.0 to +2.3 GWh and daily
+interval coverage fell to 16.7–33.3%. The interval widened in the second half but
+still missed more than half the observations, so the failure was both a location
+bias and an uncertainty-calibration failure. With only seven final-week origins,
+this is a concrete diagnostic pattern, not evidence of a general seasonal law.
+
+**Where did it win?**
 
 Weather and longer history were especially useful for t0. Historical weather
 reduced its consumption MAE to `850/721/765 MWh` over the 90/28/7-day windows,
@@ -74,7 +119,7 @@ while t0 remained effectively stable. A 90-day t0 context also beat its 30-day
 context in every window. For scheduling, t0 consistently found a better low-carbon
 shortlist even when LightGBM won the combined carbon/cost objective.
 
-**Learnings:**
+**What did you learn?**
 
 Foundation-model value depends on the input configuration, forecast horizon, and
 downstream decision metric. Zero-shot t0 was strongest when it could use richer
