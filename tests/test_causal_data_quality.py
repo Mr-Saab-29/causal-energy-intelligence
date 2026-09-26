@@ -20,6 +20,7 @@ def complete_metrics() -> dict[str, object]:
                         "granularity": "15m",
                         "row_count": 96,
                         "timestamp_count": 96,
+                        "hourly_timestamp_count": 24,
                     }
                 )
     cross_border.append(
@@ -30,6 +31,7 @@ def complete_metrics() -> dict[str, object]:
             "granularity": "1h",
             "row_count": 24,
             "timestamp_count": 24,
+            "hourly_timestamp_count": 24,
         }
     )
     return {
@@ -40,6 +42,7 @@ def complete_metrics() -> dict[str, object]:
                 "granularity": "15m",
                 "row_count": 96,
                 "timestamp_count": 96,
+                "hourly_timestamp_count": 24,
                 "negative_value_count": 0,
             }
             for forecast_type in ("load", "wind_onshore", "wind_offshore", "solar")
@@ -58,6 +61,7 @@ def complete_metrics() -> dict[str, object]:
                 "granularity": "15m",
                 "row_count": 96,
                 "timestamp_count": 96,
+                "hourly_timestamp_count": 24,
             }
             for metric in (
                 "imbalance_price",
@@ -136,7 +140,7 @@ def test_missing_required_series_and_unclassified_outage_block_backfill() -> Non
 
 def test_low_resolution_aware_coverage_blocks_backfill() -> None:
     metrics = complete_metrics()
-    metrics["forecast_series"][0]["timestamp_count"] = 80
+    metrics["forecast_series"][0]["hourly_timestamp_count"] = 20
 
     evaluation = evaluate_causal_data_metrics(
         metrics,
@@ -168,3 +172,28 @@ def test_projected_storage_over_budget_blocks_backfill() -> None:
     assert "projected_storage_exceeds_budget:2000>1000" in evaluation[
         "critical_issues"
     ]
+
+
+def test_mixed_native_resolution_passes_when_every_decision_hour_exists() -> None:
+    metrics = complete_metrics()
+    target = next(
+        row
+        for row in metrics["cross_border_series"]
+        if row["metric"] == "physical_flow"
+        and row["from_bidding_zone"] == "FR"
+        and row["to_bidding_zone"] == "DE_LU"
+    )
+    target["row_count"] = 55
+    target["timestamp_count"] = 55
+    target["hourly_timestamp_count"] = 24
+
+    evaluation = evaluate_causal_data_metrics(
+        metrics,
+        pd.Timestamp("2026-08-01", tz="UTC"),
+        pd.Timestamp("2026-08-02", tz="UTC"),
+        vintage_quality="historical_final",
+        min_coverage=0.95,
+    )
+
+    assert evaluation["backfill_ready"] is True
+    assert evaluation["coverage"]["cross_border"]["physical_flow|FR|DE_LU"] == 1.0

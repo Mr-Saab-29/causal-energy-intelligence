@@ -221,9 +221,31 @@ def test_optional_legacy_query_records_warning_without_exposing_token() -> None:
 
     assert result is None
     assert warnings == [
-        "activated_energy:afrr unavailable from the legacy ENTSO-E endpoint (HTTP 400)"
+        "activated_energy:afrr unavailable from ENTSO-E (HTTP 400)"
     ]
     assert "do-not-print" not in warnings[0]
+
+
+def test_optional_capacity_timeout_records_warning() -> None:
+    response = Response()
+    response.status_code = 599
+    response.request = Request("GET", "https://example.test/api").prepare()
+
+    def rejected_query() -> None:
+        raise HTTPError(response=response)
+
+    warnings: list[str] = []
+    result = _optional_query(
+        rejected_query,
+        dataset="day_ahead_capacity:FR->DE_LU",
+        tolerated_http_statuses=(599,),
+        warnings=warnings,
+    )
+
+    assert result is None
+    assert warnings == [
+        "day_ahead_capacity:FR->DE_LU unavailable from ENTSO-E (HTTP 599)"
+    ]
 
 
 def test_required_query_error_does_not_include_token_bearing_url() -> None:

@@ -30,7 +30,6 @@ REQUIRED_BALANCING_METRICS = (
     "imbalance_volume",
     "activated_energy_price",
 )
-GRANULARITY_MINUTES = {"5m": 5, "15m": 15, "30m": 30, "1h": 60, "1d": 1440}
 DEFAULT_MIN_COVERAGE = 0.95
 DEFAULT_MAX_PROJECTED_STORAGE_BYTES = 250 * 1024**2
 
@@ -109,7 +108,9 @@ def collect_causal_data_metrics(
             """
             select metric, from_bidding_zone, to_bidding_zone, granularity,
                    count(*) as row_count,
-                   count(distinct timestamp_utc) as timestamp_count
+                   count(distinct timestamp_utc) as timestamp_count,
+                   count(distinct date_trunc('hour', timestamp_utc))
+                       as hourly_timestamp_count
             from cross_border_observations
             where timestamp_utc >= :start and timestamp_utc < :end
               and vintage_quality = :vintage
@@ -124,6 +125,8 @@ def collect_causal_data_metrics(
             select forecast_type, granularity,
                    count(*) as row_count,
                    count(distinct timestamp_utc) as timestamp_count,
+                   count(distinct date_trunc('hour', timestamp_utc))
+                       as hourly_timestamp_count,
                    count(*) filter (where forecast_mw < 0) as negative_value_count
             from grid_forecasts
             where timestamp_utc >= :start and timestamp_utc < :end
@@ -153,7 +156,9 @@ def collect_causal_data_metrics(
             """
             select metric, granularity,
                    count(*) as row_count,
-                   count(distinct timestamp_utc) as timestamp_count
+                   count(distinct timestamp_utc) as timestamp_count,
+                   count(distinct date_trunc('hour', timestamp_utc))
+                       as hourly_timestamp_count
             from balancing_observations
             where timestamp_utc >= :start and timestamp_utc < :end
               and vintage_quality = :vintage
@@ -221,11 +226,8 @@ def evaluate_causal_data_metrics(
             "historical_final_rows_are_not_point_in_time_operational_vintages"
         )
 
-    forecast_coverage = _series_coverage(
-        metrics.get("forecast_series", []),
-        start,
-        end,
-        ("forecast_type",),
+    forecast_coverage = _forecast_hourly_coverage(
+        metrics.get("forecast_series", []), start, end
     )
     for forecast_type in REQUIRED_FORECAST_TYPES:
         ratio = forecast_coverage.get(forecast_type)
@@ -234,7 +236,7 @@ def evaluate_causal_data_metrics(
         elif ratio < min_coverage:
             critical.append(f"low_forecast_coverage:{forecast_type}:{ratio}")
 
-    cross_coverage = _series_coverage(
+    cross_coverage = _hourly_series_coverage(
         metrics.get("cross_border_series", []),
         start,
         end,
@@ -267,7 +269,7 @@ def evaluate_causal_data_metrics(
             + ",".join(missing_capacity_pairs)
         )
 
-    balancing_coverage = _series_coverage(
+    balancing_coverage = _hourly_series_coverage(
         metrics.get("balancing_series", []),
         start,
         end,
@@ -391,20 +393,28 @@ def normalize_boundary(value: str | pd.Timestamp) -> pd.Timestamp:
     return timestamp.tz_convert("UTC")
 
 
-def _series_coverage(
+def _forecast_hourly_coverage(
+    rows: list[dict[str, Any]],
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+) -> dict[str, float]:
+    """Measure forecast availability at the hourly modeling resolution."""
+    return _hourly_series_coverage(rows, start, end, ("forecast_type",))
+
+
+def _hourly_series_coverage(
     rows: list[dict[str, Any]],
     start: pd.Timestamp,
     end: pd.Timestamp,
     key_columns: tuple[str, ...],
 ) -> dict[str, float]:
+    """Measure availability by decision hour across source-resolution changes."""
+    expected_hours = int((end - start).total_seconds() // 3600)
     coverage: dict[str, float] = {}
     for row in rows:
-        minutes = GRANULARITY_MINUTES.get(str(row["granularity"]))
-        if minutes is None:
-            continue
-        expected = int((end - start).total_seconds() // (minutes * 60))
-        ratio = min(1.0, int(row["timestamp_count"]) / expected) if expected else 0.0
         key = "|".join(str(row[column]) for column in key_columns)
+        observed_hours = int(row.get("hourly_timestamp_count", 0))
+        ratio = min(1.0, observed_hours / expected_hours) if expected_hours else 0.0
         coverage[key] = max(coverage.get(key, 0.0), round(ratio, 4))
     return coverage
 

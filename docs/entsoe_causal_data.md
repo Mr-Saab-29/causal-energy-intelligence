@@ -39,6 +39,11 @@ that publication to aggregated balancing-energy bids under GL EB 12.3.E. Imbalan
 and activated-energy prices remain independently ingested; an unavailable legacy series is reported
 as a warning instead of aborting the entire bounded ingestion.
 
+Day-ahead transfer capacity is also advisory because ENTSO-E does not publish it consistently for
+every France-neighbor direction. Missing-data responses and transient upstream HTTP failures are
+recorded as warnings for this series only. Required physical flows, scheduled exchanges, forecasts,
+and balancing-series failures still stop the backfill.
+
 ## Forecast Vintage Limitation
 
 Operational ingestion stores the retrieval hour in `snapshot_at_utc` and labels rows
@@ -105,8 +110,9 @@ Audit the previous complete UTC calendar month before extending the backfill:
 make causal-data-quality
 ```
 
-The report is written to `reports/metrics/causal_data_quality.json`. It checks required forecast,
-cross-border, and balancing coverage at each series' native resolution; source-key uniqueness;
+The report is written to `reports/metrics/causal_data_quality.json`. It checks forecast,
+cross-border, and balancing coverage at the hourly decision resolution while retaining native raw
+intervals for diagnostics; source-key uniqueness;
 outage classification; and point-in-time temporal rules. Known limitations such as unavailable
 legacy `A83` activated energy and structurally unpublished day-ahead capacity pairs are reported
 separately and do not block backfill. It also projects storage for the complete historical horizon

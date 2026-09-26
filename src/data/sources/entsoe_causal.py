@@ -91,8 +91,16 @@ def fetch_entsoe_causal_data(
                 ),
             )
             for metric, query in queries:
+                optional_capacity = metric == "day_ahead_capacity"
                 values = _optional_query(
                     query,
+                    dataset=f"{metric}:{source_area}->{target_area}",
+                    tolerated_http_statuses=(
+                        (400, 404, 429, 500, 502, 503, 504, 599)
+                        if optional_capacity
+                        else ()
+                    ),
+                    warnings=warnings,
                     country_code_from=source_area,
                     country_code_to=target_area,
                     start=start,
@@ -437,6 +445,7 @@ def _optional_query(
     *,
     dataset: str | None = None,
     tolerate_bad_request: bool = False,
+    tolerated_http_statuses: tuple[int, ...] = (),
     warnings: list[str] | None = None,
     **kwargs: Any,
 ) -> Any:
@@ -447,10 +456,13 @@ def _optional_query(
     except HTTPError as error:
         status = error.response.status_code if error.response is not None else None
         label = dataset or getattr(query, "__name__", "unknown_dataset")
-        if tolerate_bad_request and status == 400:
+        tolerated = status in tolerated_http_statuses or (
+            tolerate_bad_request and status == 400
+        )
+        if tolerated:
             if warnings is not None:
                 warnings.append(
-                    f"{label} unavailable from the legacy ENTSO-E endpoint (HTTP 400)"
+                    f"{label} unavailable from ENTSO-E (HTTP {status})"
                 )
             return None
         raise RuntimeError(
