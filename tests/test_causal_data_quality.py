@@ -154,6 +154,100 @@ def test_low_resolution_aware_coverage_blocks_backfill() -> None:
     assert "low_forecast_coverage:load:0.8333" in evaluation["critical_issues"]
 
 
+def test_historical_offshore_forecast_gap_is_advisory() -> None:
+    metrics = complete_metrics()
+    offshore = next(
+        row
+        for row in metrics["forecast_series"]
+        if row["forecast_type"] == "wind_offshore"
+    )
+    offshore["hourly_timestamp_count"] = 19
+
+    evaluation = evaluate_causal_data_metrics(
+        metrics,
+        pd.Timestamp("2026-08-01", tz="UTC"),
+        pd.Timestamp("2026-08-02", tz="UTC"),
+        vintage_quality="historical_final",
+        min_coverage=0.95,
+    )
+
+    assert evaluation["status"] == "warn"
+    assert evaluation["backfill_ready"] is True
+    assert "historical_forecast_coverage_limited:wind_offshore:0.7917" in evaluation[
+        "warnings"
+    ]
+
+
+def test_operational_offshore_forecast_gap_blocks_backfill() -> None:
+    metrics = complete_metrics()
+    offshore = next(
+        row
+        for row in metrics["forecast_series"]
+        if row["forecast_type"] == "wind_offshore"
+    )
+    offshore["hourly_timestamp_count"] = 19
+
+    evaluation = evaluate_causal_data_metrics(
+        metrics,
+        pd.Timestamp("2026-08-01", tz="UTC"),
+        pd.Timestamp("2026-08-02", tz="UTC"),
+        vintage_quality="operational_snapshot",
+        min_coverage=0.95,
+    )
+
+    assert evaluation["backfill_ready"] is False
+    assert "low_forecast_coverage:wind_offshore:0.7917" in evaluation[
+        "critical_issues"
+    ]
+
+
+def test_historical_balancing_gap_is_advisory() -> None:
+    metrics = complete_metrics()
+    imbalance = next(
+        row
+        for row in metrics["balancing_series"]
+        if row["metric"] == "imbalance_price"
+    )
+    imbalance["hourly_timestamp_count"] = 22
+
+    evaluation = evaluate_causal_data_metrics(
+        metrics,
+        pd.Timestamp("2026-08-01", tz="UTC"),
+        pd.Timestamp("2026-08-02", tz="UTC"),
+        vintage_quality="historical_final",
+        min_coverage=0.95,
+    )
+
+    assert evaluation["status"] == "warn"
+    assert evaluation["backfill_ready"] is True
+    assert "historical_balancing_coverage_limited:imbalance_price:0.9167" in evaluation[
+        "warnings"
+    ]
+
+
+def test_operational_balancing_gap_blocks_backfill() -> None:
+    metrics = complete_metrics()
+    imbalance = next(
+        row
+        for row in metrics["balancing_series"]
+        if row["metric"] == "imbalance_price"
+    )
+    imbalance["hourly_timestamp_count"] = 22
+
+    evaluation = evaluate_causal_data_metrics(
+        metrics,
+        pd.Timestamp("2026-08-01", tz="UTC"),
+        pd.Timestamp("2026-08-02", tz="UTC"),
+        vintage_quality="operational_snapshot",
+        min_coverage=0.95,
+    )
+
+    assert evaluation["backfill_ready"] is False
+    assert "low_balancing_coverage:imbalance_price:0.9167" in evaluation[
+        "critical_issues"
+    ]
+
+
 def test_projected_storage_over_budget_blocks_backfill() -> None:
     metrics = complete_metrics()
     metrics["storage_projection"] = {"total_projected_storage_bytes": 2_000}

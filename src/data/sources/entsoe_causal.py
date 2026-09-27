@@ -33,6 +33,7 @@ ACTIVATED_RESERVE_TYPES = {
     "A97": "mfrr",
     "A98": "replacement_reserve",
 }
+OPTIONAL_HTTP_STATUSES = (400, 404, 429, 500, 502, 503, 504, 599)
 
 
 @dataclass(frozen=True)
@@ -96,9 +97,7 @@ def fetch_entsoe_causal_data(
                     query,
                     dataset=f"{metric}:{source_area}->{target_area}",
                     tolerated_http_statuses=(
-                        (400, 404, 429, 500, 502, 503, 504, 599)
-                        if optional_capacity
-                        else ()
+                        OPTIONAL_HTTP_STATUSES if optional_capacity else ()
                     ),
                     warnings=warnings,
                     country_code_from=source_area,
@@ -193,7 +192,7 @@ def fetch_entsoe_causal_data(
             end=realized_end,
             business_type=business_type,
             dataset=f"activated_energy:{reserve_type}",
-            tolerate_bad_request=True,
+            tolerated_http_statuses=OPTIONAL_HTTP_STATUSES,
             warnings=warnings,
         )
         balancing.extend(

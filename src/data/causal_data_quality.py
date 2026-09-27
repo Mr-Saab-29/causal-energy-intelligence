@@ -24,12 +24,14 @@ from src.data.source_config import FRANCE_DIRECT_ENTSOE_NEIGHBORS, FRANCE_START_
 ROOT = Path(__file__).resolve().parents[2]
 OUTPUT_PATH = ROOT / "reports/metrics/causal_data_quality.json"
 REQUIRED_FORECAST_TYPES = ("load", "wind_onshore", "wind_offshore", "solar")
+HISTORICALLY_OPTIONAL_FORECAST_TYPES = ("wind_offshore",)
 REQUIRED_CROSS_BORDER_METRICS = ("physical_flow", "scheduled_exchange")
 REQUIRED_BALANCING_METRICS = (
     "imbalance_price",
     "imbalance_volume",
     "activated_energy_price",
 )
+HISTORICALLY_OPTIONAL_BALANCING_METRICS = REQUIRED_BALANCING_METRICS
 DEFAULT_MIN_COVERAGE = 0.95
 DEFAULT_MAX_PROJECTED_STORAGE_BYTES = 250 * 1024**2
 
@@ -231,6 +233,19 @@ def evaluate_causal_data_metrics(
     )
     for forecast_type in REQUIRED_FORECAST_TYPES:
         ratio = forecast_coverage.get(forecast_type)
+        historically_optional = (
+            vintage_quality == "historical_final"
+            and forecast_type in HISTORICALLY_OPTIONAL_FORECAST_TYPES
+        )
+        if historically_optional and (ratio is None or ratio < min_coverage):
+            observed = "missing" if ratio is None else str(ratio)
+            warnings.append(
+                f"historical_forecast_coverage_limited:{forecast_type}:{observed}"
+            )
+            known_limitations.append(
+                f"historical_{forecast_type}_forecast_not_consistently_published"
+            )
+            continue
         if ratio is None:
             critical.append(f"missing_forecast_type:{forecast_type}")
         elif ratio < min_coverage:
@@ -277,6 +292,17 @@ def evaluate_causal_data_metrics(
     )
     for metric in REQUIRED_BALANCING_METRICS:
         ratio = balancing_coverage.get(metric)
+        historically_optional = (
+            vintage_quality == "historical_final"
+            and metric in HISTORICALLY_OPTIONAL_BALANCING_METRICS
+        )
+        if historically_optional and (ratio is None or ratio < min_coverage):
+            observed = "missing" if ratio is None else str(ratio)
+            warnings.append(f"historical_balancing_coverage_limited:{metric}:{observed}")
+            known_limitations.append(
+                f"historical_{metric}_not_consistently_published"
+            )
+            continue
         if ratio is None:
             critical.append(f"missing_balancing_metric:{metric}")
         elif ratio < min_coverage:

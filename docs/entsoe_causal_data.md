@@ -33,6 +33,11 @@ This timing distinction matters. Controlling for physical flows or balancing act
 estimating the total workload effect would remove part of the grid response that the estimand is
 trying to measure.
 
+Historical imbalance-price, imbalance-volume, and activation-price publications can contain source
+gaps. Because these are post-treatment stress diagnostics rather than adjustment controls, limited
+historical coverage is retained as a warning and missing values remain null. The same gaps are
+blocking for operational snapshots, where they indicate a current ingestion or publication issue.
+
 Realized balancing queries stop at the retrieval hour rather than requesting future values. The
 legacy activated-energy publication (`A83`) is treated as optional because ENTSO-E is transitioning
 that publication to aggregated balancing-energy bids under GL EB 12.3.E. Imbalance volumes, prices,
@@ -53,6 +58,12 @@ Historical ENTSO-E downloads are labeled `historical_final`. They may contain th
 version rather than the exact forecast visible at a past decision time. They are suitable for
 feature exploration and sensitivity analysis, but strict causal evaluation and leakage claims must
 use `operational_snapshot` rows.
+
+ENTSO-E does not consistently publish France offshore-wind forecasts across the earliest historical
+period. Historical offshore coverage below the normal threshold is retained as an explicit warning
+and missing values remain null; they are never interpreted as zero generation. Load, onshore wind,
+and solar remain required historical controls. Offshore wind remains required for operational
+snapshots, where a gap indicates a current pipeline problem.
 
 ## Storage And Memory
 
