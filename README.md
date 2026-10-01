@@ -146,6 +146,14 @@ The platform now has a working France electricity decision-support baseline:
   contract separates the grid effect of moving a workload from the product effect of showing a
   recommendation. The workload baseline defaults to the exact dashboard-access time and supports a
   user-entered planned-start override.
+- The completed historical ENTSO-E backfill feeds a leakage-aware hourly causal feature mart. Its
+  explicit role prefixes keep pre-treatment controls separate from treatment proxies, outcomes,
+  post-treatment mediators, and diagnostics; a readiness report prevents feature completeness from
+  being mistaken for causal identification.
+- The agreed emissions boundary now includes Belgium, Germany-Luxembourg, Switzerland, Northern
+  Italy, Spain, and Great Britain. ENTSO-E supplies continental generation by production type;
+  Elexon FUELHH supplies Great Britain. Only compact hourly outcomes remain in Postgres, while the
+  monthly normalized source rows are checksum-verified in private Storage.
 - Recommendations show price direction versus the previous day at the same time instead of presenting price as the main dashboard forecast.
 - The champion model is selected from generated metrics with a regret-first score: 35% realized recommendation regret, 25% carbon regret, 20% top-5 ranking loss, 10% price-direction error, and 10% carbon-intensity error.
 - Full retraining is guarded by an incumbent-vs-candidate promotion gate. A candidate retrain is promoted only when its weighted lower-is-better decision metrics beat the current production champion and recommendation/carbon regret do not regress beyond tolerance; otherwise the incumbent artifacts are restored.
@@ -198,6 +206,9 @@ make forecast-decision
 make forecast-recommendations
 make forecast-scenarios
 make causal-contract
+make causal-feature-mart
+make ingest-neighbor-emissions
+make neighbor-emissions-backfill
 make marginal-emissions
 make causal-recommendations
 make train-all
@@ -228,6 +239,17 @@ Command intent:
 - `make marginal-emissions` builds the Sprint 2 marginal-emissions proxy from hourly carbon outputs.
 - `make causal-contract` validates the treatment, outcome, baseline, adjustment set, and grid/product
   DAGs, then writes `reports/causal/estimand_spec.json`.
+- `make causal-feature-mart` joins the compact ENTSO-E history to settled France actuals, prices,
+  and available weather observations; it writes the hourly Parquet mart and a machine-readable
+  readiness report without claiming that the observational treatment effect is identified. The
+  France outcome uses the versioned direct-operational source factors in
+  `config/emission_factors.yaml`, rather than multiplying load by a published average intensity.
+- `make ingest-neighbor-emissions` refreshes compact hourly generation and direct emissions for all
+  six connected zones. The readiness gate requires every zone and retains lower/upper bounds for
+  generation reported under heterogeneous `Other` categories.
+- `make neighbor-emissions-backfill` runs the connected-zone history month by month from January
+  2023, archives normalized source rows to private Supabase Storage, verifies checksums, and stores
+  only compact hourly outcomes in Postgres.
 - `make causal-recommendations` compares average-carbon and marginal-carbon rankings, quantifies shifts, and exports causal-adjusted base and scenario recommendations.
 - `make ingest-monitor` ingests latest API data, runs pipeline health, and writes the forecast monitoring report without retraining.
 - `make ingest-monitor-cloud` is the deployable scheduled variant. It requires `DATABASE_URL`, limits historical ingestion to a recent 14-day lookback, writes transformed rows to Supabase, refreshes future weather, and avoids expensive bootstrap backfills.
@@ -285,6 +307,10 @@ Current key artifacts:
 - Causal-adjusted scenario recommendations: `reports/scenarios/causal_adjusted_workload_scenario_recommendations.csv`
 - Marginal ranking shift metrics: `reports/metrics/marginal_ranking_shift_metrics.json`
 - Causal estimand and DAG contract: `reports/causal/estimand_spec.json`
+- Causal hourly feature mart: `reports/causal/causal_hourly_feature_mart.parquet`
+- Causal feature readiness: `reports/metrics/causal_feature_readiness.json`
+- Neighbor emissions readiness: `reports/metrics/neighbor_emissions_readiness.json`
+- Neighbor emissions backfill progress: `reports/metrics/neighbor_emissions_backfill.json`
 - Supply/demand metrics: `reports/metrics/supply_demand_baseline_metrics.json`
 - Supply/demand predictions: `reports/predictions/supply_demand_baseline_predictions.csv`
 - Feature importance: `reports/metrics/*feature_importance.csv`
@@ -303,8 +329,11 @@ Status: in progress.
 - Move the causal MVP beyond the marginal-emissions proxy toward validated treatment effects,
   sensitivity checks, and production-ready causal guardrails. The ENTSO-E cross-border, outage,
   balancing, and forecast-error data contract, monthly quality gate, and checksum-gated
-  archive/compaction path are implemented. `make causal-backfill-history` resumes the checked
-  month-by-month historical backfill; completing the multi-year run remains pending.
+  archive/compaction path are implemented, and the January 2023 through August 2026 backfill is
+  complete. The causal feature mart, connected-zone emissions contract, and readiness gates are
+  implemented. The separate connected-zone emissions backfill must complete before the boundary
+  gate passes; point-in-time covariates, missing economic/storage controls, and an observed
+  intervention still block an identified production causal estimate.
 - Expand workload constraints for real operational use cases, such as multi-hour jobs, deadlines, blackout windows, and regional constraints.
 
 ## Data Contracts

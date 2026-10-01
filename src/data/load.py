@@ -99,6 +99,23 @@ FUTURE_WEATHER_FORECAST_COLUMNS = [
     "forecast_horizon_hours",
 ]
 
+NEIGHBOR_HOURLY_EMISSIONS_COLUMNS = [
+    "timestamp_utc",
+    "bidding_zone",
+    "vintage_quality",
+    "total_generation_mwh",
+    "named_factor_generation_mwh",
+    "fallback_generation_mwh",
+    "named_factor_coverage_share",
+    "direct_emissions_kgco2e",
+    "direct_emissions_lower_kgco2e",
+    "direct_emissions_upper_kgco2e",
+    "direct_carbon_intensity_gco2_kwh",
+    "production_type_count",
+    "source_interval_count",
+    "compacted_at_utc",
+]
+
 CROSS_BORDER_COLUMNS = [
     "source",
     "source_record_id",
@@ -432,6 +449,22 @@ def upsert_future_weather_forecasts(
     )
 
 
+def upsert_neighbor_hourly_emissions(
+    engine: Engine,
+    rows: Sequence[dict[str, Any]],
+    batch_size: int = 1_000,
+) -> int:
+    """Upsert compact neighboring-zone generation and emissions outcomes."""
+    return _upsert_rows(
+        engine=engine,
+        table_name="causal_neighbor_hourly_emissions",
+        columns=NEIGHBOR_HOURLY_EMISSIONS_COLUMNS,
+        rows=rows,
+        batch_size=batch_size,
+        conflict_columns=("timestamp_utc", "bidding_zone", "vintage_quality"),
+    )
+
+
 def upsert_cross_border_observations(
     engine: Engine,
     observations: Sequence[CrossBorderObservation],
@@ -492,19 +525,25 @@ def upsert_balancing_observations(
     )
 
 
-def build_upsert_sql(table_name: str, columns: Sequence[str]) -> str:
+def build_upsert_sql(
+    table_name: str,
+    columns: Sequence[str],
+    conflict_columns: Sequence[str] = CONFLICT_COLUMNS,
+) -> str:
     """Build a safe Postgres upsert statement for whitelisted identifiers."""
     _validate_identifier(table_name)
     for column in columns:
         _validate_identifier(column)
+    for column in conflict_columns:
+        _validate_identifier(column)
 
     insert_columns = ", ".join(columns)
     value_columns = ", ".join(f":{column}" for column in columns)
-    conflict_columns = ", ".join(CONFLICT_COLUMNS)
+    conflict_clause = ", ".join(conflict_columns)
     update_columns = [
         column
         for column in columns
-        if column not in {*CONFLICT_COLUMNS, "created_at", "id"}
+        if column not in {*conflict_columns, "created_at", "id"}
     ]
     update_assignments = ", ".join(
         f"{column} = excluded.{column}" for column in update_columns
@@ -512,7 +551,7 @@ def build_upsert_sql(table_name: str, columns: Sequence[str]) -> str:
     return (
         f"insert into {table_name} ({insert_columns}) "
         f"values ({value_columns}) "
-        f"on conflict ({conflict_columns}) do update set {update_assignments}"
+        f"on conflict ({conflict_clause}) do update set {update_assignments}"
     )
 
 
@@ -544,13 +583,14 @@ def _upsert_rows(
     columns: Sequence[str],
     rows: Sequence[dict[str, Any]],
     batch_size: int,
+    conflict_columns: Sequence[str] = CONFLICT_COLUMNS,
 ) -> int:
     if not rows:
         return 0
     if batch_size <= 0:
         raise ValueError("batch_size must be positive")
 
-    statement = text(build_upsert_sql(table_name, columns))
+    statement = text(build_upsert_sql(table_name, columns, conflict_columns))
     normalized_rows = [
         {column: _to_database_value(row.get(column)) for column in columns}
         for row in rows

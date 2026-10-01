@@ -76,7 +76,8 @@ Apply `db/causal_grid_data.sql` after the existing Supabase schema. The migratio
 - Hourly analytical views for forecast error, net imports, and balancing
 
 Apply `db/causal_grid_compact.sql` for the bounded analytical layer. It creates one hourly France
-feature table and one hourly France-neighbor table. Native-resolution staging rows are exported as
+feature table, one hourly France-neighbor flow table, and one compact neighboring-zone emissions
+table. Native-resolution staging rows are exported as
 monthly Zstandard-compressed Parquet files to a private Supabase Storage bucket. This preserves the
 auditable source data without consuming the 500 MB Postgres allowance.
 
@@ -204,3 +205,74 @@ python -m src.data.causal_historical_backfill \
   --from-month 2026-01 \
   --through-month 2026-06
 ```
+
+## Causal Feature Mart
+
+After the checked historical backfill is complete, build the analysis-ready hourly mart:
+
+```bash
+make causal-feature-mart
+```
+
+The contract is versioned in `config/causal_feature_mart.json`. The command joins the compact
+France and cross-border tables to settled national electricity actuals, day-ahead price, and
+available weather observations. It writes:
+
+- `reports/causal/causal_hourly_feature_mart.parquet`
+- `reports/metrics/causal_feature_readiness.json`
+
+Columns use causal-role prefixes. `pre_` columns are the only candidates for an adjustment set;
+`treatment_proxy_` identifies the observational load-innovation proxy; `outcome_` contains France
+direct operational emissions calculated from settled source generation and the versioned factors
+in `config/emission_factors.yaml`; and `mediator_` plus `diagnostic_` columns are excluded from total
+effect adjustment. The published ODRE carbon intensity is retained as a diagnostic, not substituted
+for the declared direct-generation outcome. Forecast errors enter the adjustment set only as
+one-hour and 24-hour lags. Same-hour forecast errors, physical flows, balancing, realized dispatch,
+and unplanned outages are post-treatment diagnostics or mediators.
+
+The readiness report deliberately separates two questions. `feature_mart_ready` means the hourly
+artifact passes coverage and uniqueness checks. `identified_estimator_ready` remains false until
+the project has point-in-time historical covariates, missing fuel/carbon price and storage controls,
+full historical connected-zone emissions coverage, and observed workload interventions. A ready
+mart is therefore permission to begin descriptive proxy analysis, not permission to make a causal
+savings claim.
+
+## Interconnected Emissions Boundary
+
+The estimand covers France plus Belgium, Germany-Luxembourg, Switzerland, Northern Italy, Spain,
+and Great Britain. Continental actual generation per production type comes from the ENTSO-E A75
+publication. ENTSO-E does not return the required Great Britain series, so Great Britain uses the
+official Elexon Insights `FUELHH` dataset. Interconnector categories in FUELHH are excluded because
+the outcome counts each zone's domestic generation; including imports again would double-count
+generation already attributed to its producing zone.
+
+Elexon FUELHH is based on operationally metered generation and underrepresents embedded renewable
+generation. This limitation is recorded in the readiness report. It mainly affects reported total
+generation and intensity; the direct-emissions outcome still retains wide bounds for heterogeneous
+categories and must not be presented as a perfectly measured system total.
+
+The versioned mapping and quality policy are in `config/neighbor_emissions.json`. Named production
+types use the direct-operational factors in `config/emission_factors.yaml`. Heterogeneous `Other`
+generation receives a point factor of 370 kgCO2e/MWh and a deliberately wide 0-820 bound. The
+compact table retains point, lower, and upper emissions and the share covered by named factors.
+Unknown source categories fail closed. A month passes only when every zone has at least 95 percent
+hourly coverage and at least 85 percent of generation uses named factors.
+
+Apply the updated `db/causal_grid_compact.sql`, then validate a bounded operational refresh:
+
+```bash
+make ingest-neighbor-emissions
+```
+
+Backfill the agreed history with the resumable storage-safe runner:
+
+```bash
+make neighbor-emissions-backfill
+```
+
+The runner fetches one month at a time, writes normalized generation-by-type Parquet, uploads it to
+`neighbor-emissions/historical_final/YYYY-MM/` in the existing private archive bucket, verifies the
+downloaded checksum, and upserts only six compact hourly rows per timestamp. This avoids consuming
+the 500 MB Postgres allowance with source-level history. The mart then exposes France, neighboring,
+and interconnected direct-emissions outcomes and refuses to mark the boundary complete unless all
+six zones pass coverage and factor-quality checks.

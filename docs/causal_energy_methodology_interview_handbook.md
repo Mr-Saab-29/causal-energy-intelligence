@@ -411,6 +411,38 @@ Analogy: an operational snapshot is a photograph taken before the match; a histo
 the edited match report. Both contain useful information, but only the photograph can establish what
 was visible before play began.
 
+### Causal Feature Mart And Readiness Gate
+
+The historical inputs are assembled into one hourly causal feature mart. Each column is named by
+its role: `pre_` for possible pre-treatment controls, `treatment_proxy_` for the observed load
+innovation, `outcome_` for emissions, `mediator_` for grid responses such as physical flows and
+balancing, and `diagnostic_` for settled values that must not be adjusted away. Forecast errors are
+safe controls only after they are lagged; the same-hour error is known after the response begins.
+The France outcome sums settled source generation multiplied by the versioned direct-operational
+emission factors. Published average carbon intensity remains a diagnostic rather than replacing
+that declared outcome.
+
+The agreed spatial boundary is implemented with hourly generation for Belgium,
+Germany-Luxembourg, Switzerland, Northern Italy, Spain, and Great Britain. ENTSO-E supplies the
+continental production mix, while Elexon supplies Great Britain because the equivalent ENTSO-E
+query is unavailable. Each zone is converted to point, lower, and upper direct-emissions outcomes.
+Heterogeneous Other generation receives a wide factor range, and a coverage gate prevents a
+missing zone from being interpreted as zero emissions.
+Elexon relies on operationally metered generation and underrepresents embedded renewables, so this
+measurement limitation remains explicit even after the geographic boundary is populated.
+
+Analogy: the mart is a courtroom evidence table. Information available before the event goes in one
+folder, what happened during the event goes in another, and the final outcome goes in a third. The
+labels stop us from accidentally using the outcome to explain itself.
+
+The accompanying readiness report separates data engineering readiness from causal readiness. A
+complete, unique hourly table can be ready for descriptive proxy analysis while the identified
+estimator remains blocked. Current blockers include historical-final rather than point-in-time
+forecast vintages, missing historical weather forecasts, fuel and carbon prices, initial storage
+state, incomplete historical coverage until the connected-zone backfill finishes, and an observed
+workload intervention. This distinction prevents a clean dataset from being presented as proof of
+causation.
+
 ### Constrained Marginal Response Regression
 
 The first estimator should model how generation technologies and connected zones respond to changes in French net load while controlling for pre-decision conditions. Physical constraints can regularize the estimates. Total marginal response should approximately balance the demand change, subject to storage, losses, and imports. Sign and monotonicity assumptions must be tested by regime rather than imposed blindly.
@@ -430,6 +462,8 @@ The strongest architecture triangulates an econometric estimate, a flexible DML 
 ### Falsification And Sensitivity
 
 Future workload changes should not explain earlier emissions. Lead and placebo tests should therefore be near zero. Negative controls can reveal residual confounding. Omitted-variable sensitivity analysis should report how strong an unmeasured confounder must be to overturn the result. Effects should also be stable across seasons, congestion states, outages, and renewable regimes.
+
+<!-- pagebreak -->
 
 ### Evidence Tiers
 
@@ -584,6 +618,8 @@ I would log recommendation exposure, accepted hour, actual workload energy, dura
 | Causal recommendations | `src/causal/recommendations.py` |
 | Estimand contract | `config/causal_estimand.json` and `src/causal/estimand.py` |
 | Causal DAGs | `src/causal/dag.py` and `docs/causal_dag.md` |
+| Causal feature mart | `config/causal_feature_mart.json` and `src/causal/feature_mart.py` |
+| Connected-zone emissions | `config/neighbor_emissions.json` and `src/data/neighbor_emissions.py` |
 | Forecast monitoring | `src/monitoring/forecast_monitor.py` |
 | Outcome audit | `src/monitoring/recommendation_outcome_audit.py` |
 | Promotion gate | `scripts/gated_retrain.py` |

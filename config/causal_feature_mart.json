@@ -1,0 +1,40 @@
+{
+  "contract_version": "causal_hourly_feature_mart_v1",
+  "resolution": "1h",
+  "region": "FR",
+  "history_start_date": "2023-01-01",
+  "vintage_quality": "historical_final",
+  "minimum_core_coverage": 0.95,
+  "response_horizons_hours": [6, 12, 24],
+  "role_prefixes": {
+    "pre_treatment": "pre_",
+    "treatment_proxy": "treatment_proxy_",
+    "outcome": "outcome_",
+    "mediator": "mediator_",
+    "diagnostic": "diagnostic_",
+    "metadata": "metadata_"
+  },
+  "treatment_proxy": {
+    "name": "load_forecast_error",
+    "definition": "realized France load minus the historical ENTSO-E load forecast",
+    "unit": "MW",
+    "causal_status": "observational_proxy_not_observed_workload_intervention"
+  },
+  "outcome": {
+    "primary_available": "France direct operational emissions",
+    "unit": "kg_co2e",
+    "methodology": "direct_operational_emissions",
+    "calculation": "sum of settled source generation MWh multiplied by versioned direct operational kgCO2e/MWh factors",
+    "neighboring_areas": ["BE", "DE_LU", "CH", "IT_NORD", "ES", "GB"],
+    "minimum_neighbor_factor_coverage": 0.85,
+    "requested_estimand_boundary": "France and responding interconnected European bidding zones",
+    "boundary_status": "implemented_with_quality_gated_neighbor_emissions"
+  },
+  "strict_exclusions_from_adjustment": [
+    "physical_cross_border_flows",
+    "balancing_variables",
+    "unplanned_outages",
+    "realized_generation_dispatch",
+    "contemporaneous_forecast_errors"
+  ]
+}

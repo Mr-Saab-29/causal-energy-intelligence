@@ -47,6 +47,9 @@ jobs:
       - name: Ingest future exogenous data
         run: make ingest-future-cloud
 
+      - name: Ingest neighboring-zone emissions outcomes
+        run: make ingest-neighbor-emissions
+
       - name: Upload ingested data
         uses: actions/upload-artifact@v7
         with:

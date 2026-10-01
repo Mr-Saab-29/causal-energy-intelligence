@@ -7,6 +7,7 @@
   "retain_native_balancing_resolution": true,
   "datasets": {
     "cross_border": ["physical_flow", "scheduled_exchange", "day_ahead_capacity"],
+    "neighbor_generation": ["actual_generation_per_type"],
     "outages": ["planned", "unplanned"],
     "forecasts": ["load", "wind_onshore", "wind_offshore", "solar"],
     "balancing": [

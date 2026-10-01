@@ -1,7 +1,7 @@
 PYTHON ?= .venv/bin/python
 DAGSTER ?= .venv/bin/dagster
 
-.PHONY: help ingest-latest ingest-latest-cloud ingest-plan ingest-repair ingest-future ingest-future-cloud ingest-causal-grid-plan ingest-causal-grid causal-data-quality causal-archive-compact causal-archive-compact-purge causal-backfill-history ingest-monitor ingest-monitor-cloud forecast-monitor operational-audit-readiness recommendation-outcome-audit future-recommendations operational-refresh operational-publish operational-publish-cloud train-all train-all-gated forecast-all forecast-all-candidate forecast-all-force quick-refresh daily-local-refresh forecast-price forecast-ranking forecast-decision forecast-recommendations forecast-scenarios forecast-decision-example forecast-consumption forecast-production forecast-supply-demand forecast-carbon causal-contract marginal-emissions causal-recommendations pipeline-health pipeline-health-cloud pipeline-health-allow-stale dashboard-data dashboard-data-cloud methodology-handbook frontend-install frontend-dev frontend-build mlflow-ui dagster-dev docker-build docker-up docker-down docker-observability
+.PHONY: help ingest-latest ingest-latest-cloud ingest-plan ingest-repair ingest-future ingest-future-cloud ingest-causal-grid-plan ingest-causal-grid ingest-neighbor-emissions neighbor-emissions-backfill causal-data-quality causal-archive-compact causal-archive-compact-purge causal-backfill-history causal-feature-mart ingest-monitor ingest-monitor-cloud forecast-monitor operational-audit-readiness recommendation-outcome-audit future-recommendations operational-refresh operational-publish operational-publish-cloud train-all train-all-gated forecast-all forecast-all-candidate forecast-all-force quick-refresh daily-local-refresh forecast-price forecast-ranking forecast-decision forecast-recommendations forecast-scenarios forecast-decision-example forecast-consumption forecast-production forecast-supply-demand forecast-carbon causal-contract marginal-emissions causal-recommendations pipeline-health pipeline-health-cloud pipeline-health-allow-stale dashboard-data dashboard-data-cloud methodology-handbook frontend-install frontend-dev frontend-build mlflow-ui dagster-dev docker-build docker-up docker-down docker-observability
 
 help:
 	@echo "Forecast training targets:"
@@ -15,10 +15,13 @@ help:
 	@echo "  make ingest-future-cloud     Fetch next-24h weather and upsert transformed rows to Supabase"
 	@echo "  make ingest-causal-grid-plan Show the bounded ENTSO-E causal-data extraction plan"
 	@echo "  make ingest-causal-grid      Ingest ENTSO-E causal-grid inputs into Supabase"
+	@echo "  make ingest-neighbor-emissions  Ingest compact neighboring-zone emissions"
+	@echo "  make neighbor-emissions-backfill  Resume monthly neighboring-zone history"
 	@echo "  make causal-data-quality     Audit the previous complete causal-data month"
 	@echo "  make causal-archive-compact  Archive and compact the previous complete month"
 	@echo "  make causal-archive-compact-purge  Archive, verify, compact, then purge raw rows"
 	@echo "  make causal-backfill-history  Resume the checked monthly backfill through January 2023"
+	@echo "  make causal-feature-mart     Build the leakage-aware causal mart and readiness report"
 	@echo "  make forecast-monitor        Build reports/metrics/forecast_monitoring.json"
 	@echo "  make operational-audit-readiness  Verify current-month actuals and recommendation history"
 	@echo "  make recommendation-outcome-audit  Compare settled recommendations against actuals"
@@ -82,6 +85,13 @@ ingest-causal-grid-plan:
 
 ingest-causal-grid:
 	$(PYTHON) -m src.data.entsoe_causal_ingest
+	$(PYTHON) -m src.data.neighbor_emissions
+
+ingest-neighbor-emissions:
+	$(PYTHON) -m src.data.neighbor_emissions
+
+neighbor-emissions-backfill:
+	$(PYTHON) -m src.data.neighbor_emissions_backfill
 
 causal-data-quality:
 	$(PYTHON) -m src.data.causal_data_quality
@@ -94,6 +104,9 @@ causal-archive-compact-purge:
 
 causal-backfill-history:
 	$(PYTHON) -m src.data.causal_historical_backfill
+
+causal-feature-mart:
+	$(PYTHON) -m src.causal.feature_mart
 
 forecast-monitor:
 	$(PYTHON) -m src.monitoring.forecast_monitor

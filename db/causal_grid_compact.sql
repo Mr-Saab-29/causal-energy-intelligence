@@ -47,3 +47,38 @@ create table if not exists causal_france_hourly_features (
 
 create index if not exists idx_causal_france_compact_vintage_time
     on causal_france_hourly_features (vintage_quality, timestamp_utc);
+
+create table if not exists causal_neighbor_hourly_emissions (
+    timestamp_utc timestamptz not null,
+    bidding_zone text not null,
+    vintage_quality text not null check (
+        vintage_quality in ('operational_snapshot', 'historical_final')
+    ),
+    total_generation_mwh double precision not null check (total_generation_mwh >= 0),
+    named_factor_generation_mwh double precision not null check (
+        named_factor_generation_mwh >= 0
+    ),
+    fallback_generation_mwh double precision not null check (
+        fallback_generation_mwh >= 0
+    ),
+    named_factor_coverage_share double precision check (
+        named_factor_coverage_share between 0 and 1
+    ),
+    direct_emissions_kgco2e double precision not null check (
+        direct_emissions_kgco2e >= 0
+    ),
+    direct_emissions_lower_kgco2e double precision not null check (
+        direct_emissions_lower_kgco2e >= 0
+    ),
+    direct_emissions_upper_kgco2e double precision not null check (
+        direct_emissions_upper_kgco2e >= 0
+    ),
+    direct_carbon_intensity_gco2_kwh double precision,
+    production_type_count integer not null check (production_type_count >= 0),
+    source_interval_count integer not null check (source_interval_count >= 0),
+    compacted_at_utc timestamptz not null default now(),
+    primary key (timestamp_utc, bidding_zone, vintage_quality)
+);
+
+create index if not exists idx_causal_neighbor_emissions_vintage_time
+    on causal_neighbor_hourly_emissions (vintage_quality, timestamp_utc);

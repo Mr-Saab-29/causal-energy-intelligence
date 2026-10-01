@@ -78,10 +78,11 @@ def configure_document(document: Document) -> None:
 def add_footer(document: Document) -> None:
     for section in document.sections:
         footer = section.footer
-        table = footer.add_table(rows=1, cols=2, width=Inches(6.86))
+        table = footer.add_table(rows=1, cols=2, width=Inches(6.5))
         table.alignment = WD_TABLE_ALIGNMENT.CENTER
-        table.columns[0].width = Inches(5.8)
-        table.columns[1].width = Inches(1.06)
+        table.autofit = False
+        table.columns[0].width = Inches(5.35)
+        table.columns[1].width = Inches(1.15)
         remove_table_borders(table)
 
         left = table.cell(0, 0).paragraphs[0]
