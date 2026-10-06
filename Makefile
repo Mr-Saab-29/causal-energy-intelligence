@@ -1,7 +1,7 @@
 PYTHON ?= .venv/bin/python
 DAGSTER ?= .venv/bin/dagster
 
-.PHONY: help ingest-latest ingest-latest-cloud ingest-plan ingest-repair ingest-future ingest-future-cloud ingest-causal-grid-plan ingest-causal-grid ingest-neighbor-emissions neighbor-emissions-backfill ingest-pre-treatment pre-treatment-backfill causal-data-quality causal-archive-compact causal-archive-compact-purge causal-backfill-history causal-feature-mart ingest-monitor ingest-monitor-cloud forecast-monitor operational-audit-readiness recommendation-outcome-audit future-recommendations operational-refresh operational-publish operational-publish-cloud train-all train-all-gated forecast-all forecast-all-candidate forecast-all-force quick-refresh daily-local-refresh forecast-price forecast-ranking forecast-decision forecast-recommendations forecast-scenarios forecast-decision-example forecast-consumption forecast-production forecast-supply-demand forecast-carbon causal-contract marginal-emissions causal-recommendations pipeline-health pipeline-health-cloud pipeline-health-allow-stale dashboard-data dashboard-data-cloud frontend-install frontend-dev frontend-build mlflow-ui dagster-dev docker-build docker-up docker-down docker-observability
+.PHONY: help ingest-latest ingest-latest-cloud ingest-plan ingest-repair ingest-future ingest-future-cloud ingest-causal-grid-plan ingest-causal-grid ingest-neighbor-emissions neighbor-emissions-backfill ingest-pre-treatment pre-treatment-backfill causal-data-quality causal-archive-compact causal-archive-compact-purge causal-backfill-history causal-feature-mart treatment-readiness ingest-monitor ingest-monitor-cloud forecast-monitor operational-audit-readiness recommendation-outcome-audit future-recommendations operational-refresh operational-publish operational-publish-cloud train-all train-all-gated forecast-all forecast-all-candidate forecast-all-force quick-refresh daily-local-refresh forecast-price forecast-ranking forecast-decision forecast-recommendations forecast-scenarios forecast-decision-example forecast-consumption forecast-production forecast-supply-demand forecast-carbon causal-contract marginal-emissions causal-recommendations pipeline-health pipeline-health-cloud pipeline-health-allow-stale dashboard-data dashboard-data-cloud frontend-install frontend-dev frontend-build mlflow-ui dagster-dev docker-build docker-up docker-down docker-observability
 
 help:
 	@echo "Forecast training targets:"
@@ -24,6 +24,7 @@ help:
 	@echo "  make causal-archive-compact-purge  Archive, verify, compact, then purge raw rows"
 	@echo "  make causal-backfill-history  Resume the checked monthly backfill through January 2023"
 	@echo "  make causal-feature-mart     Build the leakage-aware causal mart and readiness report"
+	@echo "  make treatment-readiness     Audit observed workload decision and execution coverage"
 	@echo "  make forecast-monitor        Build reports/metrics/forecast_monitoring.json"
 	@echo "  make operational-audit-readiness  Verify current-month actuals and recommendation history"
 	@echo "  make recommendation-outcome-audit  Compare settled recommendations against actuals"
@@ -116,6 +117,9 @@ causal-backfill-history:
 causal-feature-mart:
 	$(PYTHON) -m src.causal.feature_mart
 
+treatment-readiness:
+	$(PYTHON) -m src.causal.treatment_observations
+
 forecast-monitor:
 	$(PYTHON) -m src.monitoring.forecast_monitor
 
@@ -132,7 +136,7 @@ operational-refresh: ingest-future operational-publish
 
 operational-publish: future-recommendations causal-recommendations pipeline-health forecast-monitor recommendation-outcome-audit dashboard-data frontend-build
 
-operational-publish-cloud: future-recommendations causal-recommendations pipeline-health-cloud forecast-monitor recommendation-outcome-audit dashboard-data-cloud frontend-build
+operational-publish-cloud: future-recommendations causal-recommendations pipeline-health-cloud forecast-monitor recommendation-outcome-audit treatment-readiness dashboard-data-cloud frontend-build
 
 train-all:
 	$(PYTHON) -m src.models.train_forecast --target all

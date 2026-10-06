@@ -16,6 +16,38 @@
     "override_precedence": true,
     "timezone": "UTC"
   },
+  "observed_treatment": {
+    "schema_version": "observed_workload_decision_v1",
+    "unit_of_analysis": "one workload scheduling decision",
+    "baseline_fields": [
+      "dashboard_accessed_at_utc",
+      "user_planned_start_utc",
+      "baseline_source",
+      "baseline_start_utc"
+    ],
+    "recommendation_exposure_fields": [
+      "recommended_start_utc",
+      "candidate_alternatives",
+      "recommendation_basis",
+      "scenario"
+    ],
+    "choice_fields": [
+      "user_selected_start_utc",
+      "selection_source"
+    ],
+    "execution_fields": [
+      "actual_start_utc",
+      "actual_completion_utc",
+      "actual_energy_kwh"
+    ],
+    "workload_fields": [
+      "workload_type",
+      "planned_energy_kwh",
+      "planned_duration_minutes",
+      "constraints"
+    ],
+    "direct_personal_identifiers_collected": false
+  },
   "outcome": {
     "graph_node": "total_operational_emissions",
     "name": "total_interconnected_grid_operational_emissions_delta",

@@ -21,7 +21,8 @@ body {
 }
 
 button,
-select {
+select,
+input {
   font: inherit;
 }
 
@@ -808,6 +809,118 @@ select:disabled {
   background: #fffefa;
 }
 
+.workload-observation-panel {
+  margin-bottom: 16px;
+}
+
+.observation-heading {
+  align-items: center;
+}
+
+.observation-form {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.observation-form label,
+.observation-stage label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.observation-form label > span,
+.observation-stage label > span,
+.stage-label {
+  color: #69766f;
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.observation-form input,
+.observation-form select,
+.observation-stage input {
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  border: 1px solid #c9c2b3;
+  border-radius: 6px;
+  background: #fffefa;
+  color: #17201d;
+  padding: 0 10px;
+}
+
+.primary-command,
+.secondary-command {
+  min-height: 38px;
+  border-radius: 6px;
+  padding: 0 12px;
+  font-weight: 800;
+}
+
+.primary-command {
+  border: 1px solid #176851;
+  background: #176851;
+  color: white;
+}
+
+.secondary-command {
+  border: 1px solid #c9c2b3;
+  background: #fffefa;
+  color: #3f5149;
+}
+
+.primary-command:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.observation-stages {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 20px;
+}
+
+.observation-stage {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) repeat(3, minmax(150px, 1fr));
+  gap: 12px;
+  align-items: end;
+  min-width: 0;
+}
+
+.observation-stage:first-child {
+  grid-template-columns: minmax(130px, 0.7fr) minmax(190px, 1.3fr) auto;
+  padding-right: 20px;
+  border-right: 1px solid #e8e0d3;
+}
+
+.observation-stage > div {
+  display: grid;
+  gap: 5px;
+}
+
+.observation-message {
+  margin-top: 12px;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.observation-message.success {
+  color: #176851;
+}
+
+.observation-message.error {
+  color: #8a2f21;
+}
+
+.observation-message.saving {
+  color: #52635c;
+}
+
 .status-screen {
   min-height: 100vh;
   display: grid;
@@ -860,6 +973,20 @@ select:disabled {
   .audit-insights,
   .comparison-grid {
     grid-template-columns: 1fr;
+  }
+
+  .observation-form,
+  .observation-stages,
+  .observation-stage,
+  .observation-stage:first-child {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .observation-stage:first-child {
+    padding-right: 0;
+    padding-bottom: 16px;
+    border-right: 0;
+    border-bottom: 1px solid #e8e0d3;
   }
 
   .recommendation-header {
@@ -925,6 +1052,13 @@ select:disabled {
   .controls-band select {
     grid-column: 1 / -1;
     width: 100%;
+  }
+
+  .observation-form,
+  .observation-stages,
+  .observation-stage,
+  .observation-stage:first-child {
+    grid-template-columns: 1fr;
   }
 
 }

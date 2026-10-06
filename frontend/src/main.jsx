@@ -30,6 +30,7 @@ import "./styles.css";
 import BenchmarkView from "./BenchmarkView.jsx";
 
 const DATA_URL = "/data/dashboard.json";
+const TREATMENT_API_URL = "/api/workload-decisions";
 
 function App() {
   const [payload, setPayload] = useState(null);
@@ -283,6 +284,13 @@ function App() {
               </div>
             </section>
           )}
+
+          <WorkloadDecisionPanel
+            payload={payload}
+            recommendations={recommendations}
+            selectedBasis={selectedBasis}
+            selectedScenario={selectedScenario}
+          />
 
           <section className="kpi-grid">
             <Metric
@@ -878,6 +886,309 @@ function Metric({ icon, label, value, detail }) {
   );
 }
 
+function WorkloadDecisionPanel({ payload, recommendations, selectedBasis, selectedScenario }) {
+  const [dashboardAccessTime] = useState(() => new Date().toISOString());
+  const [activeDecision, setActiveDecision] = useState(loadActiveDecision);
+  const [form, setForm] = useState({
+    workloadType: "data_center_batch",
+    plannedStart: "",
+    plannedEnergyKwh: "1000",
+    plannedDurationMinutes: "60",
+    earliestStart: "",
+    latestCompletion: "",
+    maxDelayMinutes: "1440",
+  });
+  const [selectedStart, setSelectedStart] = useState(
+    activeDecision?.userSelectedStartUtc
+      ? toLocalDateTime(activeDecision.userSelectedStartUtc)
+      : "",
+  );
+  const [actual, setActual] = useState({ start: "", completion: "", energyKwh: "" });
+  const [requestState, setRequestState] = useState({ status: "idle", message: "" });
+
+  async function savePlan(event) {
+    event.preventDefault();
+    if (recommendations.length === 0) {
+      setRequestState({ status: "error", message: "No recommendations are available." });
+      return;
+    }
+    const decisionId = crypto.randomUUID();
+    const plannedStartUtc = toIsoFromLocal(form.plannedStart);
+    const baselineSource = plannedStartUtc
+      ? "user_planned_start_time"
+      : "dashboard_access_time";
+    const candidates = recommendations.map((row) => ({
+      timestamp_utc: new Date(row.timestamp_utc).toISOString(),
+      rank: Number(row.recommendation_rank),
+      predicted_carbon_gco2_kwh: nullableNumber(recommendationCarbonIntensity(row)),
+      predicted_price_eur_mwh: nullableNumber(row.predicted_avg_price_eur_mwh),
+      confidence_score: nullableNumber(row.confidence_score),
+      recommendation_status: row.recommendation_status ?? "recommended",
+    }));
+    const body = {
+      decision_id: decisionId,
+      dashboard_accessed_at_utc: dashboardAccessTime,
+      user_planned_start_utc: plannedStartUtc,
+      baseline_source: baselineSource,
+      baseline_start_utc: plannedStartUtc ?? dashboardAccessTime,
+      recommendation_generated_at_utc: payload.generated_at_utc ?? dashboardAccessTime,
+      recommendation_basis: selectedBasis,
+      scenario: selectedScenario,
+      recommended_start_utc: candidates[0].timestamp_utc,
+      candidate_alternatives: candidates,
+      workload_type: form.workloadType,
+      planned_energy_kwh: Number(form.plannedEnergyKwh),
+      planned_duration_minutes: Number(form.plannedDurationMinutes),
+      constraints: {
+        earliest_start_utc: toIsoFromLocal(form.earliestStart),
+        latest_completion_utc: toIsoFromLocal(form.latestCompletion),
+        max_delay_minutes: form.maxDelayMinutes === "" ? null : Number(form.maxDelayMinutes),
+      },
+    };
+    setRequestState({ status: "saving", message: "Saving workload observation..." });
+    try {
+      await treatmentRequest("POST", body);
+      const decision = {
+        decisionId,
+        status: "planned",
+        workloadType: form.workloadType,
+        recommendedStartUtc: candidates[0].timestamp_utc,
+        candidates,
+      };
+      persistActiveDecision(decision);
+      setActiveDecision(decision);
+      setSelectedStart(toLocalDateTime(candidates[0].timestamp_utc));
+      setRequestState({ status: "success", message: "Workload plan saved." });
+    } catch (requestError) {
+      setRequestState({ status: "error", message: requestError.message });
+    }
+  }
+
+  async function recordSelection(event) {
+    event.preventDefault();
+    const selectedStartUtc = toIsoFromLocal(selectedStart);
+    if (!selectedStartUtc || !activeDecision) return;
+    const matchingCandidate = activeDecision.candidates.find(
+      (candidate) => candidate.timestamp_utc === selectedStartUtc,
+    );
+    const selectionSource =
+      selectedStartUtc === activeDecision.recommendedStartUtc
+        ? "recommended"
+        : matchingCandidate
+          ? "candidate_alternative"
+          : "custom";
+    setRequestState({ status: "saving", message: "Recording selected start..." });
+    try {
+      await treatmentRequest("PATCH", {
+        decision_id: activeDecision.decisionId,
+        operation: "select",
+        user_selected_start_utc: selectedStartUtc,
+        selection_source: selectionSource,
+      });
+      const decision = {
+        ...activeDecision,
+        status: "selected",
+        userSelectedStartUtc: selectedStartUtc,
+        selectionSource,
+      };
+      persistActiveDecision(decision);
+      setActiveDecision(decision);
+      setRequestState({ status: "success", message: "Selected start recorded." });
+    } catch (requestError) {
+      setRequestState({ status: "error", message: requestError.message });
+    }
+  }
+
+  async function recordCompletion(event) {
+    event.preventDefault();
+    if (!activeDecision) return;
+    setRequestState({ status: "saving", message: "Recording completed workload..." });
+    try {
+      await treatmentRequest("PATCH", {
+        decision_id: activeDecision.decisionId,
+        operation: "complete",
+        actual_start_utc: toIsoFromLocal(actual.start),
+        actual_completion_utc: toIsoFromLocal(actual.completion),
+        actual_energy_kwh: Number(actual.energyKwh),
+      });
+      const decision = { ...activeDecision, status: "completed" };
+      persistActiveDecision(decision);
+      setActiveDecision(decision);
+      setRequestState({ status: "success", message: "Execution outcome recorded." });
+    } catch (requestError) {
+      setRequestState({ status: "error", message: requestError.message });
+    }
+  }
+
+  function startNewDecision() {
+    localStorage.removeItem("active-workload-decision");
+    setActiveDecision(null);
+    setSelectedStart("");
+    setActual({ start: "", completion: "", energyKwh: "" });
+    setRequestState({ status: "idle", message: "" });
+  }
+
+  return (
+    <section className="panel workload-observation-panel">
+      <div className="panel-heading observation-heading">
+        <div>
+          <h2>Workload Observation</h2>
+          <p>Decision and execution record. No personal identifiers are collected.</p>
+        </div>
+        {activeDecision && (
+          <button className="secondary-command" type="button" onClick={startNewDecision}>
+            New observation
+          </button>
+        )}
+      </div>
+
+      {!activeDecision ? (
+        <form className="observation-form" onSubmit={savePlan}>
+          <label>
+            <span>Workload type</span>
+            <select
+              value={form.workloadType}
+              onChange={(event) => setForm({ ...form, workloadType: event.target.value })}
+            >
+              <option value="data_center_batch">Data center batch</option>
+              <option value="ev_charging">EV charging</option>
+              <option value="battery_charging">Battery charging</option>
+              <option value="industrial_batch">Industrial batch</option>
+              <option value="other">Other flexible load</option>
+            </select>
+          </label>
+          <ObservationInput
+            label="Planned start"
+            type="datetime-local"
+            value={form.plannedStart}
+            onChange={(value) => setForm({ ...form, plannedStart: value })}
+          />
+          <ObservationInput
+            label="Energy required (kWh)"
+            type="number"
+            min="0.01"
+            step="0.01"
+            required
+            value={form.plannedEnergyKwh}
+            onChange={(value) => setForm({ ...form, plannedEnergyKwh: value })}
+          />
+          <ObservationInput
+            label="Duration (minutes)"
+            type="number"
+            min="1"
+            required
+            value={form.plannedDurationMinutes}
+            onChange={(value) => setForm({ ...form, plannedDurationMinutes: value })}
+          />
+          <ObservationInput
+            label="Earliest start"
+            type="datetime-local"
+            value={form.earliestStart}
+            onChange={(value) => setForm({ ...form, earliestStart: value })}
+          />
+          <ObservationInput
+            label="Latest completion"
+            type="datetime-local"
+            value={form.latestCompletion}
+            onChange={(value) => setForm({ ...form, latestCompletion: value })}
+          />
+          <ObservationInput
+            label="Maximum delay (minutes)"
+            type="number"
+            min="0"
+            value={form.maxDelayMinutes}
+            onChange={(value) => setForm({ ...form, maxDelayMinutes: value })}
+          />
+          <button className="primary-command" type="submit" disabled={requestState.status === "saving"}>
+            Save workload plan
+          </button>
+        </form>
+      ) : (
+        <div className="observation-stages">
+          <form className="observation-stage" onSubmit={recordSelection}>
+            <div>
+              <span className="stage-label">Selected start</span>
+              <strong>{formatObservationStatus(activeDecision.status)}</strong>
+            </div>
+            <label>
+              <span>Candidate or custom time</span>
+              <input
+                type="datetime-local"
+                required
+                value={selectedStart}
+                onChange={(event) => setSelectedStart(event.target.value)}
+                list="candidate-start-times"
+              />
+              <datalist id="candidate-start-times">
+                {activeDecision.candidates.map((candidate) => (
+                  <option
+                    key={candidate.timestamp_utc}
+                    value={toLocalDateTime(candidate.timestamp_utc)}
+                  >
+                    Rank {candidate.rank}
+                  </option>
+                ))}
+              </datalist>
+            </label>
+            <button className="primary-command" type="submit" disabled={requestState.status === "saving"}>
+              Record selected start
+            </button>
+          </form>
+
+          <form className="observation-stage" onSubmit={recordCompletion}>
+            <div>
+              <span className="stage-label">Execution outcome</span>
+              <strong>{activeDecision.status === "completed" ? "Completed" : "Pending"}</strong>
+            </div>
+            <ObservationInput
+              label="Actual start"
+              type="datetime-local"
+              required
+              value={actual.start}
+              onChange={(value) => setActual({ ...actual, start: value })}
+            />
+            <ObservationInput
+              label="Actual completion"
+              type="datetime-local"
+              required
+              value={actual.completion}
+              onChange={(value) => setActual({ ...actual, completion: value })}
+            />
+            <ObservationInput
+              label="Energy consumed (kWh)"
+              type="number"
+              min="0.01"
+              step="0.01"
+              required
+              value={actual.energyKwh}
+              onChange={(value) => setActual({ ...actual, energyKwh: value })}
+            />
+            <button
+              className="primary-command"
+              type="submit"
+              disabled={requestState.status === "saving" || activeDecision.status === "planned"}
+            >
+              Record completion
+            </button>
+          </form>
+        </div>
+      )}
+      {requestState.message && (
+        <p className={`observation-message ${requestState.status}`}>{requestState.message}</p>
+      )}
+    </section>
+  );
+}
+
+function ObservationInput({ label, onChange, ...inputProps }) {
+  return (
+    <label>
+      <span>{label}</span>
+      <input {...inputProps} onChange={(event) => onChange(event.target.value)} />
+    </label>
+  );
+}
+
 function RecommendationRow({ row }) {
   const confidenceAvailable = row.confidence_score != null && row.confidence_level;
   const priceRank = row.predicted_price_rank ?? row.recommendation_rank;
@@ -1086,6 +1397,56 @@ function formatTrustReason(value) {
     .split(":")
     .map((part) => part.split("_").map(titleCase).join(" "))
     .join(": ");
+}
+
+async function treatmentRequest(method, body) {
+  const response = await fetch(TREATMENT_API_URL, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(result.error ?? "Unable to save the workload observation.");
+  }
+  return result;
+}
+
+function loadActiveDecision() {
+  try {
+    return JSON.parse(localStorage.getItem("active-workload-decision")) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function persistActiveDecision(value) {
+  localStorage.setItem("active-workload-decision", JSON.stringify(value));
+}
+
+function toIsoFromLocal(value) {
+  if (!value) return null;
+  const timestamp = new Date(value);
+  return Number.isNaN(timestamp.getTime()) ? null : timestamp.toISOString();
+}
+
+function toLocalDateTime(value) {
+  if (!value) return "";
+  const timestamp = new Date(value);
+  const offset = timestamp.getTimezoneOffset() * 60_000;
+  return new Date(timestamp.getTime() - offset).toISOString().slice(0, 16);
+}
+
+function nullableNumber(value) {
+  if (value == null || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function formatObservationStatus(status) {
+  if (status === "completed") return "Execution recorded";
+  if (status === "selected") return "Start selected";
+  return "Plan saved";
 }
 
 function formatHour(value) {

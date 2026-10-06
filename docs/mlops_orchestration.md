@@ -98,10 +98,11 @@ run a gated retrain:
 - otherwise reuse the current champion artifacts and only refresh
   next-24-hour recommendations
 
-The workflow then builds `frontend/public/data/dashboard.json` and deploys the
-prebuilt `frontend/dist` output to Vercel with the Vercel CLI. This keeps
-generated dashboard data out of git while still publishing fresh recommendations
-after each successful scheduled run. Because retraining and publishing are
+The workflow then builds `frontend/public/data/dashboard.json` and uses Vercel's
+production build output to deploy the static dashboard together with the
+`/api/workload-decisions` function. This keeps generated dashboard data out of git while still
+publishing fresh recommendations and preserving the backend-only treatment write path after each
+successful scheduled run. Because retraining and publishing are
 separate jobs, GitHub Actions can rerun a failed publish job without repeating a
 completed retrain from the same workflow run. The workflow also uploads
 `reports/metrics/orchestration_decision.json`, which records the preflight

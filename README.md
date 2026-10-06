@@ -53,10 +53,11 @@ curl http://localhost:8000/health
 
 ## Clean-Hour Dashboard
 
-The frontend lives in `frontend/` and is Vercel-ready. It reads the generated static data contract at
-`frontend/public/data/dashboard.json`, which can later be replaced by a live API. The dashboard now
-prefers the operational next-24-hour recommendation artifact when it exists, so it is meant to show
-future scheduling decisions rather than historical validation rows.
+The frontend lives in `frontend/` and is Vercel-ready. Recommendations are read from the generated
+static contract at `frontend/public/data/dashboard.json`; observed workload decisions are written
+through the server-side `/api/workload-decisions` function. The dashboard prefers the operational
+next-24-hour recommendation artifact when it exists, so it is meant to show future scheduling
+decisions rather than historical validation rows.
 
 The live recommendation view includes a trust/freshness banner, scenario and causal-adjusted basis
 selectors, top-5 clean-hour recommendations, deterministic explanation text for each recommendation,
@@ -82,6 +83,9 @@ Vercel deployment:
 - Use build command `npm run build`.
 - Use output directory `dist`.
 - Automatic Vercel Git deployments are disabled in `frontend/vercel.json`. Deploy through the scheduled GitHub Actions workflow so the generated live dashboard data is included.
+- Set `SUPABASE_PROJECT_URL` and `SUPABASE_SERVICE_ROLE_KEY` in the Vercel production environment;
+  never expose the service-role key through a `VITE_` variable. Optionally set
+  `TREATMENT_ALLOWED_ORIGIN` to the exact production dashboard origin.
 - The local/frontend build still includes a sample dashboard data contract if `frontend/public/data/dashboard.json` has not been generated. That keeps local builds healthy, but it is not the production deployment path.
 
 Daily automated deployment uses GitHub Actions and Vercel CLI so generated
@@ -96,7 +100,7 @@ secrets before enabling the scheduled deployment:
 The scheduled workflow ingests data, monitors drift, retrains through the gated
 promotion path only when needed or when model artifacts are missing, rebuilds
 future recommendations, writes `frontend/public/data/dashboard.json`, and
-deploys the prebuilt frontend to Vercel.
+uses Vercel's production build to deploy both the static dashboard and workload-observation API.
 
 Full retraining and dashboard refresh:
 
@@ -128,6 +132,10 @@ The platform now has a working France electricity decision-support baseline:
   contract separates the grid effect of moving a workload from the product effect of showing a
   recommendation. The workload baseline defaults to the exact dashboard-access time and supports a
   user-entered planned-start override.
+- The live dashboard now records one privacy-minimized observation per workload decision: baseline,
+  recommendation and alternatives shown, selected start, actual execution interval, energy,
+  duration, workload type, and operational constraints. A backend-only Vercel function writes the
+  records to Supabase; the service-role key is never exposed to the browser.
 - The completed historical ENTSO-E backfill feeds a leakage-aware hourly causal feature mart. Its
   explicit role prefixes keep pre-treatment controls separate from treatment proxies, outcomes,
   post-treatment mediators, and diagnostics; a readiness report prevents feature completeness from
@@ -193,6 +201,7 @@ make forecast-recommendations
 make forecast-scenarios
 make causal-contract
 make causal-feature-mart
+make treatment-readiness
 make ingest-neighbor-emissions
 make neighbor-emissions-backfill
 make ingest-pre-treatment
@@ -220,7 +229,7 @@ Command intent:
 - `make train-all-gated` runs the historical retrain behind the incumbent promotion gate and is used by the Dagster full-refresh asset.
 - `make operational-refresh` uses current saved model artifacts to build next-24-hour future recommendations, future scenario recommendations, causal-adjusted MVP recommendations, health/monitor reports, and the dashboard.
 - `make operational-publish` runs the fast publish stage after data/model state already exists: recommendations, causal-adjusted MVP recommendations, health/monitor reports, dashboard data, and frontend build.
-- `make operational-publish-cloud` runs the same publish stage with Supabase-aware health checks that validate the exported modeling cache instead of requiring local raw-source CSVs.
+- `make operational-publish-cloud` runs the same publish stage with Supabase-aware health checks that validate the exported modeling cache instead of requiring local raw-source CSVs, and refreshes the observed-treatment readiness report.
 - `make forecast-all` runs the gated full retrain and promotes the candidate only if it beats the incumbent. This is the default safe retraining command.
 - `make forecast-all-candidate` is the internal ungated candidate pipeline used by the promotion gate.
 - `make forecast-all-force` retrains and overwrites artifacts without the incumbent promotion gate. Use only when you intentionally want to bypass the guard.
@@ -232,6 +241,9 @@ Command intent:
   readiness report without claiming that the observational treatment effect is identified. The
   France outcome uses the versioned direct-operational source factors in
   `config/emission_factors.yaml`, rather than multiplying load by a published average intensity.
+- `make treatment-readiness` audits decision, selection, execution, and actual-energy coverage in
+  `observed_workload_decisions`. It reports collection progress but cannot declare the causal
+  estimator identified; overlap, power, telemetry quality, and sensitivity checks remain required.
 - `make ingest-neighbor-emissions` refreshes compact hourly generation and direct emissions for all
   six connected zones. The readiness gate requires every zone and retains lower/upper bounds for
   generation reported under heterogeneous `Other` categories.
@@ -301,6 +313,7 @@ Current key artifacts:
 - Causal estimand and DAG contract: `reports/causal/estimand_spec.json`
 - Causal hourly feature mart: `reports/causal/causal_hourly_feature_mart.parquet`
 - Causal feature readiness: `reports/metrics/causal_feature_readiness.json`
+- Observed treatment readiness: `reports/metrics/observed_treatment_readiness.json`
 - Pre-treatment covariate readiness: `reports/metrics/causal_pre_treatment_readiness.json`
 - Neighbor emissions readiness: `reports/metrics/neighbor_emissions_readiness.json`
 - Neighbor emissions backfill progress: `reports/metrics/neighbor_emissions_backfill.json`
@@ -324,14 +337,15 @@ Status: in progress.
   balancing, and forecast-error data contract, monthly quality gate, and checksum-gated
   archive/compaction path are implemented, and the January 2023 through August 2026 backfill is
   complete. The causal feature mart, connected-zone emissions contract, pre-treatment weather,
-  economic, carbon-market, and storage controls, and readiness gates are implemented. Historical
-  ENTSO-E forecast vintages and an observed workload intervention still block an identified
-  production causal estimate.
+  economic, carbon-market, and storage controls, readiness gates, and observed workload-decision
+  collection are implemented. Historical ENTSO-E forecast vintages and enough completed workload
+  observations for overlap, power, telemetry-quality, and sensitivity diagnostics still block an
+  identified production causal estimate.
 - Expand workload constraints for real operational use cases, such as multi-hour jobs, deadlines, blackout windows, and regional constraints.
 
 ## Data Contracts
 
-Canonical contracts are defined in `src/data/contracts.py` and documented in `docs/data_contracts.md`. Apply the Supabase/Postgres setup from `db/schema.sql`, `db/feature_views.sql`, and `db/modeling_features.sql`. The optional ENTSO-E causal-grid extension is in `db/causal_grid_data.sql`, its bounded hourly layer is in `db/causal_grid_compact.sql`, and both are documented in `docs/entsoe_causal_data.md`.
+Canonical contracts are defined in `src/data/contracts.py` and documented in `docs/data_contracts.md`. Apply the Supabase/Postgres setup from `db/schema.sql`, `db/feature_views.sql`, and `db/modeling_features.sql`. The optional ENTSO-E causal-grid extension is in `db/causal_grid_data.sql`, its bounded hourly layer is in `db/causal_grid_compact.sql`, and both are documented in `docs/entsoe_causal_data.md`. Apply `db/observed_workload_treatment.sql` to enable decision-level workload observation collection.
 
 Source-specific extraction notes are documented in `docs/data_sources.md`.
 

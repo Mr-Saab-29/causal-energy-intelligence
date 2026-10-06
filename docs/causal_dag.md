@@ -82,7 +82,32 @@ user constraints -> realized workload shift
 ```
 
 This estimand requires recommendation exposure, acceptance, actual workload telemetry, and user
-constraints. It is documented now but is not estimated by the current pipeline.
+constraints. Collection is implemented through the dashboard and
+`observed_workload_decisions`, but the effect is not estimated until there are enough completed
+observations and the overlap, power, telemetry-quality, and sensitivity gates pass.
+
+## Observed Treatment Contract
+
+The unit of analysis is one workload scheduling decision. The dashboard creates a UUID and records:
+
+- Baseline: dashboard access time, optional user-planned start, chosen baseline source, and resolved
+  baseline timestamp.
+- Recommendation exposure: generation time, basis, scenario, rank-1 start, and the complete set of
+  candidate alternatives shown to the user.
+- Choice: selected start and whether it was the recommendation, another candidate, or a custom time.
+- Execution: actual start, actual completion, and metered or reported energy consumed.
+- Workload context: planned energy, duration, type, earliest start, latest completion, and maximum
+  delay.
+
+The raw table and decision-level analysis view are created by
+`db/observed_workload_treatment.sql`. Direct personal identifiers are deliberately excluded. The
+browser calls `frontend/api/workload-decisions.js`; this server-side function is the only dashboard
+component that receives the Supabase service-role credential.
+
+Run `make treatment-readiness` to write
+`reports/metrics/observed_treatment_readiness.json`. This collection remains separate from the
+national hourly feature mart because a workload decision and a grid hour are different units of
+analysis. They are joined point-in-time only when an estimator dataset is built.
 
 ## Validation
 

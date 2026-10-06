@@ -135,6 +135,18 @@ Schedulable workloads used by what-if optimization.
 
 Required fields: `workload_id`, `region`, `earliest_start_utc`, `latest_end_utc`, `duration_minutes`, `power_kw`, `max_delay_minutes`.
 
+### `observed_workload_decisions`
+
+Decision-level records used to replace the load-forecast-error treatment proxy with observed user
+choices and workload execution. Apply `db/observed_workload_treatment.sql` to create the table and
+the `observed_workload_treatment_analysis` view.
+
+Each UUID-linked record preserves the dashboard-access or user-planned baseline, the recommendation
+and candidate set shown, the selected start, actual start and completion, actual energy, planned
+duration, workload type, and feasibility constraints. The analysis view derives recommended,
+selected, and realized shift minutes plus recommendation acceptance. It intentionally contains no
+direct personal identifiers and is accessible only through the backend service role.
+
 ## Supabase Storage
 
 Supabase provides managed Postgres and object Storage for this project. Use:
