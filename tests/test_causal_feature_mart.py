@@ -15,7 +15,13 @@ from src.causal.feature_mart import (
 
 def make_sources(
     periods: int = 30,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+) -> tuple[
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
+]:
     timestamps = pd.date_range("2026-08-01", periods=periods, freq="h", tz="UTC")
     france = pd.DataFrame(
         {
@@ -96,13 +102,26 @@ def make_sources(
             for area in ("BE", "DE_LU", "CH", "IT_NORD", "ES", "GB")
         ]
     )
-    return france, cross_border, weather, neighbor_emissions
+    pre_treatment = pd.DataFrame(
+        {
+            "timestamp_utc": timestamps,
+            "weather_temperature_forecast_c_24h": 19.0,
+            "weather_forecast_region_count": 12,
+            "gas_price_usd_mmbtu_lag_2m": 11.0,
+            "coal_price_usd_mt_lag_2m": 120.0,
+            "eua_auction_price_eur_tco2": 82.0,
+            "hydro_storage_mwh_lag_1w": 2_000_000.0,
+        }
+    )
+    return france, cross_border, weather, neighbor_emissions, pre_treatment
 
 
 def test_feature_mart_separates_pre_treatment_and_post_treatment_roles() -> None:
-    france, cross_border, weather, neighbor_emissions = make_sources()
+    france, cross_border, weather, neighbor_emissions, pre_treatment = make_sources()
 
-    mart = build_feature_mart(france, cross_border, weather, neighbor_emissions)
+    mart = build_feature_mart(
+        france, cross_border, weather, neighbor_emissions, pre_treatment
+    )
 
     assert mart.loc[0, "treatment_proxy_load_innovation_mw"] == pytest.approx(2.0)
     assert np.isnan(mart.loc[0, "pre_load_forecast_error_lag_1h_mw"])
@@ -115,9 +134,11 @@ def test_feature_mart_separates_pre_treatment_and_post_treatment_roles() -> None
 
 
 def test_feature_mart_builds_exact_forward_response_windows() -> None:
-    france, cross_border, weather, neighbor_emissions = make_sources()
+    france, cross_border, weather, neighbor_emissions, pre_treatment = make_sources()
 
-    mart = build_feature_mart(france, cross_border, weather, neighbor_emissions)
+    mart = build_feature_mart(
+        france, cross_border, weather, neighbor_emissions, pre_treatment
+    )
 
     hourly_emissions = 10.0 * 370.0 + 1.0 * 820.0 + 1.0 * 650.0
     assert mart.loc[0, "outcome_france_direct_emissions_kgco2e_h0"] == hourly_emissions
@@ -138,8 +159,10 @@ def test_feature_mart_builds_exact_forward_response_windows() -> None:
 
 
 def test_readiness_distinguishes_mart_quality_from_identification() -> None:
-    france, cross_border, weather, neighbor_emissions = make_sources()
-    mart = build_feature_mart(france, cross_border, weather, neighbor_emissions)
+    france, cross_border, weather, neighbor_emissions, pre_treatment = make_sources()
+    mart = build_feature_mart(
+        france, cross_border, weather, neighbor_emissions, pre_treatment
+    )
     config = load_feature_contract()
 
     report = build_readiness_report(mart, config)
@@ -150,6 +173,16 @@ def test_readiness_distinguishes_mart_quality_from_identification() -> None:
     assert report["interconnected_boundary_ready"] is True
     assert report["readiness"]["descriptive_and_proxy_analysis"] is True
     assert "neighbor_emissions_outcome_incomplete" not in report["readiness"]["blocking_gaps"]
+    assert "historical_weather_forecasts_unavailable" not in report["readiness"][
+        "blocking_gaps"
+    ]
+    assert "fuel_price_history_unavailable" not in report["readiness"]["blocking_gaps"]
+    assert "carbon_price_history_unavailable" not in report["readiness"][
+        "blocking_gaps"
+    ]
+    assert "initial_storage_state_unavailable" not in report["readiness"][
+        "blocking_gaps"
+    ]
     assert report["temporal_safety"]["forbidden_adjustment_columns"] == []
     assert all(
         column.startswith("pre_")
@@ -166,11 +199,13 @@ def test_contract_rejects_missing_required_keys(tmp_path) -> None:
 
 
 def test_readiness_fails_when_one_neighbor_is_missing() -> None:
-    france, cross_border, weather, neighbor_emissions = make_sources()
+    france, cross_border, weather, neighbor_emissions, pre_treatment = make_sources()
     neighbor_emissions = neighbor_emissions[
         neighbor_emissions["bidding_zone"] != "GB"
     ]
-    mart = build_feature_mart(france, cross_border, weather, neighbor_emissions)
+    mart = build_feature_mart(
+        france, cross_border, weather, neighbor_emissions, pre_treatment
+    )
 
     report = build_readiness_report(mart, load_feature_contract())
 
@@ -182,7 +217,7 @@ def test_readiness_fails_when_one_neighbor_is_missing() -> None:
 
 
 def test_low_hourly_factor_coverage_warns_without_masking_emissions() -> None:
-    france, cross_border, weather, neighbor_emissions = make_sources()
+    france, cross_border, weather, neighbor_emissions, pre_treatment = make_sources()
     first_hour = neighbor_emissions["timestamp_utc"].min()
     neighbor_emissions.loc[
         (neighbor_emissions["timestamp_utc"] == first_hour)
@@ -190,7 +225,9 @@ def test_low_hourly_factor_coverage_warns_without_masking_emissions() -> None:
         "named_factor_coverage_share",
     ] = 0.5
 
-    mart = build_feature_mart(france, cross_border, weather, neighbor_emissions)
+    mart = build_feature_mart(
+        france, cross_border, weather, neighbor_emissions, pre_treatment
+    )
     report = build_readiness_report(mart, load_feature_contract())
 
     assert bool(mart.loc[0, "metadata_interconnected_boundary_complete"]) is True

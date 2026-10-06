@@ -1,7 +1,7 @@
 PYTHON ?= .venv/bin/python
 DAGSTER ?= .venv/bin/dagster
 
-.PHONY: help ingest-latest ingest-latest-cloud ingest-plan ingest-repair ingest-future ingest-future-cloud ingest-causal-grid-plan ingest-causal-grid ingest-neighbor-emissions neighbor-emissions-backfill causal-data-quality causal-archive-compact causal-archive-compact-purge causal-backfill-history causal-feature-mart ingest-monitor ingest-monitor-cloud forecast-monitor operational-audit-readiness recommendation-outcome-audit future-recommendations operational-refresh operational-publish operational-publish-cloud train-all train-all-gated forecast-all forecast-all-candidate forecast-all-force quick-refresh daily-local-refresh forecast-price forecast-ranking forecast-decision forecast-recommendations forecast-scenarios forecast-decision-example forecast-consumption forecast-production forecast-supply-demand forecast-carbon causal-contract marginal-emissions causal-recommendations pipeline-health pipeline-health-cloud pipeline-health-allow-stale dashboard-data dashboard-data-cloud methodology-handbook frontend-install frontend-dev frontend-build mlflow-ui dagster-dev docker-build docker-up docker-down docker-observability
+.PHONY: help ingest-latest ingest-latest-cloud ingest-plan ingest-repair ingest-future ingest-future-cloud ingest-causal-grid-plan ingest-causal-grid ingest-neighbor-emissions neighbor-emissions-backfill ingest-pre-treatment pre-treatment-backfill causal-data-quality causal-archive-compact causal-archive-compact-purge causal-backfill-history causal-feature-mart ingest-monitor ingest-monitor-cloud forecast-monitor operational-audit-readiness recommendation-outcome-audit future-recommendations operational-refresh operational-publish operational-publish-cloud train-all train-all-gated forecast-all forecast-all-candidate forecast-all-force quick-refresh daily-local-refresh forecast-price forecast-ranking forecast-decision forecast-recommendations forecast-scenarios forecast-decision-example forecast-consumption forecast-production forecast-supply-demand forecast-carbon causal-contract marginal-emissions causal-recommendations pipeline-health pipeline-health-cloud pipeline-health-allow-stale dashboard-data dashboard-data-cloud frontend-install frontend-dev frontend-build mlflow-ui dagster-dev docker-build docker-up docker-down docker-observability
 
 help:
 	@echo "Forecast training targets:"
@@ -17,6 +17,8 @@ help:
 	@echo "  make ingest-causal-grid      Ingest ENTSO-E causal-grid inputs into Supabase"
 	@echo "  make ingest-neighbor-emissions  Ingest compact neighboring-zone emissions"
 	@echo "  make neighbor-emissions-backfill  Resume monthly neighboring-zone history"
+	@echo "  make ingest-pre-treatment   Refresh leakage-safe weather, market, and storage controls"
+	@echo "  make pre-treatment-backfill Backfill pre-treatment controls from January 2023"
 	@echo "  make causal-data-quality     Audit the previous complete causal-data month"
 	@echo "  make causal-archive-compact  Archive and compact the previous complete month"
 	@echo "  make causal-archive-compact-purge  Archive, verify, compact, then purge raw rows"
@@ -51,7 +53,6 @@ help:
 	@echo "  make pipeline-health         Build reports/metrics/pipeline_health.json"
 	@echo "  make pipeline-health-cloud   Build health report for Supabase-backed workflows"
 	@echo "  make dashboard-data          Build frontend/public/data/dashboard.json"
-	@echo "  make methodology-handbook    Build the interview methodology handbook DOCX"
 	@echo "  make frontend-dev            Start the dashboard dev server"
 	@echo "  make frontend-build          Build the Vercel-ready dashboard"
 	@echo "  make mlflow-ui               Start local MLflow tracking UI"
@@ -86,12 +87,19 @@ ingest-causal-grid-plan:
 ingest-causal-grid:
 	$(PYTHON) -m src.data.entsoe_causal_ingest
 	$(PYTHON) -m src.data.neighbor_emissions
+	$(PYTHON) -m src.data.pre_treatment_covariates
 
 ingest-neighbor-emissions:
 	$(PYTHON) -m src.data.neighbor_emissions
 
 neighbor-emissions-backfill:
 	$(PYTHON) -m src.data.neighbor_emissions_backfill
+
+ingest-pre-treatment:
+	$(PYTHON) -m src.data.pre_treatment_covariates
+
+pre-treatment-backfill:
+	$(PYTHON) -m src.data.pre_treatment_covariates --historical-backfill
 
 causal-data-quality:
 	$(PYTHON) -m src.data.causal_data_quality
@@ -194,9 +202,6 @@ dashboard-data:
 
 dashboard-data-cloud:
 	$(PYTHON) scripts/build_dashboard_data.py --pipeline-health-mode cloud
-
-methodology-handbook:
-	$(PYTHON) scripts/build_methodology_handbook.py
 
 pipeline-health:
 	$(PYTHON) -m src.data.pipeline_health

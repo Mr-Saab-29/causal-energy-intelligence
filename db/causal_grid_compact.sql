@@ -82,3 +82,32 @@ create table if not exists causal_neighbor_hourly_emissions (
 
 create index if not exists idx_causal_neighbor_emissions_vintage_time
     on causal_neighbor_hourly_emissions (vintage_quality, timestamp_utc);
+
+create table if not exists causal_pre_treatment_hourly_covariates (
+    timestamp_utc timestamptz not null,
+    vintage_quality text not null check (
+        vintage_quality in ('operational_snapshot', 'historical_final')
+    ),
+    weather_temperature_forecast_c_24h double precision,
+    weather_region_count integer not null default 0 check (weather_region_count >= 0),
+    gas_price_usd_mmbtu_lag_2m double precision check (
+        gas_price_usd_mmbtu_lag_2m is null or gas_price_usd_mmbtu_lag_2m >= 0
+    ),
+    coal_price_usd_mt_lag_2m double precision check (
+        coal_price_usd_mt_lag_2m is null or coal_price_usd_mt_lag_2m >= 0
+    ),
+    eua_auction_price_eur_tco2 double precision check (
+        eua_auction_price_eur_tco2 is null or eua_auction_price_eur_tco2 >= 0
+    ),
+    hydro_storage_mwh_lag_1w double precision check (
+        hydro_storage_mwh_lag_1w is null or hydro_storage_mwh_lag_1w >= 0
+    ),
+    fuel_reference_month date,
+    carbon_auction_at_utc timestamptz,
+    hydro_storage_observed_at_utc timestamptz,
+    compacted_at_utc timestamptz not null default now(),
+    primary key (timestamp_utc, vintage_quality)
+);
+
+create index if not exists idx_causal_pre_treatment_vintage_time
+    on causal_pre_treatment_hourly_covariates (vintage_quality, timestamp_utc);

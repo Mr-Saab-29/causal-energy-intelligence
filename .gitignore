@@ -51,3 +51,8 @@ codex_session_to_pdf.py
 *.tmp.yml
 *.tmp.yaml
 .vercel
+
+# Private interview study material
+docs/causal_energy_methodology_interview_handbook.md
+docs/causal_energy_methodology_interview_handbook.docx
+scripts/build_methodology_handbook.py

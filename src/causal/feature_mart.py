@@ -82,6 +82,7 @@ def build_and_write_feature_mart(
         sources["cross_border"],
         sources["weather"],
         sources["neighbor_emissions"],
+        sources["pre_treatment"],
         response_horizons=tuple(config["response_horizons_hours"]),
         contract_version=config["contract_version"],
         emission_factors=emission_factors,
@@ -245,6 +246,22 @@ def load_feature_sources(
         order by timestamp_utc, bidding_zone
         """
     )
+    pre_treatment_sql = text(
+        """
+        select
+            timestamp_utc,
+            weather_temperature_forecast_c_24h,
+            weather_region_count as weather_forecast_region_count,
+            gas_price_usd_mmbtu_lag_2m,
+            coal_price_usd_mt_lag_2m,
+            eua_auction_price_eur_tco2,
+            hydro_storage_mwh_lag_1w
+        from causal_pre_treatment_hourly_covariates
+        where vintage_quality = 'historical_final'
+          and timestamp_utc >= :start
+        order by timestamp_utc
+        """
+    )
     with engine.connect() as connection:
         return {
             "france": pd.read_sql_query(france_sql, connection, params=params),
@@ -252,6 +269,9 @@ def load_feature_sources(
             "weather": pd.read_sql_query(weather_sql, connection, params=params),
             "neighbor_emissions": pd.read_sql_query(
                 neighbor_emissions_sql, connection, params=params
+            ),
+            "pre_treatment": pd.read_sql_query(
+                pre_treatment_sql, connection, params=params
             ),
         }
 
@@ -261,6 +281,7 @@ def build_feature_mart(
     cross_border: pd.DataFrame,
     weather: pd.DataFrame,
     neighbor_emissions: pd.DataFrame | None = None,
+    pre_treatment: pd.DataFrame | None = None,
     *,
     response_horizons: tuple[int, ...] = (6, 12, 24),
     contract_version: str = "causal_hourly_feature_mart_v1",
@@ -278,6 +299,11 @@ def build_feature_mart(
     frame = frame.merge(prepare_timestamp_frame(weather), on="timestamp_utc", how="left")
     frame = frame.merge(
         prepare_neighbor_emissions(neighbor_emissions),
+        on="timestamp_utc",
+        how="left",
+    )
+    frame = frame.merge(
+        prepare_timestamp_frame(pre_treatment),
         on="timestamp_utc",
         how="left",
     )
@@ -344,6 +370,20 @@ def build_feature_mart(
         "day_ahead_export_capacity_mw"
     ]
     mart["pre_day_ahead_price_eur_mwh"] = frame["price_eur_mwh"]
+    mart["pre_weather_temperature_forecast_c_24h"] = frame[
+        "weather_temperature_forecast_c_24h"
+    ]
+    mart["pre_weather_forecast_region_count"] = frame[
+        "weather_forecast_region_count"
+    ]
+    mart["pre_gas_price_usd_mmbtu_lag_2m"] = frame[
+        "gas_price_usd_mmbtu_lag_2m"
+    ]
+    mart["pre_coal_price_usd_mt_lag_2m"] = frame["coal_price_usd_mt_lag_2m"]
+    mart["pre_eua_auction_price_eur_tco2"] = frame[
+        "eua_auction_price_eur_tco2"
+    ]
+    mart["pre_hydro_storage_mwh_lag_1w"] = frame["hydro_storage_mwh_lag_1w"]
 
     for column in WEATHER_COLUMNS:
         mart[f"pre_weather_{column}_lag_1h"] = frame[column].shift(1)
@@ -467,6 +507,11 @@ def build_readiness_report(
         "pre_wind_onshore_forecast_mw",
         "pre_solar_forecast_mw",
         "pre_net_scheduled_import_mw",
+        "pre_weather_temperature_forecast_c_24h",
+        "pre_gas_price_usd_mmbtu_lag_2m",
+        "pre_coal_price_usd_mt_lag_2m",
+        "pre_eua_auction_price_eur_tco2",
+        "pre_hydro_storage_mwh_lag_1w",
         "treatment_proxy_load_innovation_mw",
         "outcome_france_direct_emissions_kgco2e_h0",
         "outcome_interconnected_direct_emissions_kgco2e_h0",
@@ -496,13 +541,20 @@ def build_readiness_report(
     )
     interconnected_boundary_ready = boundary_coverage >= threshold
     identification_blockers = [
-        "historical_pre_treatment_inputs_are_not_point_in_time_operational_vintages",
-        "historical_weather_forecasts_unavailable",
-        "fuel_price_history_unavailable",
-        "carbon_price_history_unavailable",
-        "initial_storage_state_unavailable",
+        "historical_entsoe_forecasts_are_not_point_in_time_operational_vintages",
         "observed_workload_intervention_unavailable_treatment_is_proxy",
     ]
+    if coverage.get("pre_weather_temperature_forecast_c_24h", 0.0) < threshold:
+        identification_blockers.append("historical_weather_forecasts_unavailable")
+    if min(
+        coverage.get("pre_gas_price_usd_mmbtu_lag_2m", 0.0),
+        coverage.get("pre_coal_price_usd_mt_lag_2m", 0.0),
+    ) < threshold:
+        identification_blockers.append("fuel_price_history_unavailable")
+    if coverage.get("pre_eua_auction_price_eur_tco2", 0.0) < threshold:
+        identification_blockers.append("carbon_price_history_unavailable")
+    if coverage.get("pre_hydro_storage_mwh_lag_1w", 0.0) < threshold:
+        identification_blockers.append("initial_storage_state_unavailable")
     if not interconnected_boundary_ready:
         identification_blockers.append("neighbor_emissions_outcome_incomplete")
     warnings = []
@@ -528,8 +580,8 @@ def build_readiness_report(
         "contract_version": config["contract_version"],
         "status": "fail" if mart_issues else "warn",
         "feature_mart_ready": not mart_issues,
-        "identified_estimator_ready": False,
-        "interconnected_estimand_ready": False,
+        "identified_estimator_ready": not identification_blockers,
+        "interconnected_estimand_ready": not identification_blockers,
         "interconnected_boundary_ready": interconnected_boundary_ready,
         "window": {
             "start_utc": timestamp.min().isoformat(),
@@ -553,8 +605,8 @@ def build_readiness_report(
         },
         "readiness": {
             "descriptive_and_proxy_analysis": not mart_issues,
-            "france_observational_estimator": False,
-            "interconnected_causal_estimator": False,
+            "france_observational_estimator": not identification_blockers,
+            "interconnected_causal_estimator": not identification_blockers,
             "blocking_gaps": identification_blockers,
         },
         "emissions_boundary": {
@@ -570,7 +622,9 @@ def build_readiness_report(
     }
 
 
-def prepare_timestamp_frame(frame: pd.DataFrame) -> pd.DataFrame:
+def prepare_timestamp_frame(frame: pd.DataFrame | None) -> pd.DataFrame:
+    if frame is None:
+        return pd.DataFrame(columns=["timestamp_utc"])
     result = frame.copy()
     if result.empty:
         return result

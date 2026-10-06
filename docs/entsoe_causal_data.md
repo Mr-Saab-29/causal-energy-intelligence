@@ -232,10 +232,30 @@ and unplanned outages are post-treatment diagnostics or mediators.
 
 The readiness report deliberately separates two questions. `feature_mart_ready` means the hourly
 artifact passes coverage and uniqueness checks. `identified_estimator_ready` remains false until
-the project has point-in-time historical covariates, missing fuel/carbon price and storage controls,
-full historical connected-zone emissions coverage, and observed workload interventions. A ready
-mart is therefore permission to begin descriptive proxy analysis, not permission to make a causal
-savings claim.
+the project has point-in-time historical ENTSO-E forecast vintages and observed workload
+interventions. Archived weather forecasts, fuel and carbon prices, storage controls, and connected-
+zone emissions are now covered by separate leakage-safe contracts. A ready mart is therefore
+permission to begin descriptive proxy analysis, not permission to make a causal savings claim.
+
+## Pre-Treatment Covariates
+
+Apply `db/causal_grid_compact.sql`, then backfill the compact hourly control table:
+
+```bash
+make pre-treatment-backfill
+```
+
+The versioned contract is `config/causal_pre_treatment.json`. It uses an archived GFS temperature
+forecast at a fixed 24-hour lead for 12 France weather locations, free World Bank monthly European
+TTF natural-gas and Australian-coal benchmark prices as regime controls, completed EEX EU ETS primary
+auction prices, and France aggregate hydro storage from ENTSO-E. Fuel months are shifted by two
+months, auctions are joined strictly after completion, and storage observations are delayed seven
+days. These conservative availability rules prevent later information from leaking into a past
+decision hour.
+
+The command writes `reports/metrics/causal_pre_treatment_readiness.json` and refuses to publish a
+window below the configured 95 percent core coverage or with any timestamp-ordering violation.
+The daily workflow runs `make ingest-pre-treatment` for a bounded recent refresh.
 
 ## Interconnected Emissions Boundary
 

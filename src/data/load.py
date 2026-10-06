@@ -116,6 +116,21 @@ NEIGHBOR_HOURLY_EMISSIONS_COLUMNS = [
     "compacted_at_utc",
 ]
 
+PRE_TREATMENT_HOURLY_COLUMNS = [
+    "timestamp_utc",
+    "vintage_quality",
+    "weather_temperature_forecast_c_24h",
+    "weather_region_count",
+    "gas_price_usd_mmbtu_lag_2m",
+    "coal_price_usd_mt_lag_2m",
+    "eua_auction_price_eur_tco2",
+    "hydro_storage_mwh_lag_1w",
+    "fuel_reference_month",
+    "carbon_auction_at_utc",
+    "hydro_storage_observed_at_utc",
+    "compacted_at_utc",
+]
+
 CROSS_BORDER_COLUMNS = [
     "source",
     "source_record_id",
@@ -462,6 +477,22 @@ def upsert_neighbor_hourly_emissions(
         rows=rows,
         batch_size=batch_size,
         conflict_columns=("timestamp_utc", "bidding_zone", "vintage_quality"),
+    )
+
+
+def upsert_pre_treatment_hourly_covariates(
+    engine: Engine,
+    rows: Sequence[dict[str, Any]],
+    batch_size: int = 1_000,
+) -> int:
+    """Upsert compact leakage-safe pre-treatment covariates."""
+    return _upsert_rows(
+        engine=engine,
+        table_name="causal_pre_treatment_hourly_covariates",
+        columns=PRE_TREATMENT_HOURLY_COLUMNS,
+        rows=rows,
+        batch_size=batch_size,
+        conflict_columns=("timestamp_utc", "vintage_quality"),
     )
 
 

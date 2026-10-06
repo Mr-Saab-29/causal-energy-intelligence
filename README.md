@@ -36,24 +36,6 @@ External APIs / CSV sources
 - `docs/` — Architecture, causal DAG, and project report notes.
 - `db/` — Supabase/Postgres schema.
 
-## Methodology Interview Handbook
-
-The running methodology source is
-`docs/causal_energy_methodology_interview_handbook.md`. It explains the product,
-data contracts, leakage-safe forecasting, recommendation ranking, uncertainty,
-backtesting, causal estimand, DAGs, production workflow, limitations, and common
-interview questions in plain language.
-
-Regenerate the editable Word version after changing the source:
-
-```bash
-make methodology-handbook
-```
-
-The generated document is
-`docs/causal_energy_methodology_interview_handbook.docx`. Review its rendered
-pages before replacing the published PDF in `output/pdf/`.
-
 ## Local Development
 
 ```bash
@@ -150,6 +132,10 @@ The platform now has a working France electricity decision-support baseline:
   explicit role prefixes keep pre-treatment controls separate from treatment proxies, outcomes,
   post-treatment mediators, and diagnostics; a readiness report prevents feature completeness from
   being mistaken for causal identification.
+- The pre-treatment control layer adds archived fixed-24-hour GFS temperature forecasts, lagged
+  World Bank European TTF gas and Australian coal monthly prices, the last completed EEX EUA
+  primary auction, and lagged France hydro storage. Every join preserves the information set
+  available before the decision hour.
 - The agreed emissions boundary now includes Belgium, Germany-Luxembourg, Switzerland, Northern
   Italy, Spain, and Great Britain. ENTSO-E supplies continental generation by production type;
   Elexon FUELHH supplies Great Britain. Only compact hourly outcomes remain in Postgres, while the
@@ -209,6 +195,8 @@ make causal-contract
 make causal-feature-mart
 make ingest-neighbor-emissions
 make neighbor-emissions-backfill
+make ingest-pre-treatment
+make pre-treatment-backfill
 make marginal-emissions
 make causal-recommendations
 make train-all
@@ -250,6 +238,10 @@ Command intent:
 - `make neighbor-emissions-backfill` runs the connected-zone history month by month from January
   2023, archives normalized source rows to private Supabase Storage, verifies checksums, and stores
   only compact hourly outcomes in Postgres.
+- `make ingest-pre-treatment` refreshes the recent causally safe weather, fuel, carbon-market, and
+  hydro-storage controls. `make pre-treatment-backfill` loads the same compact hourly contract from
+  January 2023. World Bank monthly TTF gas and Australian coal prices use a conservative two-month
+  lag; EUA auctions use only the last completed auction; weekly hydro storage is delayed seven days.
 - `make causal-recommendations` compares average-carbon and marginal-carbon rankings, quantifies shifts, and exports causal-adjusted base and scenario recommendations.
 - `make ingest-monitor` ingests latest API data, runs pipeline health, and writes the forecast monitoring report without retraining.
 - `make ingest-monitor-cloud` is the deployable scheduled variant. It requires `DATABASE_URL`, limits historical ingestion to a recent 14-day lookback, writes transformed rows to Supabase, refreshes future weather, and avoids expensive bootstrap backfills.
@@ -309,6 +301,7 @@ Current key artifacts:
 - Causal estimand and DAG contract: `reports/causal/estimand_spec.json`
 - Causal hourly feature mart: `reports/causal/causal_hourly_feature_mart.parquet`
 - Causal feature readiness: `reports/metrics/causal_feature_readiness.json`
+- Pre-treatment covariate readiness: `reports/metrics/causal_pre_treatment_readiness.json`
 - Neighbor emissions readiness: `reports/metrics/neighbor_emissions_readiness.json`
 - Neighbor emissions backfill progress: `reports/metrics/neighbor_emissions_backfill.json`
 - Supply/demand metrics: `reports/metrics/supply_demand_baseline_metrics.json`
@@ -330,10 +323,10 @@ Status: in progress.
   sensitivity checks, and production-ready causal guardrails. The ENTSO-E cross-border, outage,
   balancing, and forecast-error data contract, monthly quality gate, and checksum-gated
   archive/compaction path are implemented, and the January 2023 through August 2026 backfill is
-  complete. The causal feature mart, connected-zone emissions contract, and readiness gates are
-  implemented. The separate connected-zone emissions backfill must complete before the boundary
-  gate passes; point-in-time covariates, missing economic/storage controls, and an observed
-  intervention still block an identified production causal estimate.
+  complete. The causal feature mart, connected-zone emissions contract, pre-treatment weather,
+  economic, carbon-market, and storage controls, and readiness gates are implemented. Historical
+  ENTSO-E forecast vintages and an observed workload intervention still block an identified
+  production causal estimate.
 - Expand workload constraints for real operational use cases, such as multi-hour jobs, deadlines, blackout windows, and regional constraints.
 
 ## Data Contracts

@@ -1,0 +1,39 @@
+{
+  "contract_version": "causal_pre_treatment_covariates_v1",
+  "history_start_date": "2023-01-01",
+  "minimum_core_coverage": 0.95,
+  "weather": {
+    "source": "open_meteo_previous_runs_gfs",
+    "endpoint": "https://previous-runs-api.open-meteo.com/v1/forecast",
+    "lead_hours": 24,
+    "variable": "temperature_2m_previous_day1",
+    "model": "gfs_seamless",
+    "window_days": 31
+  },
+  "fuel_prices": {
+    "source": "world_bank_pink_sheet_ttf_and_australian_coal",
+    "landing_page": "https://www.worldbank.org/en/research/commodity-markets",
+    "workbook_name": "CMO-Historical-Data-Monthly.xlsx",
+    "gas_column": "Natural gas, Europe",
+    "coal_column": "Coal, Australian",
+    "publication_lag_months": 2
+  },
+  "carbon_price": {
+    "source": "eex_eua_primary_auction",
+    "current_workbook_template": "https://public.eex-group.com/eex/eua-auction-report/emission-spot-primary-market-auction-report-{year}-data.xlsx",
+    "history_archive": "https://www.eex.com/fileadmin/EEX/Downloads/Markets/Environmentals/EUA_Emission_Spot_Primary_Market_Auction_Report/Archive_Reports/emission-spot-primary-market-auction-report-2012-2025-data.zip",
+    "zone": "EU",
+    "contract": "T3PA"
+  },
+  "storage": {
+    "source": "entsoe_aggregate_water_reservoirs_and_hydro_storage",
+    "area": "FR",
+    "availability_lag_days": 7
+  },
+  "known_limitations": [
+    "World Bank TTF gas and Australian coal prices are monthly regime controls and cannot represent daily fuel-price shocks.",
+    "Historical GFS weather uses a fixed 24-hour lead but model versions may change across the sample.",
+    "ENTSO-E hydro storage is aggregate and weekly; it does not provide battery state of charge.",
+    "EEX primary-auction prices are a public EU ETS carbon-price proxy rather than continuous secondary-market quotes."
+  ]
+}

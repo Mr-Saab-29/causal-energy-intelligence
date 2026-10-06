@@ -50,6 +50,9 @@ jobs:
       - name: Ingest neighboring-zone emissions outcomes
         run: make ingest-neighbor-emissions
 
+      - name: Ingest causal pre-treatment controls
+        run: make ingest-pre-treatment
+
       - name: Upload ingested data
         uses: actions/upload-artifact@v7
         with:
