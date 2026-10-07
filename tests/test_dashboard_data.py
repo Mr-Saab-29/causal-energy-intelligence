@@ -17,6 +17,7 @@ from scripts.build_dashboard_data import (
     summarize_forecast_monitoring,
     summarize_marginal_shift_metrics,
     summarize_pipeline_health,
+    summarize_synthetic_evidence,
 )
 from src.optimization.workload_shift import WorkloadConstraints, build_workload_decision_rankings
 
@@ -42,6 +43,65 @@ def test_filter_future_recommendations_drops_past_rows() -> None:
         "2026-08-10T08:00:00+00:00",
         "2026-08-10T09:00:00+00:00",
     ]
+
+
+def test_synthetic_evidence_is_labeled_and_compares_estimators() -> None:
+    payload = summarize_synthetic_evidence(
+        {"status": "ok"},
+        {
+            "synthetic_scope": "portfolio",
+            "completed_decisions": 90,
+            "distinct_decision_days": 90,
+            "recommendation_adherence_share": 0.4,
+            "mean_actual_energy_mwh": 500.0,
+            "true_mean_marginal_response_kgco2e_per_mwh": 250.0,
+        },
+        {
+            "status": "synthetic_demo",
+            "horizons": [
+                {
+                    "horizon_hours": 6,
+                    "point_estimates": {
+                        "mean_marginal_response_kgco2e_per_mwh": 280.0
+                    },
+                }
+            ],
+        },
+        {
+            "status": "synthetic_demo",
+            "horizons": [
+                {
+                    "horizon_hours": 6,
+                    "point_estimates": {
+                        "orthogonal_mean_marginal_response_kgco2e_per_mwh": 300.0
+                    },
+                    "comparison": {
+                        "status": "review",
+                        "effect_correlation": 0.4,
+                        "sign_disagreement_share": 0.2,
+                    },
+                }
+            ],
+        },
+        pd.DataFrame(
+            [
+                {
+                    "horizon_hours": 6,
+                    "dimension": "season",
+                    "level": "winter",
+                    "mean_marginal_response_kgco2e_per_mwh": 310.0,
+                    "rows": 20,
+                }
+            ]
+        ),
+    )
+
+    assert payload["available"] is True
+    assert payload["production_eligible"] is False
+    assert "Simulated" in payload["disclosure"]
+    assert payload["horizons"][0]["true_marginal_response_kgco2e_per_mwh"] == 250.0
+    assert payload["horizons"][0]["comparison_status"] == "review"
+    assert payload["heterogeneity"][0]["level"] == "winter"
 
 
 def test_add_current_reference_comparison_uses_earliest_active_hour() -> None:

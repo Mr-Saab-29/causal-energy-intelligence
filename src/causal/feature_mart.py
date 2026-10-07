@@ -134,9 +134,10 @@ def load_feature_sources(
     params = {"start": start.to_pydatetime()}
     france_sql = text(
         """
-        select
+        select distinct on (causal.timestamp_utc)
             causal.timestamp_utc,
             causal.vintage_quality,
+            causal.compacted_at_utc as snapshot_at_utc,
             causal.load_forecast_mw,
             causal.wind_onshore_forecast_mw,
             causal.wind_offshore_forecast_mw,
@@ -182,13 +183,25 @@ def load_feature_sources(
             group by date_trunc('hour', timestamp_utc)
         ) as price
           on price.timestamp_utc = causal.timestamp_utc
-        where causal.vintage_quality = 'historical_final'
-          and causal.timestamp_utc >= :start
-        order by causal.timestamp_utc
+        where causal.timestamp_utc >= :start
+          and actual.consumption_mwh is not null
+          and actual.total_production_mwh is not null
+        order by
+            causal.timestamp_utc,
+            (causal.vintage_quality = 'operational_snapshot') desc
         """
     )
     cross_sql = text(
         """
+        with preferred as (
+            select distinct on (timestamp_utc, neighbor_bidding_zone) *
+            from causal_cross_border_hourly_features
+            where timestamp_utc >= :start
+            order by
+                timestamp_utc,
+                neighbor_bidding_zone,
+                (vintage_quality = 'operational_snapshot') desc
+        )
         select
             timestamp_utc,
             sum(physical_import_mw) as physical_import_mw,
@@ -206,9 +219,7 @@ def load_feature_sources(
                 where scheduled_import_mw is not null or scheduled_export_mw is not null
             ) as scheduled_neighbor_count,
             count(*) as neighbor_count
-        from causal_cross_border_hourly_features
-        where vintage_quality = 'historical_final'
-          and timestamp_utc >= :start
+        from preferred
         group by timestamp_utc
         order by timestamp_utc
         """
@@ -248,7 +259,7 @@ def load_feature_sources(
     )
     pre_treatment_sql = text(
         """
-        select
+        select distinct on (timestamp_utc)
             timestamp_utc,
             weather_temperature_forecast_c_24h,
             weather_region_count as weather_forecast_region_count,
@@ -257,9 +268,10 @@ def load_feature_sources(
             eua_auction_price_eur_tco2,
             hydro_storage_mwh_lag_1w
         from causal_pre_treatment_hourly_covariates
-        where vintage_quality = 'historical_final'
-          and timestamp_utc >= :start
-        order by timestamp_utc
+        where timestamp_utc >= :start
+        order by
+            timestamp_utc,
+            (vintage_quality = 'operational_snapshot') desc
         """
     )
     with engine.connect() as connection:
@@ -316,14 +328,20 @@ def build_feature_mart(
     if missing_factors:
         raise ValueError("missing direct emission factors: " + ", ".join(missing_factors))
 
+    snapshot_at = pd.to_datetime(
+        frame.get("snapshot_at_utc", pd.Series(pd.NaT, index=frame.index)),
+        utc=True,
+        errors="coerce",
+    )
     mart = pd.DataFrame(
         {
             "timestamp_utc": frame["timestamp_utc"],
             "metadata_contract_version": contract_version,
             "metadata_vintage_quality": frame["vintage_quality"],
+            "metadata_snapshot_at_utc": snapshot_at,
             "metadata_point_in_time_eligible": frame["vintage_quality"].eq(
                 "operational_snapshot"
-            ),
+            ) & snapshot_at.notna(),
         }
     )
     timestamp = frame["timestamp_utc"]
@@ -497,6 +515,23 @@ def build_readiness_report(
     expected_hours = int((timestamp.max() - timestamp.min()).total_seconds() // 3600) + 1
     duplicate_timestamps = int(timestamp.duplicated().sum())
     hourly_coverage = len(mart) / expected_hours if expected_hours else 0.0
+    historical_timestamp = timestamp[
+        ~mart["metadata_point_in_time_eligible"].fillna(False).to_numpy()
+    ]
+    historical_expected_hours = (
+        int(
+            (historical_timestamp.max() - historical_timestamp.min()).total_seconds()
+            // 3600
+        )
+        + 1
+        if not historical_timestamp.empty
+        else 0
+    )
+    historical_hourly_coverage = (
+        len(historical_timestamp) / historical_expected_hours
+        if historical_expected_hours
+        else 0.0
+    )
     coverage = {
         column: round(float(mart[column].notna().mean()), 4)
         for column in mart.columns
@@ -525,8 +560,10 @@ def build_readiness_report(
     mart_issues = list(core_failures)
     if duplicate_timestamps:
         mart_issues.append(f"duplicate_timestamps:{duplicate_timestamps}")
-    if hourly_coverage < 0.99:
-        mart_issues.append(f"low_hourly_coverage:{hourly_coverage:.4f}")
+    if historical_hourly_coverage < 0.99:
+        mart_issues.append(
+            f"low_historical_hourly_coverage:{historical_hourly_coverage:.4f}"
+        )
 
     adjustment_columns = sorted(
         column for column in mart.columns if column.startswith("pre_")
@@ -558,6 +595,11 @@ def build_readiness_report(
     if not interconnected_boundary_ready:
         identification_blockers.append("neighbor_emissions_outcome_incomplete")
     warnings = []
+    if hourly_coverage < 0.99:
+        warnings.append(
+            "non_contiguous_operational_snapshot_era:"
+            f"{hourly_coverage:.4f}"
+        )
     low_neighbor_factor_hour_share = float(
         (~mart["metadata_neighbor_factor_coverage_meets_hourly_threshold"].fillna(False)).mean()
     )
@@ -589,6 +631,7 @@ def build_readiness_report(
             "rows": int(len(mart)),
             "expected_hours": expected_hours,
             "hourly_coverage": round(hourly_coverage, 4),
+            "historical_hourly_coverage": round(historical_hourly_coverage, 4),
         },
         "quality": {
             "duplicate_timestamps": duplicate_timestamps,

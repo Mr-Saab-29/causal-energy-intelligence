@@ -136,6 +136,15 @@ The platform now has a working France electricity decision-support baseline:
   recommendation and alternatives shown, selected start, actual execution interval, energy,
   duration, workload type, and operational constraints. A backend-only Vercel function writes the
   records to Supabase; the service-role key is never exposed to the browser.
+- The first observed-treatment estimator is implemented as a constrained marginal-response
+  regression for 6, 12, and 24-hour interconnected emissions. It uses chronological train/test
+  blocks, a 24-hour embargo, propensity-overlap checks, nonnegative marginal responses, and
+  decision-time block-bootstrap intervals. It publishes confidently avoided emissions only from
+  the lower 80% interval bound.
+- A Double Machine Learning companion uses gradient-boosted treatment and outcome nuisance models,
+  rolling time-blocked cross-fitting, and explicit effect modifiers for hour, season, renewable
+  regime, outages, and congestion. Its results are compared with the constrained model and cannot
+  silently replace it.
 - The completed historical ENTSO-E backfill feeds a leakage-aware hourly causal feature mart. Its
   explicit role prefixes keep pre-treatment controls separate from treatment proxies, outcomes,
   post-treatment mediators, and diagnostics; a readiness report prevents feature completeness from
@@ -201,7 +210,11 @@ make forecast-recommendations
 make forecast-scenarios
 make causal-contract
 make causal-feature-mart
+make causal-estimator
+make causal-dml
+make causal-synthetic-demo
 make treatment-readiness
+make ingest-causal-operational
 make ingest-neighbor-emissions
 make neighbor-emissions-backfill
 make ingest-pre-treatment
@@ -241,6 +254,24 @@ Command intent:
   readiness report without claiming that the observational treatment effect is identified. The
   France outcome uses the versioned direct-operational source factors in
   `config/emission_factors.yaml`, rather than multiplying load by a published average intensity.
+- `make ingest-causal-operational` captures recent ENTSO-E operational forecast vintages and
+  compacts them before removing the corresponding raw operational staging rows. The feature mart
+  prefers these snapshots for pre-treatment adjustment while retaining settled emissions outcomes;
+  compact snapshots and all historical archives remain intact.
+- `make causal-estimator` builds the observed decision/candidate panel and fits constrained
+  marginal-response models at 6, 12, and 24 hours. It exits successfully with a machine-readable
+  `blocked` report while observations accumulate; use `python -m src.causal.marginal_response
+  --require-ready` when a downstream release must fail closed.
+- `make causal-dml` runs the parallel orthogonal estimator on the same observed-treatment contract.
+  It writes nuisance cross-fit diagnostics, heterogeneous effect summaries, cluster-robust average
+  effect intervals, and a direct comparison against the constrained regression. Disagreement is
+  marked for review rather than treated as automatic model promotion.
+- `make causal-synthetic-demo` generates a deterministic year-spanning portfolio of measured
+  data-center and EV-fleet workloads and runs both estimators under their normal sample gates. It
+  writes only to `reports/demo` and `models/demo`; it never writes Supabase or changes production
+  readiness. Every output is labeled `synthetic_demo` and `production_eligible: false`.
+  Dashboard publication exposes these artifacts in a separate **Simulated evidence** tab with a
+  persistent disclosure; live recommendations and production trust status never consume them.
 - `make treatment-readiness` audits decision, selection, execution, and actual-energy coverage in
   `observed_workload_decisions`. It reports collection progress but cannot declare the causal
   estimator identified; overlap, power, telemetry quality, and sensitivity checks remain required.
@@ -314,6 +345,12 @@ Current key artifacts:
 - Causal hourly feature mart: `reports/causal/causal_hourly_feature_mart.parquet`
 - Causal feature readiness: `reports/metrics/causal_feature_readiness.json`
 - Observed treatment readiness: `reports/metrics/observed_treatment_readiness.json`
+- Identified-estimator readiness and metrics: `reports/metrics/causal_identified_estimator.json`
+- Marginal-response estimates: `reports/causal/marginal_response_estimates.csv`
+- Per-decision confidently avoided emissions: `reports/causal/confidently_avoided_emissions.csv`
+- DML readiness and metrics: `reports/metrics/causal_dml_estimator.json`
+- DML heterogeneous effects: `reports/causal/dml_heterogeneous_effects.csv`
+- DML versus constrained comparison: `reports/causal/dml_estimator_comparison.csv`
 - Pre-treatment covariate readiness: `reports/metrics/causal_pre_treatment_readiness.json`
 - Neighbor emissions readiness: `reports/metrics/neighbor_emissions_readiness.json`
 - Neighbor emissions backfill progress: `reports/metrics/neighbor_emissions_backfill.json`
@@ -339,8 +376,9 @@ Status: in progress.
   complete. The causal feature mart, connected-zone emissions contract, pre-treatment weather,
   economic, carbon-market, and storage controls, readiness gates, and observed workload-decision
   collection are implemented. Historical ENTSO-E forecast vintages and enough completed workload
-  observations for overlap, power, telemetry-quality, and sensitivity diagnostics still block an
-  identified production causal estimate.
+  observations for the configured time-blocked sample, overlap, power, telemetry-quality, and
+  sensitivity gates still block production effect estimates. The estimator now fails closed on
+  those gates rather than falling back to load forecast error as treatment.
 - Expand workload constraints for real operational use cases, such as multi-hour jobs, deadlines, blackout windows, and regional constraints.
 
 ## Data Contracts

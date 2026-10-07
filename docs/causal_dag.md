@@ -109,6 +109,56 @@ Run `make treatment-readiness` to write
 national hourly feature mart because a workload decision and a grid hour are different units of
 analysis. They are joined point-in-time only when an estimator dataset is built.
 
+## First Identified Estimator
+
+`make causal-estimator` implements `constrained_marginal_response_v1` from
+`config/causal_estimator.json`. For each completed workload decision, it expands the exact candidate
+set, baseline hour, and executed hour into a decision-hour panel. Actual energy in MWh is the dose;
+unexecuted feasible alternatives are controls. Alternatives whose response windows overlap the
+actual execution are excluded from fitting to avoid labeling exposed hours as untreated.
+
+The model has the form `Y = g(X) + T * m(X)`, where `Y` is cumulative interconnected direct
+operational emissions, `T` is observed workload energy, and `X` contains only `pre_` variables.
+The basis coefficients defining `m(X)` are constrained nonnegative. Separate models cover the
+workload duration plus 6, 12, and 24 response hours.
+
+Whole workload decisions are split chronologically: the first 70% train the model, a 24-hour
+embargo separates periods, and the remaining decisions form the test period. A propensity model
+checks whether executed and alternative hours overlap in comparable pre-treatment states. Seven-day
+decision blocks are resampled for 80% and 95% uncertainty intervals. For a shift from baseline `a`
+to executed time `b`, the point estimate is `energy_mwh * (m(X_a) - m(X_b))`; confidently avoided
+emissions are `max(0, lower_80_percent_bound)`.
+
+The estimator never substitutes load forecast error for observed treatment. It remains blocked
+unless there are at least 90 completed decisions across 30 days, enough chronological train/test
+decisions, acceptable propensity overlap, at least 160 successful block-bootstrap refits, settled
+interconnected outcomes, and point-in-time pre-treatment snapshots. Each grid hour retains its
+first non-empty operational snapshot, and that snapshot must predate recommendation generation.
+These conditions make the effect observationally identified under the
+documented no-unmeasured-confounding and consistency assumptions; they do not turn it into a
+randomized experiment.
+
+## Double Machine Learning Companion
+
+`make causal-dml` applies the same observed treatment, interconnected outcome, pre-treatment
+adjustment set, chronological holdout, and readiness gates. Histogram gradient boosting estimates
+the conditional outcome and treatment functions. Rolling-origin cross-fitting generates orthogonal
+residuals using only earlier decisions, with the same 24-hour embargo between each training and
+validation block.
+
+The final causal stage interacts residual treatment with interpretable regimes for hour, season,
+renewable forecast, planned outages, and cross-border congestion. Average effects include
+decision-clustered uncertainty intervals; regime summaries expose heterogeneity. Every horizon also
+reports its mean-effect difference, effect correlation, and sign disagreement against the original
+constrained marginal-response regression. DML is parallel robustness evidence: disagreement keeps
+the constrained estimator in place and requires investigation.
+
+For pipeline demonstrations before real workload executions exist, `make causal-synthetic-demo`
+creates an isolated, deterministic synthetic portfolio with realistic selection, energy, duration,
+grid regimes, and known marginal effects. These artifacts validate computation and presentation
+only. They are stored below `reports/demo`, never inserted into Supabase, and are explicitly marked
+ineligible for production evidence.
+
 ## Validation
 
 Contract generation fails when:

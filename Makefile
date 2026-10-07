@@ -1,7 +1,7 @@
 PYTHON ?= .venv/bin/python
 DAGSTER ?= .venv/bin/dagster
 
-.PHONY: help ingest-latest ingest-latest-cloud ingest-plan ingest-repair ingest-future ingest-future-cloud ingest-causal-grid-plan ingest-causal-grid ingest-neighbor-emissions neighbor-emissions-backfill ingest-pre-treatment pre-treatment-backfill causal-data-quality causal-archive-compact causal-archive-compact-purge causal-backfill-history causal-feature-mart treatment-readiness ingest-monitor ingest-monitor-cloud forecast-monitor operational-audit-readiness recommendation-outcome-audit future-recommendations operational-refresh operational-publish operational-publish-cloud train-all train-all-gated forecast-all forecast-all-candidate forecast-all-force quick-refresh daily-local-refresh forecast-price forecast-ranking forecast-decision forecast-recommendations forecast-scenarios forecast-decision-example forecast-consumption forecast-production forecast-supply-demand forecast-carbon causal-contract marginal-emissions causal-recommendations pipeline-health pipeline-health-cloud pipeline-health-allow-stale dashboard-data dashboard-data-cloud frontend-install frontend-dev frontend-build mlflow-ui dagster-dev docker-build docker-up docker-down docker-observability
+.PHONY: help ingest-latest ingest-latest-cloud ingest-plan ingest-repair ingest-future ingest-future-cloud ingest-causal-grid-plan ingest-causal-grid ingest-causal-operational ingest-neighbor-emissions neighbor-emissions-backfill ingest-pre-treatment pre-treatment-backfill causal-data-quality causal-archive-compact causal-archive-compact-purge causal-backfill-history causal-feature-mart causal-estimator causal-dml causal-synthetic-demo treatment-readiness ingest-monitor ingest-monitor-cloud forecast-monitor operational-audit-readiness recommendation-outcome-audit future-recommendations operational-refresh operational-publish operational-publish-cloud train-all train-all-gated forecast-all forecast-all-candidate forecast-all-force quick-refresh daily-local-refresh forecast-price forecast-ranking forecast-decision forecast-recommendations forecast-scenarios forecast-decision-example forecast-consumption forecast-production forecast-supply-demand forecast-carbon causal-contract marginal-emissions causal-recommendations pipeline-health pipeline-health-cloud pipeline-health-allow-stale dashboard-data dashboard-data-cloud frontend-install frontend-dev frontend-build mlflow-ui dagster-dev docker-build docker-up docker-down docker-observability
 
 help:
 	@echo "Forecast training targets:"
@@ -15,6 +15,7 @@ help:
 	@echo "  make ingest-future-cloud     Fetch next-24h weather and upsert transformed rows to Supabase"
 	@echo "  make ingest-causal-grid-plan Show the bounded ENTSO-E causal-data extraction plan"
 	@echo "  make ingest-causal-grid      Ingest ENTSO-E causal-grid inputs into Supabase"
+	@echo "  make ingest-causal-operational  Capture and compact recent point-in-time grid snapshots"
 	@echo "  make ingest-neighbor-emissions  Ingest compact neighboring-zone emissions"
 	@echo "  make neighbor-emissions-backfill  Resume monthly neighboring-zone history"
 	@echo "  make ingest-pre-treatment   Refresh leakage-safe weather, market, and storage controls"
@@ -24,6 +25,9 @@ help:
 	@echo "  make causal-archive-compact-purge  Archive, verify, compact, then purge raw rows"
 	@echo "  make causal-backfill-history  Resume the checked monthly backfill through January 2023"
 	@echo "  make causal-feature-mart     Build the leakage-aware causal mart and readiness report"
+	@echo "  make causal-estimator        Fit or readiness-gate the observed-treatment estimator"
+	@echo "  make causal-dml              Fit or readiness-gate the time-blocked DML companion"
+	@echo "  make causal-synthetic-demo   Validate both estimators with isolated synthetic evidence"
 	@echo "  make treatment-readiness     Audit observed workload decision and execution coverage"
 	@echo "  make forecast-monitor        Build reports/metrics/forecast_monitoring.json"
 	@echo "  make operational-audit-readiness  Verify current-month actuals and recommendation history"
@@ -90,6 +94,10 @@ ingest-causal-grid:
 	$(PYTHON) -m src.data.neighbor_emissions
 	$(PYTHON) -m src.data.pre_treatment_covariates
 
+ingest-causal-operational:
+	$(PYTHON) -m src.data.entsoe_causal_ingest --lookback-days 2
+	$(PYTHON) -m src.data.causal_operational_snapshot --lookback-days 2 --future-days 2
+
 ingest-neighbor-emissions:
 	$(PYTHON) -m src.data.neighbor_emissions
 
@@ -116,6 +124,15 @@ causal-backfill-history:
 
 causal-feature-mart:
 	$(PYTHON) -m src.causal.feature_mart
+
+causal-estimator:
+	$(PYTHON) -m src.causal.marginal_response
+
+causal-dml:
+	$(PYTHON) -m src.causal.dml
+
+causal-synthetic-demo:
+	$(PYTHON) -m src.causal.synthetic_demo
 
 treatment-readiness:
 	$(PYTHON) -m src.causal.treatment_observations

@@ -53,6 +53,38 @@ jobs:
       - name: Ingest causal pre-treatment controls
         run: make ingest-pre-treatment
 
+      - name: Capture point-in-time causal-grid snapshot
+        continue-on-error: true
+        timeout-minutes: 10
+        run: make ingest-causal-operational
+
+      - name: Upload causal snapshot report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: causal-operational-snapshot
+          path: reports/metrics/causal_operational_snapshot.json
+          if-no-files-found: warn
+
+      - name: Build observed-treatment causal estimates
+        continue-on-error: true
+        run: |
+          make causal-feature-mart
+          make causal-estimator
+          make causal-dml
+
+      - name: Upload causal estimator artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: causal-identified-estimator
+          path: |
+            models/causal
+            reports/causal
+            reports/metrics/causal_feature_readiness.json
+            reports/metrics/causal_identified_estimator.json
+          if-no-files-found: warn
+
       - name: Upload ingested data
         uses: actions/upload-artifact@v7
         with:
@@ -308,6 +340,9 @@ jobs:
       - name: Verify current-month audit readiness
         run: make operational-audit-readiness
 
+      - name: Build isolated synthetic causal demonstration
+        run: make causal-synthetic-demo
+
       - name: Build recommendations and dashboard from current champion
         id: publish_build
         run: make operational-publish-cloud
@@ -373,6 +408,9 @@ jobs:
             reports/metrics/recommendation_outcome_audit.json
             reports/metrics/marginal_ranking_shift_metrics.json
             reports/causal/estimand_spec.json
+            reports/demo/metrics
+            reports/demo/causal/dml_estimator_comparison.csv
+            reports/demo/causal/dml_heterogeneous_effects.csv
             reports/monitoring/recommendation_outcome_audit.csv
             reports/rankings/future_marginal_workload_decision_rankings.csv
             reports/recommendations/future_champion_workload_recommendations.csv

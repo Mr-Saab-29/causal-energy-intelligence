@@ -11,6 +11,7 @@ import {
   ClipboardCheck,
   Clock3,
   Gauge,
+  FlaskConical,
   Leaf,
   SlidersHorizontal,
   Zap,
@@ -135,6 +136,7 @@ function App() {
   }, [payload]);
   const isSampleData = payload?.data_state?.mode === "sample";
   const outcomeSummary = payload?.summary?.recommendation_outcome_audit ?? {};
+  const syntheticEvidence = payload?.synthetic_evidence ?? {};
 
   if (error) {
     return (
@@ -212,11 +214,25 @@ function App() {
           <Activity size={16} />
           Benchmarks
         </button>
+        {syntheticEvidence.available && (
+          <button
+            className={selectedView === "simulation" ? "active" : ""}
+            type="button"
+            onClick={() => setSelectedView("simulation")}
+          >
+            <FlaskConical size={16} />
+            Simulated evidence
+          </button>
+        )}
       </section>
 
-      {selectedView !== "benchmark" && <TrustFreshnessBanner payload={payload} trustSummary={trustSummary} />}
+      {(selectedView === "live" || selectedView === "audit") && (
+        <TrustFreshnessBanner payload={payload} trustSummary={trustSummary} />
+      )}
 
-      {selectedView === "benchmark" ? <BenchmarkView /> : selectedView === "audit" ? (
+      {selectedView === "benchmark" ? <BenchmarkView /> : selectedView === "simulation" ? (
+        <SyntheticEvidenceView evidence={syntheticEvidence} />
+      ) : selectedView === "audit" ? (
         <OutcomeAuditView
           payload={payload}
           outcomeRows={outcomeRows}
@@ -672,6 +688,140 @@ function CausalAverageComparisonPanel({ marginalShift }) {
         </>
       )}
     </div>
+  );
+}
+
+function SyntheticEvidenceView({ evidence }) {
+  const horizons = evidence.horizons ?? [];
+  const defaultHorizon = horizons.some((row) => row.horizon_hours === 24)
+    ? 24
+    : horizons[0]?.horizon_hours ?? 6;
+  const [selectedHorizon, setSelectedHorizon] = useState(defaultHorizon);
+  const selected = horizons.find((row) => row.horizon_hours === selectedHorizon);
+  const heterogeneity = (evidence.heterogeneity ?? []).filter(
+    (row) => row.horizon_hours === selectedHorizon,
+  );
+
+  return (
+    <>
+      <section className="simulation-disclosure">
+        <FlaskConical size={22} />
+        <div>
+          <strong>Simulated evidence — not production impact</strong>
+          <p>{evidence.disclosure}</p>
+        </div>
+        <span>Production eligible: No</span>
+      </section>
+
+      <section className="audit-insights simulation-kpis">
+        <div>
+          <span>Completed decisions</span>
+          <strong>{evidence.completed_decisions ?? "-"}</strong>
+        </div>
+        <div>
+          <span>Decision days</span>
+          <strong>{evidence.distinct_decision_days ?? "-"}</strong>
+        </div>
+        <div>
+          <span>Mean portfolio energy</span>
+          <strong>{formatFixed(evidence.mean_actual_energy_mwh)} MWh</strong>
+        </div>
+        <div>
+          <span>Recommendation adherence</span>
+          <strong>{formatPercent(evidence.recommendation_adherence_share)}</strong>
+        </div>
+      </section>
+
+      <section className="controls-band simulation-controls">
+        <label>
+          <Clock3 size={16} />
+          <span>Response horizon</span>
+          <select
+            value={selectedHorizon}
+            onChange={(event) => setSelectedHorizon(Number(event.target.value))}
+          >
+            {horizons.map((row) => (
+              <option key={row.horizon_hours} value={row.horizon_hours}>
+                {row.horizon_hours} hours
+              </option>
+            ))}
+          </select>
+        </label>
+      </section>
+
+      <section className="content-grid analytics-grid">
+        <div className="panel">
+          <div className="panel-heading">
+            <div>
+              <h2>Estimator Recovery</h2>
+              <p>Known simulated response compared with independently fitted estimators.</p>
+            </div>
+          </div>
+          <div className="comparison-grid simulation-estimates">
+            <div>
+              <span>Known simulated response</span>
+              <strong>{formatFixed(selected?.true_marginal_response_kgco2e_per_mwh)}</strong>
+              <small>kgCO2e/MWh</small>
+            </div>
+            <div>
+              <span>Constrained regression</span>
+              <strong>{formatFixed(selected?.constrained_marginal_response_kgco2e_per_mwh)}</strong>
+              <small>kgCO2e/MWh</small>
+            </div>
+            <div>
+              <span>Double Machine Learning</span>
+              <strong>{formatFixed(selected?.dml_marginal_response_kgco2e_per_mwh)}</strong>
+              <small>kgCO2e/MWh</small>
+            </div>
+          </div>
+          <div className="score-breakdown">
+            <span>Model comparison {titleCase(selected?.comparison_status ?? "unknown")}</span>
+            <span>Effect correlation {formatFixed(selected?.effect_correlation)}</span>
+            <span>Sign disagreement {formatPercent(selected?.sign_disagreement_share)}</span>
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-heading">
+            <div>
+              <h2>Evidence Boundary</h2>
+              <p>What this demonstration can and cannot support.</p>
+            </div>
+          </div>
+          <div className="evidence-boundary-list">
+            <div><CheckCircle2 size={17} /><span>Estimator execution, cross-fitting, intervals, and comparison are exercised end to end.</span></div>
+            <div><CheckCircle2 size={17} /><span>Grid covariates and workload behavior vary across operational regimes.</span></div>
+            <div><AlertTriangle size={17} /><span>No claim is made about observed users or verified avoided emissions.</span></div>
+            <div><AlertTriangle size={17} /><span>Production evidence remains gated on real completed workloads.</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-heading">
+          <div>
+            <h2>Heterogeneous DML Effects</h2>
+            <p>Simulated marginal responses across time and grid regimes.</p>
+          </div>
+        </div>
+        <div className="summary-table synthetic-effects-table">
+          <div className="summary-header" aria-hidden="true">
+            <span>Dimension</span>
+            <span>Regime</span>
+            <span>Effect kgCO2e/MWh</span>
+            <span>Rows</span>
+          </div>
+          {heterogeneity.map((row) => (
+            <div className="summary-row" key={`${row.dimension}-${row.level}`}>
+              <strong>{titleCase(row.dimension)}</strong>
+              <span>{titleCase(row.level)}</span>
+              <span>{formatFixed(row.mean_marginal_response_kgco2e_per_mwh)}</span>
+              <span>{row.rows}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+    </>
   );
 }
 

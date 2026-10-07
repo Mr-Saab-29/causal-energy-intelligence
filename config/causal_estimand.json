@@ -79,6 +79,33 @@
       "workload_feasibility"
     ]
   },
+  "identified_estimator": {
+    "version": "constrained_marginal_response_v1",
+    "model": "Y = g(X) + T * m(X), with m(X) constrained nonnegative",
+    "treatment_measure": "observed actual workload energy in MWh at the executed start",
+    "control_pool": "unexecuted feasible candidate hours with no overlap with actual execution",
+    "response_horizons_hours": [6, 12, 24],
+    "validation_design": "chronological train/test split with 24-hour embargo",
+    "uncertainty_method": "seven-day decision-block bootstrap",
+    "confidence_intervals": [0.8, 0.95],
+    "confidently_avoided_definition": "max(0, lower 80% interval bound for avoided kgCO2e)",
+    "treatment_proxy_allowed": false,
+    "identification_scope": "observationally identified under the stated DAG assumptions after all readiness gates pass"
+  },
+  "dml_companion_estimator": {
+    "version": "time_blocked_dml_v1",
+    "role": "parallel robustness estimator; it does not automatically replace the constrained estimator",
+    "nuisance_models": "histogram gradient boosting for conditional outcome and continuous treatment",
+    "cross_fitting": "rolling-origin decision blocks using only earlier observations and the same 24-hour embargo",
+    "effect_modifiers": [
+      "hour",
+      "season",
+      "renewable_regime",
+      "outage_regime",
+      "congestion_regime"
+    ],
+    "comparison_policy": "report effect-level agreement, correlation, and sign disagreement against constrained_marginal_response_v1"
+  },
   "adjustment_set": [
     "calendar",
     "weather_forecast",

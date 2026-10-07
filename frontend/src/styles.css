@@ -155,6 +155,76 @@ h2 {
   display: block;
 }
 
+.simulation-disclosure {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  border: 1px solid #d3aa45;
+  border-radius: 8px;
+  background: #fff8df;
+  color: #654b08;
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.simulation-disclosure p {
+  margin-top: 4px;
+  color: #6f654f;
+  font-size: 0.9rem;
+}
+
+.simulation-disclosure > span {
+  border: 1px solid #d3aa45;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.simulation-controls {
+  justify-content: flex-start;
+}
+
+.simulation-estimates {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.simulation-estimates div {
+  min-height: 96px;
+}
+
+.simulation-estimates strong {
+  font-size: 1.45rem;
+}
+
+.evidence-boundary-list {
+  display: grid;
+  gap: 10px;
+}
+
+.evidence-boundary-list div {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  border-bottom: 1px solid #e8e0d3;
+  padding: 0 0 10px;
+  color: #52635c;
+}
+
+.evidence-boundary-list div:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.synthetic-effects-table .summary-header,
+.synthetic-effects-table .summary-row {
+  grid-template-columns: minmax(130px, 0.8fr) minmax(120px, 0.8fr) minmax(160px, 1fr) minmax(70px, 0.4fr);
+  min-width: 600px;
+}
+
 .deployment-state p {
   margin-top: 4px;
   color: #6f654f;
@@ -973,6 +1043,15 @@ select:disabled {
   .audit-insights,
   .comparison-grid {
     grid-template-columns: 1fr;
+  }
+
+  .simulation-disclosure {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .simulation-disclosure > span {
+    grid-column: 2;
+    width: fit-content;
   }
 
   .observation-form,

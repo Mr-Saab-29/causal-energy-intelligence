@@ -36,6 +36,7 @@ data/processed/
 models/*.joblib
 models/*.pkl
 models/*.pickle
+models/demo/
 
 # Generated reports and dashboard data
 reports/
