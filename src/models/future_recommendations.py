@@ -105,6 +105,9 @@ def build_future_recommendations(
         scenario_recommendations,
         load_confidence_calibration(SCENARIO_CONFIDENCE_CALIBRATION_PATH),
     )
+    recommendations["recommendation_basis"] = "average_carbon"
+    rankings["recommendation_basis"] = "average_carbon"
+    scenario_recommendations["recommendation_basis"] = "average_carbon"
     previous_recommendations = load_latest_operational_recommendation_snapshot(
         OPERATIONAL_RECOMMENDATION_HISTORY_PATH
     )

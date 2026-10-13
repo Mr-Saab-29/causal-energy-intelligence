@@ -11,6 +11,7 @@ import {
   ClipboardCheck,
   Clock3,
   Gauge,
+  FlaskConical,
   Leaf,
   SlidersHorizontal,
   Zap,
@@ -30,6 +31,7 @@ import "./styles.css";
 import BenchmarkView from "./BenchmarkView.jsx";
 
 const DATA_URL = "/data/dashboard.json";
+const TREATMENT_API_URL = "/api/workload-decisions";
 
 function App() {
   const [payload, setPayload] = useState(null);
@@ -113,6 +115,9 @@ function App() {
   }, [payload, selectedOutcomeDate]);
 
   const hasScenarioMode = (payload?.filters?.scenarios ?? []).length > 0;
+  const causalProductGate = payload?.summary?.causal_product_gate ?? {};
+  const causalMonitoring = payload?.summary?.causal_performance_monitoring ?? {};
+  const hasCausalArtifacts = Boolean(payload?.summary?.marginal_ranking_shift?.method);
   const hasCausalMode =
     (payload?.causal_recommendations ?? []).length > 0 ||
     (payload?.causal_scenario_recommendations ?? []).length > 0;
@@ -134,6 +139,7 @@ function App() {
   }, [payload]);
   const isSampleData = payload?.data_state?.mode === "sample";
   const outcomeSummary = payload?.summary?.recommendation_outcome_audit ?? {};
+  const syntheticEvidence = payload?.synthetic_evidence ?? {};
 
   if (error) {
     return (
@@ -211,11 +217,25 @@ function App() {
           <Activity size={16} />
           Benchmarks
         </button>
+        {syntheticEvidence.available && (
+          <button
+            className={selectedView === "simulation" ? "active" : ""}
+            type="button"
+            onClick={() => setSelectedView("simulation")}
+          >
+            <FlaskConical size={16} />
+            Simulated evidence
+          </button>
+        )}
       </section>
 
-      {selectedView !== "benchmark" && <TrustFreshnessBanner payload={payload} trustSummary={trustSummary} />}
+      {(selectedView === "live" || selectedView === "audit") && (
+        <TrustFreshnessBanner payload={payload} trustSummary={trustSummary} />
+      )}
 
-      {selectedView === "benchmark" ? <BenchmarkView /> : selectedView === "audit" ? (
+      {selectedView === "benchmark" ? <BenchmarkView /> : selectedView === "simulation" ? (
+        <SyntheticEvidenceView evidence={syntheticEvidence} />
+      ) : selectedView === "audit" ? (
         <OutcomeAuditView
           payload={payload}
           outcomeRows={outcomeRows}
@@ -268,7 +288,7 @@ function App() {
               >
                 <option value="scenario">Scenario</option>
                 <option value="causal" disabled={!hasCausalMode}>
-                  Causal-adjusted MVP
+                  {causalProductGate.basis_label ?? "Causal-adjusted MVP"}
                 </option>
               </select>
             </label>
@@ -283,6 +303,13 @@ function App() {
               </div>
             </section>
           )}
+
+          <WorkloadDecisionPanel
+            payload={payload}
+            recommendations={recommendations}
+            selectedBasis={selectedBasis}
+            selectedScenario={selectedScenario}
+          />
 
           <section className="kpi-grid">
             <Metric
@@ -342,7 +369,7 @@ function App() {
               <div className="panel-heading">
                 <div>
                   <h2>Clean-Hour Recommendations</h2>
-                  <p>{recommendationSubtitle(selectedBasis, selectedScenario)}</p>
+                  <p>{recommendationSubtitle(selectedBasis, selectedScenario, causalProductGate)}</p>
                 </div>
               </div>
               <div className="recommendation-list">
@@ -358,6 +385,8 @@ function App() {
                   <div className="empty-state">
                     {isSampleData
                       ? "Live recommendation data has not been published for this deployment yet."
+                      : selectedBasis === "causal" && causalProductGate.suppression_reasons?.length
+                        ? `Causal recommendations are suppressed: ${causalProductGate.suppression_reasons.map(formatRecommendationStatus).join(", ")}.`
                       : "No future recommendation rows are available for the selected date."}
                   </div>
                 )}
@@ -395,11 +424,23 @@ function App() {
             </div>
           </section>
 
-          {hasCausalMode && (
+          {hasCausalArtifacts && (
             <section className="causal-band">
               <div>
                 <span>Basis</span>
-                <strong>{formatCausalMethod(marginalShift.method)}</strong>
+                <strong>{causalProductGate.basis_label ?? formatCausalMethod(marginalShift.method)}</strong>
+              </div>
+              <div>
+                <span>Evidence tier</span>
+                <strong>{formatEvidenceTier(causalProductGate.evidence_tier)}</strong>
+              </div>
+              <div>
+                <span>Causal regret</span>
+                <strong>{formatRecommendationStatus(causalMonitoring.realized_causal_regret?.status ?? "unavailable")}</strong>
+              </div>
+              <div>
+                <span>Estimator drift</span>
+                <strong>{formatRecommendationStatus(causalMonitoring.estimator_drift?.status ?? "unavailable")}</strong>
               </div>
               <div>
                 <span>Top-1 changed</span>
@@ -430,7 +471,10 @@ function App() {
               selectedScenario={selectedScenario}
               championModel={payload.champion?.model}
             />
-            <CausalAverageComparisonPanel marginalShift={marginalShift} />
+            <CausalAverageComparisonPanel
+              marginalShift={marginalShift}
+              causalProductGate={causalProductGate}
+            />
           </section>
 
           <section className="content-grid lower-grid">
@@ -438,7 +482,7 @@ function App() {
               <div className="panel-heading">
                 <div>
                   <h2>Scenario Reranking</h2>
-                  <p>{scenarioPanelSubtitle(selectedBasis, selectedScenario)}</p>
+                  <p>{scenarioPanelSubtitle(selectedBasis, selectedScenario, causalProductGate)}</p>
                 </div>
               </div>
               <div className="scenario-table">
@@ -604,7 +648,7 @@ function BacktestingSummaryPanel({ policyBacktest, selectedScenario, championMod
   );
 }
 
-function CausalAverageComparisonPanel({ marginalShift }) {
+function CausalAverageComparisonPanel({ marginalShift, causalProductGate }) {
   const hasMetrics = Object.keys(marginalShift ?? {}).length > 0 && marginalShift.method;
   return (
     <div className="panel">
@@ -625,9 +669,9 @@ function CausalAverageComparisonPanel({ marginalShift }) {
               <small>Uses predicted average carbon intensity.</small>
             </div>
             <div>
-              <span>Causal-adjusted MVP</span>
-              <strong>{formatCausalMethod(marginalShift.method)}</strong>
-              <small>Uses marginal-emissions proxy where coverage is available.</small>
+              <span>{causalProductGate.basis_label ?? "Causal-adjusted MVP"}</span>
+              <strong>{formatEvidenceTier(causalProductGate.evidence_tier)}</strong>
+              <small>{causalProductGate.disclosure ?? "Uses marginal-emissions proxy where coverage is available."}</small>
             </div>
           </div>
           <div className="summary-table causal-comparison-table">
@@ -664,6 +708,140 @@ function CausalAverageComparisonPanel({ marginalShift }) {
         </>
       )}
     </div>
+  );
+}
+
+function SyntheticEvidenceView({ evidence }) {
+  const horizons = evidence.horizons ?? [];
+  const defaultHorizon = horizons.some((row) => row.horizon_hours === 24)
+    ? 24
+    : horizons[0]?.horizon_hours ?? 6;
+  const [selectedHorizon, setSelectedHorizon] = useState(defaultHorizon);
+  const selected = horizons.find((row) => row.horizon_hours === selectedHorizon);
+  const heterogeneity = (evidence.heterogeneity ?? []).filter(
+    (row) => row.horizon_hours === selectedHorizon,
+  );
+
+  return (
+    <>
+      <section className="simulation-disclosure">
+        <FlaskConical size={22} />
+        <div>
+          <strong>Simulated evidence — not production impact</strong>
+          <p>{evidence.disclosure}</p>
+        </div>
+        <span>Production eligible: No</span>
+      </section>
+
+      <section className="audit-insights simulation-kpis">
+        <div>
+          <span>Completed decisions</span>
+          <strong>{evidence.completed_decisions ?? "-"}</strong>
+        </div>
+        <div>
+          <span>Decision days</span>
+          <strong>{evidence.distinct_decision_days ?? "-"}</strong>
+        </div>
+        <div>
+          <span>Mean portfolio energy</span>
+          <strong>{formatFixed(evidence.mean_actual_energy_mwh)} MWh</strong>
+        </div>
+        <div>
+          <span>Recommendation adherence</span>
+          <strong>{formatPercent(evidence.recommendation_adherence_share)}</strong>
+        </div>
+      </section>
+
+      <section className="controls-band simulation-controls">
+        <label>
+          <Clock3 size={16} />
+          <span>Response horizon</span>
+          <select
+            value={selectedHorizon}
+            onChange={(event) => setSelectedHorizon(Number(event.target.value))}
+          >
+            {horizons.map((row) => (
+              <option key={row.horizon_hours} value={row.horizon_hours}>
+                {row.horizon_hours} hours
+              </option>
+            ))}
+          </select>
+        </label>
+      </section>
+
+      <section className="content-grid analytics-grid">
+        <div className="panel">
+          <div className="panel-heading">
+            <div>
+              <h2>Estimator Recovery</h2>
+              <p>Known simulated response compared with independently fitted estimators.</p>
+            </div>
+          </div>
+          <div className="comparison-grid simulation-estimates">
+            <div>
+              <span>Known simulated response</span>
+              <strong>{formatFixed(selected?.true_marginal_response_kgco2e_per_mwh)}</strong>
+              <small>kgCO2e/MWh</small>
+            </div>
+            <div>
+              <span>Constrained regression</span>
+              <strong>{formatFixed(selected?.constrained_marginal_response_kgco2e_per_mwh)}</strong>
+              <small>kgCO2e/MWh</small>
+            </div>
+            <div>
+              <span>Double Machine Learning</span>
+              <strong>{formatFixed(selected?.dml_marginal_response_kgco2e_per_mwh)}</strong>
+              <small>kgCO2e/MWh</small>
+            </div>
+          </div>
+          <div className="score-breakdown">
+            <span>Model comparison {titleCase(selected?.comparison_status ?? "unknown")}</span>
+            <span>Effect correlation {formatFixed(selected?.effect_correlation)}</span>
+            <span>Sign disagreement {formatPercent(selected?.sign_disagreement_share)}</span>
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-heading">
+            <div>
+              <h2>Evidence Boundary</h2>
+              <p>What this demonstration can and cannot support.</p>
+            </div>
+          </div>
+          <div className="evidence-boundary-list">
+            <div><CheckCircle2 size={17} /><span>Estimator execution, cross-fitting, intervals, and comparison are exercised end to end.</span></div>
+            <div><CheckCircle2 size={17} /><span>Grid covariates and workload behavior vary across operational regimes.</span></div>
+            <div><AlertTriangle size={17} /><span>No claim is made about observed users or verified avoided emissions.</span></div>
+            <div><AlertTriangle size={17} /><span>Production evidence remains gated on real completed workloads.</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-heading">
+          <div>
+            <h2>Heterogeneous DML Effects</h2>
+            <p>Simulated marginal responses across time and grid regimes.</p>
+          </div>
+        </div>
+        <div className="summary-table synthetic-effects-table">
+          <div className="summary-header" aria-hidden="true">
+            <span>Dimension</span>
+            <span>Regime</span>
+            <span>Effect kgCO2e/MWh</span>
+            <span>Rows</span>
+          </div>
+          {heterogeneity.map((row) => (
+            <div className="summary-row" key={`${row.dimension}-${row.level}`}>
+              <strong>{titleCase(row.dimension)}</strong>
+              <span>{titleCase(row.level)}</span>
+              <span>{formatFixed(row.mean_marginal_response_kgco2e_per_mwh)}</span>
+              <span>{row.rows}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+    </>
   );
 }
 
@@ -878,6 +1056,309 @@ function Metric({ icon, label, value, detail }) {
   );
 }
 
+function WorkloadDecisionPanel({ payload, recommendations, selectedBasis, selectedScenario }) {
+  const [dashboardAccessTime] = useState(() => new Date().toISOString());
+  const [activeDecision, setActiveDecision] = useState(loadActiveDecision);
+  const [form, setForm] = useState({
+    workloadType: "data_center_batch",
+    plannedStart: "",
+    plannedEnergyKwh: "1000",
+    plannedDurationMinutes: "60",
+    earliestStart: "",
+    latestCompletion: "",
+    maxDelayMinutes: "1440",
+  });
+  const [selectedStart, setSelectedStart] = useState(
+    activeDecision?.userSelectedStartUtc
+      ? toLocalDateTime(activeDecision.userSelectedStartUtc)
+      : "",
+  );
+  const [actual, setActual] = useState({ start: "", completion: "", energyKwh: "" });
+  const [requestState, setRequestState] = useState({ status: "idle", message: "" });
+
+  async function savePlan(event) {
+    event.preventDefault();
+    if (recommendations.length === 0) {
+      setRequestState({ status: "error", message: "No recommendations are available." });
+      return;
+    }
+    const decisionId = crypto.randomUUID();
+    const plannedStartUtc = toIsoFromLocal(form.plannedStart);
+    const baselineSource = plannedStartUtc
+      ? "user_planned_start_time"
+      : "dashboard_access_time";
+    const candidates = recommendations.map((row) => ({
+      timestamp_utc: new Date(row.timestamp_utc).toISOString(),
+      rank: Number(row.recommendation_rank),
+      predicted_carbon_gco2_kwh: nullableNumber(recommendationCarbonIntensity(row)),
+      predicted_price_eur_mwh: nullableNumber(row.predicted_avg_price_eur_mwh),
+      confidence_score: nullableNumber(row.confidence_score),
+      recommendation_status: row.recommendation_status ?? "recommended",
+    }));
+    const body = {
+      decision_id: decisionId,
+      dashboard_accessed_at_utc: dashboardAccessTime,
+      user_planned_start_utc: plannedStartUtc,
+      baseline_source: baselineSource,
+      baseline_start_utc: plannedStartUtc ?? dashboardAccessTime,
+      recommendation_generated_at_utc: payload.generated_at_utc ?? dashboardAccessTime,
+      recommendation_basis: selectedBasis,
+      scenario: selectedScenario,
+      recommended_start_utc: candidates[0].timestamp_utc,
+      candidate_alternatives: candidates,
+      workload_type: form.workloadType,
+      planned_energy_kwh: Number(form.plannedEnergyKwh),
+      planned_duration_minutes: Number(form.plannedDurationMinutes),
+      constraints: {
+        earliest_start_utc: toIsoFromLocal(form.earliestStart),
+        latest_completion_utc: toIsoFromLocal(form.latestCompletion),
+        max_delay_minutes: form.maxDelayMinutes === "" ? null : Number(form.maxDelayMinutes),
+      },
+    };
+    setRequestState({ status: "saving", message: "Saving workload observation..." });
+    try {
+      await treatmentRequest("POST", body);
+      const decision = {
+        decisionId,
+        status: "planned",
+        workloadType: form.workloadType,
+        recommendedStartUtc: candidates[0].timestamp_utc,
+        candidates,
+      };
+      persistActiveDecision(decision);
+      setActiveDecision(decision);
+      setSelectedStart(toLocalDateTime(candidates[0].timestamp_utc));
+      setRequestState({ status: "success", message: "Workload plan saved." });
+    } catch (requestError) {
+      setRequestState({ status: "error", message: requestError.message });
+    }
+  }
+
+  async function recordSelection(event) {
+    event.preventDefault();
+    const selectedStartUtc = toIsoFromLocal(selectedStart);
+    if (!selectedStartUtc || !activeDecision) return;
+    const matchingCandidate = activeDecision.candidates.find(
+      (candidate) => candidate.timestamp_utc === selectedStartUtc,
+    );
+    const selectionSource =
+      selectedStartUtc === activeDecision.recommendedStartUtc
+        ? "recommended"
+        : matchingCandidate
+          ? "candidate_alternative"
+          : "custom";
+    setRequestState({ status: "saving", message: "Recording selected start..." });
+    try {
+      await treatmentRequest("PATCH", {
+        decision_id: activeDecision.decisionId,
+        operation: "select",
+        user_selected_start_utc: selectedStartUtc,
+        selection_source: selectionSource,
+      });
+      const decision = {
+        ...activeDecision,
+        status: "selected",
+        userSelectedStartUtc: selectedStartUtc,
+        selectionSource,
+      };
+      persistActiveDecision(decision);
+      setActiveDecision(decision);
+      setRequestState({ status: "success", message: "Selected start recorded." });
+    } catch (requestError) {
+      setRequestState({ status: "error", message: requestError.message });
+    }
+  }
+
+  async function recordCompletion(event) {
+    event.preventDefault();
+    if (!activeDecision) return;
+    setRequestState({ status: "saving", message: "Recording completed workload..." });
+    try {
+      await treatmentRequest("PATCH", {
+        decision_id: activeDecision.decisionId,
+        operation: "complete",
+        actual_start_utc: toIsoFromLocal(actual.start),
+        actual_completion_utc: toIsoFromLocal(actual.completion),
+        actual_energy_kwh: Number(actual.energyKwh),
+      });
+      const decision = { ...activeDecision, status: "completed" };
+      persistActiveDecision(decision);
+      setActiveDecision(decision);
+      setRequestState({ status: "success", message: "Execution outcome recorded." });
+    } catch (requestError) {
+      setRequestState({ status: "error", message: requestError.message });
+    }
+  }
+
+  function startNewDecision() {
+    localStorage.removeItem("active-workload-decision");
+    setActiveDecision(null);
+    setSelectedStart("");
+    setActual({ start: "", completion: "", energyKwh: "" });
+    setRequestState({ status: "idle", message: "" });
+  }
+
+  return (
+    <section className="panel workload-observation-panel">
+      <div className="panel-heading observation-heading">
+        <div>
+          <h2>Workload Observation</h2>
+          <p>Decision and execution record. No personal identifiers are collected.</p>
+        </div>
+        {activeDecision && (
+          <button className="secondary-command" type="button" onClick={startNewDecision}>
+            New observation
+          </button>
+        )}
+      </div>
+
+      {!activeDecision ? (
+        <form className="observation-form" onSubmit={savePlan}>
+          <label>
+            <span>Workload type</span>
+            <select
+              value={form.workloadType}
+              onChange={(event) => setForm({ ...form, workloadType: event.target.value })}
+            >
+              <option value="data_center_batch">Data center batch</option>
+              <option value="ev_charging">EV charging</option>
+              <option value="battery_charging">Battery charging</option>
+              <option value="industrial_batch">Industrial batch</option>
+              <option value="other">Other flexible load</option>
+            </select>
+          </label>
+          <ObservationInput
+            label="Planned start"
+            type="datetime-local"
+            value={form.plannedStart}
+            onChange={(value) => setForm({ ...form, plannedStart: value })}
+          />
+          <ObservationInput
+            label="Energy required (kWh)"
+            type="number"
+            min="0.01"
+            step="0.01"
+            required
+            value={form.plannedEnergyKwh}
+            onChange={(value) => setForm({ ...form, plannedEnergyKwh: value })}
+          />
+          <ObservationInput
+            label="Duration (minutes)"
+            type="number"
+            min="1"
+            required
+            value={form.plannedDurationMinutes}
+            onChange={(value) => setForm({ ...form, plannedDurationMinutes: value })}
+          />
+          <ObservationInput
+            label="Earliest start"
+            type="datetime-local"
+            value={form.earliestStart}
+            onChange={(value) => setForm({ ...form, earliestStart: value })}
+          />
+          <ObservationInput
+            label="Latest completion"
+            type="datetime-local"
+            value={form.latestCompletion}
+            onChange={(value) => setForm({ ...form, latestCompletion: value })}
+          />
+          <ObservationInput
+            label="Maximum delay (minutes)"
+            type="number"
+            min="0"
+            value={form.maxDelayMinutes}
+            onChange={(value) => setForm({ ...form, maxDelayMinutes: value })}
+          />
+          <button className="primary-command" type="submit" disabled={requestState.status === "saving"}>
+            Save workload plan
+          </button>
+        </form>
+      ) : (
+        <div className="observation-stages">
+          <form className="observation-stage" onSubmit={recordSelection}>
+            <div>
+              <span className="stage-label">Selected start</span>
+              <strong>{formatObservationStatus(activeDecision.status)}</strong>
+            </div>
+            <label>
+              <span>Candidate or custom time</span>
+              <input
+                type="datetime-local"
+                required
+                value={selectedStart}
+                onChange={(event) => setSelectedStart(event.target.value)}
+                list="candidate-start-times"
+              />
+              <datalist id="candidate-start-times">
+                {activeDecision.candidates.map((candidate) => (
+                  <option
+                    key={candidate.timestamp_utc}
+                    value={toLocalDateTime(candidate.timestamp_utc)}
+                  >
+                    Rank {candidate.rank}
+                  </option>
+                ))}
+              </datalist>
+            </label>
+            <button className="primary-command" type="submit" disabled={requestState.status === "saving"}>
+              Record selected start
+            </button>
+          </form>
+
+          <form className="observation-stage" onSubmit={recordCompletion}>
+            <div>
+              <span className="stage-label">Execution outcome</span>
+              <strong>{activeDecision.status === "completed" ? "Completed" : "Pending"}</strong>
+            </div>
+            <ObservationInput
+              label="Actual start"
+              type="datetime-local"
+              required
+              value={actual.start}
+              onChange={(value) => setActual({ ...actual, start: value })}
+            />
+            <ObservationInput
+              label="Actual completion"
+              type="datetime-local"
+              required
+              value={actual.completion}
+              onChange={(value) => setActual({ ...actual, completion: value })}
+            />
+            <ObservationInput
+              label="Energy consumed (kWh)"
+              type="number"
+              min="0.01"
+              step="0.01"
+              required
+              value={actual.energyKwh}
+              onChange={(value) => setActual({ ...actual, energyKwh: value })}
+            />
+            <button
+              className="primary-command"
+              type="submit"
+              disabled={requestState.status === "saving" || activeDecision.status === "planned"}
+            >
+              Record completion
+            </button>
+          </form>
+        </div>
+      )}
+      {requestState.message && (
+        <p className={`observation-message ${requestState.status}`}>{requestState.message}</p>
+      )}
+    </section>
+  );
+}
+
+function ObservationInput({ label, onChange, ...inputProps }) {
+  return (
+    <label>
+      <span>{label}</span>
+      <input {...inputProps} onChange={(event) => onChange(event.target.value)} />
+    </label>
+  );
+}
+
 function RecommendationRow({ row }) {
   const confidenceAvailable = row.confidence_score != null && row.confidence_level;
   const priceRank = row.predicted_price_rank ?? row.recommendation_rank;
@@ -945,6 +1426,15 @@ function RecommendationRow({ row }) {
         )}
         {row.predicted_marginal_proxy_confidence && (
           <DetailItem label="Marginal proxy confidence" value={titleCase(row.predicted_marginal_proxy_confidence)} />
+        )}
+        {row.causal_evidence_tier && (
+          <DetailItem label="Evidence tier" value={formatEvidenceTier(row.causal_evidence_tier)} />
+        )}
+        {row.avoided_emissions_ci80_lower_kgco2e_per_mwh != null && row.avoided_emissions_ci80_upper_kgco2e_per_mwh != null && (
+          <DetailItem
+            label="Avoided emissions 80% interval"
+            value={`${formatFixed(row.avoided_emissions_ci80_lower_kgco2e_per_mwh)} to ${formatFixed(row.avoided_emissions_ci80_upper_kgco2e_per_mwh)} kgCO2e per shifted MWh`}
+          />
         )}
         <DetailItem label="Carbon rank" value={`${row.predicted_carbon_rank ?? scenarioRank} of ${row.candidate_count ?? "-"} candidate hours`} />
         <DetailItem label="Price rank" value={`${priceRank} of ${row.candidate_count ?? "-"} candidate hours`} />
@@ -1088,6 +1578,56 @@ function formatTrustReason(value) {
     .join(": ");
 }
 
+async function treatmentRequest(method, body) {
+  const response = await fetch(TREATMENT_API_URL, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(result.error ?? "Unable to save the workload observation.");
+  }
+  return result;
+}
+
+function loadActiveDecision() {
+  try {
+    return JSON.parse(localStorage.getItem("active-workload-decision")) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function persistActiveDecision(value) {
+  localStorage.setItem("active-workload-decision", JSON.stringify(value));
+}
+
+function toIsoFromLocal(value) {
+  if (!value) return null;
+  const timestamp = new Date(value);
+  return Number.isNaN(timestamp.getTime()) ? null : timestamp.toISOString();
+}
+
+function toLocalDateTime(value) {
+  if (!value) return "";
+  const timestamp = new Date(value);
+  const offset = timestamp.getTimezoneOffset() * 60_000;
+  return new Date(timestamp.getTime() - offset).toISOString().slice(0, 16);
+}
+
+function nullableNumber(value) {
+  if (value == null || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function formatObservationStatus(status) {
+  if (status === "completed") return "Execution recorded";
+  if (status === "selected") return "Start selected";
+  return "Plan saved";
+}
+
 function formatHour(value) {
   if (!value) return "-";
   return new Intl.DateTimeFormat("en-GB", {
@@ -1171,6 +1711,13 @@ function formatCausalMethod(value) {
   return value ? formatRecommendationStatus(value) : "-";
 }
 
+function formatEvidenceTier(value) {
+  if (value === "operationally_validated") return "Operationally validated";
+  if (value === "observational_shadow") return "Observational shadow";
+  if (value === "marginal_proxy_mvp") return "Marginal proxy MVP";
+  return value ? formatRecommendationStatus(value) : "Unavailable";
+}
+
 function comparisonRead(value, kind) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return "-";
@@ -1214,15 +1761,17 @@ function meanBoolean(values) {
   return numericValues.reduce((total, value) => total + value, 0) / numericValues.length;
 }
 
-function recommendationSubtitle(selectedBasis, selectedScenario) {
+function recommendationSubtitle(selectedBasis, selectedScenario, causalProductGate) {
   if (selectedBasis === "causal") {
-    return `Top 5 future workload start hours for ${formatScenario(selectedScenario)} using the marginal-emissions proxy MVP.`;
+    return `Top 5 future workload start hours for ${formatScenario(selectedScenario)} using ${causalProductGate?.basis_label ?? "the causal-adjusted MVP"}.`;
   }
   return `Top 5 future workload start hours for ${formatScenario(selectedScenario)}. Scenario rank and score update with the selector.`;
 }
 
-function scenarioPanelSubtitle(selectedBasis, selectedScenario) {
-  const carbonBasis = selectedBasis === "causal" ? "marginal-carbon proxy" : "average-carbon";
+function scenarioPanelSubtitle(selectedBasis, selectedScenario, causalProductGate) {
+  const carbonBasis = selectedBasis === "causal"
+    ? causalProductGate?.basis_label ?? "marginal-carbon proxy"
+    : "average-carbon";
   return `${formatScenario(selectedScenario)} reranks the same candidate hours using ${carbonBasis} and price weights.`;
 }
 

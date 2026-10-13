@@ -1,0 +1,19 @@
+{
+  "estimator_version": "time_blocked_dml_v1",
+  "cross_fit_folds": 3,
+  "cross_fit_initial_train_share": 0.4,
+  "minimum_cross_fit_train_decisions": 20,
+  "minimum_cross_fit_validation_decisions": 5,
+  "nuisance_model": {
+    "max_iter": 200,
+    "learning_rate": 0.05,
+    "max_leaf_nodes": 15,
+    "min_samples_leaf": 10,
+    "l2_regularization": 1.0
+  },
+  "effect_ridge_alpha": 1.0,
+  "minimum_treatment_residual_std_mwh": 0.01,
+  "comparison_max_relative_mean_difference": 0.35,
+  "comparison_min_effect_correlation": 0.5,
+  "confidence_levels": [0.8, 0.95]
+}

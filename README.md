@@ -172,24 +172,6 @@ External APIs / CSV sources
 - `docs/` — Architecture, causal DAG, and project report notes.
 - `db/` — Supabase/Postgres schema.
 
-## Methodology Interview Handbook
-
-The running methodology source is
-`docs/causal_energy_methodology_interview_handbook.md`. It explains the product,
-data contracts, leakage-safe forecasting, recommendation ranking, uncertainty,
-backtesting, causal estimand, DAGs, production workflow, limitations, and common
-interview questions in plain language.
-
-Regenerate the editable Word version after changing the source:
-
-```bash
-make methodology-handbook
-```
-
-The generated document is
-`docs/causal_energy_methodology_interview_handbook.docx`. Review its rendered
-pages before replacing the published PDF in `output/pdf/`.
-
 ## Local Development
 
 ```bash
@@ -207,10 +189,11 @@ curl http://localhost:8000/health
 
 ## Clean-Hour Dashboard
 
-The frontend lives in `frontend/` and is Vercel-ready. It reads the generated static data contract at
-`frontend/public/data/dashboard.json`, which can later be replaced by a live API. The dashboard now
-prefers the operational next-24-hour recommendation artifact when it exists, so it is meant to show
-future scheduling decisions rather than historical validation rows.
+The frontend lives in `frontend/` and is Vercel-ready. Recommendations are read from the generated
+static contract at `frontend/public/data/dashboard.json`; observed workload decisions are written
+through the server-side `/api/workload-decisions` function. The dashboard prefers the operational
+next-24-hour recommendation artifact when it exists, so it is meant to show future scheduling
+decisions rather than historical validation rows.
 
 The live recommendation view includes a trust/freshness banner, scenario and causal-adjusted basis
 selectors, top-5 clean-hour recommendations, deterministic explanation text for each recommendation,
@@ -236,6 +219,9 @@ Vercel deployment:
 - Use build command `npm run build`.
 - Use output directory `dist`.
 - Automatic Vercel Git deployments are disabled in `frontend/vercel.json`. Deploy through the scheduled GitHub Actions workflow so the generated live dashboard data is included.
+- Set `SUPABASE_PROJECT_URL` and `SUPABASE_SERVICE_ROLE_KEY` in the Vercel production environment;
+  never expose the service-role key through a `VITE_` variable. Optionally set
+  `TREATMENT_ALLOWED_ORIGIN` to the exact production dashboard origin.
 - The local/frontend build still includes a sample dashboard data contract if `frontend/public/data/dashboard.json` has not been generated. That keeps local builds healthy, but it is not the production deployment path.
 
 Daily automated deployment uses GitHub Actions and Vercel CLI so generated
@@ -250,7 +236,7 @@ secrets before enabling the scheduled deployment:
 The scheduled workflow ingests data, monitors drift, retrains through the gated
 promotion path only when needed or when model artifacts are missing, rebuilds
 future recommendations, writes `frontend/public/data/dashboard.json`, and
-deploys the prebuilt frontend to Vercel.
+uses Vercel's production build to deploy both the static dashboard and workload-observation API.
 
 Full retraining and dashboard refresh:
 
@@ -282,6 +268,31 @@ The platform now has a working France electricity decision-support baseline:
   contract separates the grid effect of moving a workload from the product effect of showing a
   recommendation. The workload baseline defaults to the exact dashboard-access time and supports a
   user-entered planned-start override.
+- The live dashboard now records one privacy-minimized observation per workload decision: baseline,
+  recommendation and alternatives shown, selected start, actual execution interval, energy,
+  duration, workload type, and operational constraints. A backend-only Vercel function writes the
+  records to Supabase; the service-role key is never exposed to the browser.
+- The first observed-treatment estimator is implemented as a constrained marginal-response
+  regression for 6, 12, and 24-hour interconnected emissions. It uses chronological train/test
+  blocks, a 24-hour embargo, propensity-overlap checks, nonnegative marginal responses, and
+  decision-time block-bootstrap intervals. It publishes confidently avoided emissions only from
+  the lower 80% interval bound.
+- A Double Machine Learning companion uses gradient-boosted treatment and outcome nuisance models,
+  rolling time-blocked cross-fitting, and explicit effect modifiers for hour, season, renewable
+  regime, outages, and congestion. Its results are compared with the constrained model and cannot
+  silently replace it.
+- The completed historical ENTSO-E backfill feeds a leakage-aware hourly causal feature mart. Its
+  explicit role prefixes keep pre-treatment controls separate from treatment proxies, outcomes,
+  post-treatment mediators, and diagnostics; a readiness report prevents feature completeness from
+  being mistaken for causal identification.
+- The pre-treatment control layer adds archived fixed-24-hour GFS temperature forecasts, lagged
+  World Bank European TTF gas and Australian coal monthly prices, the last completed EEX EUA
+  primary auction, and lagged France hydro storage. Every join preserves the information set
+  available before the decision hour.
+- The agreed emissions boundary now includes Belgium, Germany-Luxembourg, Switzerland, Northern
+  Italy, Spain, and Great Britain. ENTSO-E supplies continental generation by production type;
+  Elexon FUELHH supplies Great Britain. Only compact hourly outcomes remain in Postgres, while the
+  monthly normalized source rows are checksum-verified in private Storage.
 - Recommendations show price direction versus the previous day at the same time instead of presenting price as the main dashboard forecast.
 - The champion model is selected from generated metrics with a regret-first score: 35% realized recommendation regret, 25% carbon regret, 20% top-5 ranking loss, 10% price-direction error, and 10% carbon-intensity error.
 - Full retraining is guarded by an incumbent-vs-candidate promotion gate. A candidate retrain is promoted only when its weighted lower-is-better decision metrics beat the current production champion and recommendation/carbon regret do not regress beyond tolerance; otherwise the incumbent artifacts are restored.
@@ -334,6 +345,16 @@ make forecast-decision
 make forecast-recommendations
 make forecast-scenarios
 make causal-contract
+make causal-feature-mart
+make causal-estimator
+make causal-dml
+make causal-synthetic-demo
+make treatment-readiness
+make ingest-causal-operational
+make ingest-neighbor-emissions
+make neighbor-emissions-backfill
+make ingest-pre-treatment
+make pre-treatment-backfill
 make marginal-emissions
 make causal-recommendations
 make train-all
@@ -357,13 +378,73 @@ Command intent:
 - `make train-all-gated` runs the historical retrain behind the incumbent promotion gate and is used by the Dagster full-refresh asset.
 - `make operational-refresh` uses current saved model artifacts to build next-24-hour future recommendations, future scenario recommendations, causal-adjusted MVP recommendations, health/monitor reports, and the dashboard.
 - `make operational-publish` runs the fast publish stage after data/model state already exists: recommendations, causal-adjusted MVP recommendations, health/monitor reports, dashboard data, and frontend build.
-- `make operational-publish-cloud` runs the same publish stage with Supabase-aware health checks that validate the exported modeling cache instead of requiring local raw-source CSVs.
+- `make operational-publish-cloud` runs the same publish stage with Supabase-aware health checks that validate the exported modeling cache instead of requiring local raw-source CSVs, and refreshes the observed-treatment readiness report.
 - `make forecast-all` runs the gated full retrain and promotes the candidate only if it beats the incumbent. This is the default safe retraining command.
 - `make forecast-all-candidate` is the internal ungated candidate pipeline used by the promotion gate.
 - `make forecast-all-force` retrains and overwrites artifacts without the incumbent promotion gate. Use only when you intentionally want to bypass the guard.
 - `make marginal-emissions` builds the Sprint 2 marginal-emissions proxy from hourly carbon outputs.
 - `make causal-contract` validates the treatment, outcome, baseline, adjustment set, and grid/product
   DAGs, then writes `reports/causal/estimand_spec.json`.
+- `make causal-feature-mart` joins the compact ENTSO-E history to settled France actuals, prices,
+  and available weather observations; it writes the hourly Parquet mart and a machine-readable
+  readiness report without claiming that the observational treatment effect is identified. The
+  France outcome uses the versioned direct-operational source factors in
+  `config/emission_factors.yaml`, rather than multiplying load by a published average intensity.
+- `make ingest-causal-operational` captures recent ENTSO-E operational forecast vintages and
+  compacts them before removing the corresponding raw operational staging rows. The feature mart
+  prefers these snapshots for pre-treatment adjustment while retaining settled emissions outcomes;
+  compact snapshots and all historical archives remain intact.
+- `make causal-estimator` builds the observed decision/candidate panel and fits constrained
+  marginal-response models at 6, 12, and 24 hours. It exits successfully with a machine-readable
+  `blocked` report while observations accumulate; use `python -m src.causal.marginal_response
+  --require-ready` when a downstream release must fail closed.
+- `make causal-dml` runs the parallel orthogonal estimator on the same observed-treatment contract.
+  It writes nuisance cross-fit diagnostics, heterogeneous effect summaries, cluster-robust average
+  effect intervals, and a direct comparison against the constrained regression. Disagreement is
+  marked for review rather than treated as automatic model promotion.
+- `make causal-diagnostics` evaluates held-out treatment overlap and positivity, weighted covariate
+  balance, future-treatment leads, shifted-treatment placebos, pre-treatment negative controls,
+  sensitivity to omitted confounding, stability by season and grid regime, and decision-day
+  calendar-block bootstrap intervals. It needs no additional paid data source, but production
+  causal claims still require genuine completed workload telemetry. For this personal-project
+  deployment, the command automatically falls back to the deterministic synthetic portfolio when
+  observed DML artifacts are unavailable. That mode is product-eligible but remains explicitly
+  labeled `synthetic_product_bootstrap` and is not eligible for real-world causal claims.
+- `make causal-structural-validation` compares constrained-regression and DML effects against paired
+  European dispatch counterfactuals. It accepts a PyPSA-Eur baseline/intervention manifest and uses
+  generator dispatch, snapshot weights, and the direct-operational output emissions factors.
+  Until paired PyPSA-Eur networks are supplied, the personal-project deployment uses an explicitly
+  labeled synthetic zonal merit-order fallback. Sign or magnitude disagreement is published as
+  model-risk evidence and the estimates are never averaged.
+- `make causal-performance` monitors settled carbon regret for basis-tagged causal recommendations
+  and tracks 6/12/24-hour estimator drift across successive observed-model runs. It remains
+  `insufficient_history` until at least 14 settled causal decision groups and two estimator
+  snapshots exist.
+- `make causal-product-gate` is the fail-closed product promotion gate. The dashboard keeps the
+  **Causal-adjusted MVP** label for proxy or observational-shadow evidence and uses
+  **Causal-adjusted** only after observed diagnostics, low-risk PyPSA-Eur validation, realized
+  causal regret, estimator drift, and the identified-effect recommendation engine all pass.
+  Identified recommendations are suppressed when overlap or time-series uncertainty fails;
+  candidate rows are always filtered by the operational uncertainty guard.
+- `make causal-synthetic-demo` generates a deterministic year-spanning portfolio of measured
+  data-center and EV-fleet workloads and runs both estimators under their normal sample gates. It
+  writes only to `reports/demo` and `models/demo`; it never writes Supabase or changes production
+  readiness. Every output is labeled `synthetic_demo` and `production_eligible: false`.
+  Dashboard publication exposes these artifacts in a separate **Simulated evidence** tab with a
+  persistent disclosure; live recommendations and production trust status never consume them.
+- `make treatment-readiness` audits decision, selection, execution, and actual-energy coverage in
+  `observed_workload_decisions`. It reports collection progress but cannot declare the causal
+  estimator identified; overlap, power, telemetry quality, and sensitivity checks remain required.
+- `make ingest-neighbor-emissions` refreshes compact hourly generation and direct emissions for all
+  six connected zones. The readiness gate requires every zone and retains lower/upper bounds for
+  generation reported under heterogeneous `Other` categories.
+- `make neighbor-emissions-backfill` runs the connected-zone history month by month from January
+  2023, archives normalized source rows to private Supabase Storage, verifies checksums, and stores
+  only compact hourly outcomes in Postgres.
+- `make ingest-pre-treatment` refreshes the recent causally safe weather, fuel, carbon-market, and
+  hydro-storage controls. `make pre-treatment-backfill` loads the same compact hourly contract from
+  January 2023. World Bank monthly TTF gas and Australian coal prices use a conservative two-month
+  lag; EUA auctions use only the last completed auction; weekly hydro storage is delayed seven days.
 - `make causal-recommendations` compares average-carbon and marginal-carbon rankings, quantifies shifts, and exports causal-adjusted base and scenario recommendations.
 - `make ingest-monitor` ingests latest API data, runs pipeline health, and writes the forecast monitoring report without retraining.
 - `make ingest-monitor-cloud` is the deployable scheduled variant. It requires `DATABASE_URL`, limits historical ingestion to a recent 14-day lookback, writes transformed rows to Supabase, refreshes future weather, and avoids expensive bootstrap backfills.
@@ -421,6 +502,25 @@ Current key artifacts:
 - Causal-adjusted scenario recommendations: `reports/scenarios/causal_adjusted_workload_scenario_recommendations.csv`
 - Marginal ranking shift metrics: `reports/metrics/marginal_ranking_shift_metrics.json`
 - Causal estimand and DAG contract: `reports/causal/estimand_spec.json`
+- Causal hourly feature mart: `reports/causal/causal_hourly_feature_mart.parquet`
+- Causal feature readiness: `reports/metrics/causal_feature_readiness.json`
+- Observed treatment readiness: `reports/metrics/observed_treatment_readiness.json`
+- Identified-estimator readiness and metrics: `reports/metrics/causal_identified_estimator.json`
+- Marginal-response estimates: `reports/causal/marginal_response_estimates.csv`
+- Per-decision confidently avoided emissions: `reports/causal/confidently_avoided_emissions.csv`
+- DML readiness and metrics: `reports/metrics/causal_dml_estimator.json`
+- DML heterogeneous effects: `reports/causal/dml_heterogeneous_effects.csv`
+- DML versus constrained comparison: `reports/causal/dml_estimator_comparison.csv`
+- Causal identification diagnostics: `reports/metrics/causal_diagnostics.json`
+- Causal diagnostic detail rows: `reports/causal/causal_diagnostic_details.csv`
+- Structural validation: `reports/metrics/causal_structural_validation.json`
+- Structural/statistical comparison: `reports/causal/structural_validation_comparison.csv`
+- Causal product evidence gate: `reports/metrics/causal_product_gate.json`
+- Realized causal regret and estimator drift: `reports/metrics/causal_performance_monitoring.json`
+- Causal estimator snapshot history: `reports/monitoring/causal_estimator_history.csv`
+- Pre-treatment covariate readiness: `reports/metrics/causal_pre_treatment_readiness.json`
+- Neighbor emissions readiness: `reports/metrics/neighbor_emissions_readiness.json`
+- Neighbor emissions backfill progress: `reports/metrics/neighbor_emissions_backfill.json`
 - Supply/demand metrics: `reports/metrics/supply_demand_baseline_metrics.json`
 - Supply/demand predictions: `reports/predictions/supply_demand_baseline_predictions.csv`
 - Feature importance: `reports/metrics/*feature_importance.csv`
@@ -437,12 +537,20 @@ Status: in progress.
 - Decide whether Docker should stay optional or be repaired for a full local compose workflow.
 - Add a live API layer after the static dashboard contract stabilizes.
 - Move the causal MVP beyond the marginal-emissions proxy toward validated treatment effects,
-  sensitivity checks, and production-ready causal guardrails.
+  sensitivity checks, and production-ready causal guardrails. The ENTSO-E cross-border, outage,
+  balancing, and forecast-error data contract, monthly quality gate, and checksum-gated
+  archive/compaction path are implemented, and the January 2023 through August 2026 backfill is
+  complete. The causal feature mart, connected-zone emissions contract, pre-treatment weather,
+  economic, carbon-market, and storage controls, readiness gates, and observed workload-decision
+  collection are implemented. Historical ENTSO-E forecast vintages and enough completed workload
+  observations for the configured time-blocked sample, overlap, power, telemetry-quality, and
+  sensitivity gates still block production effect estimates. The estimator now fails closed on
+  those gates rather than falling back to load forecast error as treatment.
 - Expand workload constraints for real operational use cases, such as multi-hour jobs, deadlines, blackout windows, and regional constraints.
 
 ## Data Contracts
 
-Canonical contracts are defined in `src/data/contracts.py` and documented in `docs/data_contracts.md`. Apply the Supabase/Postgres setup from `db/schema.sql`, `db/feature_views.sql`, and `db/modeling_features.sql`.
+Canonical contracts are defined in `src/data/contracts.py` and documented in `docs/data_contracts.md`. Apply the Supabase/Postgres setup from `db/schema.sql`, `db/feature_views.sql`, and `db/modeling_features.sql`. The optional ENTSO-E causal-grid extension is in `db/causal_grid_data.sql`, its bounded hourly layer is in `db/causal_grid_compact.sql`, and both are documented in `docs/entsoe_causal_data.md`. Apply `db/observed_workload_treatment.sql` to enable decision-level workload observation collection.
 
 Source-specific extraction notes are documented in `docs/data_sources.md`.
 

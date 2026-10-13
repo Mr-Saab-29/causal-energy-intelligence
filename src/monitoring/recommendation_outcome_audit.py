@@ -49,6 +49,18 @@ def build_recommendation_outcome_audit(
     features = normalize_timestamps(features)
     recommendations = normalize_timestamps(recommendations)
     rankings = normalize_timestamps(rankings)
+    if "recommendation_basis" not in recommendations:
+        recommendations["recommendation_basis"] = "average_carbon"
+    else:
+        recommendations["recommendation_basis"] = recommendations[
+            "recommendation_basis"
+        ].fillna("average_carbon")
+    if "recommendation_basis" not in rankings:
+        rankings["recommendation_basis"] = "average_carbon"
+    else:
+        rankings["recommendation_basis"] = rankings["recommendation_basis"].fillna(
+            "average_carbon"
+        )
     latest_actual = features[TIMESTAMP_COLUMN].max()
     if recent_days is not None:
         cutoff = latest_actual - pd.Timedelta(days=recent_days)
@@ -145,7 +157,14 @@ def build_actual_values(features: pd.DataFrame) -> pd.DataFrame:
 
 def select_recommended_rows(recommendations: pd.DataFrame, settled: pd.DataFrame) -> pd.DataFrame:
     """Return settled ranking rows that correspond to persisted recommendations."""
-    key_columns = ["forecast_generated_at_utc", "window", "model", "decision_group", TIMESTAMP_COLUMN]
+    key_columns = [
+        "forecast_generated_at_utc",
+        "recommendation_basis",
+        "window",
+        "model",
+        "decision_group",
+        TIMESTAMP_COLUMN,
+    ]
     available_keys = [column for column in key_columns if column in recommendations and column in settled]
     if not available_keys:
         return pd.DataFrame()

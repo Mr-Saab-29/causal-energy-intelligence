@@ -1,0 +1,61 @@
+{
+  "contract_version": "interconnected_direct_emissions_v1",
+  "source": "ENTSO-E actual generation per production type (A75)",
+  "areas": ["BE", "DE_LU", "CH", "IT_NORD", "ES", "GB"],
+  "area_sources": {
+    "BE": "entsoe",
+    "DE_LU": "entsoe",
+    "CH": "entsoe",
+    "IT_NORD": "entsoe",
+    "ES": "entsoe",
+    "GB": "elexon"
+  },
+  "elexon_fuel_type_to_production_type": {
+    "BIOMASS": "Biomass",
+    "CCGT": "Fossil Gas",
+    "COAL": "Fossil Hard coal",
+    "NPSHYD": "Hydro Run-of-river and poundage",
+    "NUCLEAR": "Nuclear",
+    "OCGT": "Fossil Gas",
+    "OIL": "Fossil Oil",
+    "OTHER": "Other",
+    "PS": "Hydro Pumped Storage",
+    "WIND": "Wind Onshore"
+  },
+  "minimum_hourly_coverage": 0.95,
+  "minimum_named_factor_coverage": 0.85,
+  "fallback_factor": {
+    "point_kg_co2e_per_mwh": 370.0,
+    "lower_kg_co2e_per_mwh": 0.0,
+    "upper_kg_co2e_per_mwh": 820.0
+  },
+  "known_limitations": [
+    "Elexon FUELHH covers operationally metered Great Britain generation and underrepresents embedded renewable generation",
+    "ENTSO-E and Elexon heterogeneous Other categories require bounded factor imputation"
+  ],
+  "production_type_to_factor_category": {
+    "Biomass": "bioenergy",
+    "Fossil Brown coal/Lignite": "coal",
+    "Fossil Coal-derived gas": "coal",
+    "Fossil Gas": "gas",
+    "Fossil Hard coal": "coal",
+    "Fossil Oil": "oil",
+    "Fossil Oil shale": "oil",
+    "Fossil Peat": "coal",
+    "Geothermal": "zero_direct",
+    "Hydro Pumped Storage": "zero_direct",
+    "Hydro Run-of-river and pondage": "zero_direct",
+    "Hydro Run-of-river and poundage": "zero_direct",
+    "Hydro Water Reservoir": "zero_direct",
+    "Marine": "zero_direct",
+    "Nuclear": "nuclear",
+    "Other renewable": "zero_direct",
+    "Solar": "solar",
+    "Waste": "bioenergy",
+    "Wind Offshore": "wind",
+    "Wind Onshore": "wind",
+    "Energy storage": "zero_direct",
+    "Mixed": null,
+    "Other": null
+  }
+}

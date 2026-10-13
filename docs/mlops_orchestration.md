@@ -80,9 +80,20 @@ workflow can also be run manually from the GitHub Actions UI.
 The workflow runs as chained jobs:
 
 - `ingest`: runs `make ingest-latest-cloud` and `make ingest-future-cloud`; this job has a 45-minute timeout because upstream APIs and Supabase writes can exceed the normal 15-minute fast-path during slow refreshes
+- The ingest job also attempts `make ingest-causal-operational` in an isolated, non-blocking step.
+  It preserves point-in-time ENTSO-E forecast vintages needed by the observed-treatment estimator;
+  a source outage does not take down recommendation publishing, and its coverage report is uploaded
+  separately as `causal-operational-snapshot`.
+- It then rebuilds the causal feature mart and runs the identified-estimator readiness gate. While
+  workload observations accumulate, this publishes a `blocked` report rather than proxy results;
+  both the constrained and DML companion reports are isolated from the operational dashboard path.
 - `preflight-monitor`: restores current operational state, runs health/forecast monitors, decides whether retraining is needed, and uploads the preflight operational-state artifact
 - `retrain`: runs `make train-all-gated` only when the preflight decision requests retraining, then uploads the accepted retrained operational-state artifact
 - `publish-dashboard`: downloads either the retrained operational-state artifact or the preflight operational-state artifact, runs `make operational-publish-cloud`, saves the refreshed operational cache, writes the orchestration report, and deploys the dashboard
+
+Before dashboard publication, the publish job runs `make causal-synthetic-demo`. The deterministic
+outputs feed only the dashboard's **Simulated evidence** tab and monitoring artifacts. They are not
+written to Supabase, cached as operational model state, or used by live recommendation generation.
 
 This cloud variant caps historical API ingestion to a recent 14-day lookback so
 an empty GitHub Actions cache cannot accidentally trigger a full 2023-to-present
@@ -98,10 +109,11 @@ run a gated retrain:
 - otherwise reuse the current champion artifacts and only refresh
   next-24-hour recommendations
 
-The workflow then builds `frontend/public/data/dashboard.json` and deploys the
-prebuilt `frontend/dist` output to Vercel with the Vercel CLI. This keeps
-generated dashboard data out of git while still publishing fresh recommendations
-after each successful scheduled run. Because retraining and publishing are
+The workflow then builds `frontend/public/data/dashboard.json` and uses Vercel's
+production build output to deploy the static dashboard together with the
+`/api/workload-decisions` function. This keeps generated dashboard data out of git while still
+publishing fresh recommendations and preserving the backend-only treatment write path after each
+successful scheduled run. Because retraining and publishing are
 separate jobs, GitHub Actions can rerun a failed publish job without repeating a
 completed retrain from the same workflow run. The workflow also uploads
 `reports/metrics/orchestration_decision.json`, which records the preflight

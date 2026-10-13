@@ -13,7 +13,11 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
 from src.data.contracts import (
+    BalancingObservation,
+    CrossBorderObservation,
     ElectricityPriceObservation,
+    GenerationOutageObservation,
+    GridForecastObservation,
     HourlyElectricityMixObservation,
     WeatherObservation,
 )
@@ -93,6 +97,107 @@ FUTURE_WEATHER_FORECAST_COLUMNS = [
     *WEATHER_COLUMNS,
     "forecast_generated_at_utc",
     "forecast_horizon_hours",
+]
+
+NEIGHBOR_HOURLY_EMISSIONS_COLUMNS = [
+    "timestamp_utc",
+    "bidding_zone",
+    "vintage_quality",
+    "total_generation_mwh",
+    "named_factor_generation_mwh",
+    "fallback_generation_mwh",
+    "named_factor_coverage_share",
+    "direct_emissions_kgco2e",
+    "direct_emissions_lower_kgco2e",
+    "direct_emissions_upper_kgco2e",
+    "direct_carbon_intensity_gco2_kwh",
+    "production_type_count",
+    "source_interval_count",
+    "compacted_at_utc",
+]
+
+PRE_TREATMENT_HOURLY_COLUMNS = [
+    "timestamp_utc",
+    "vintage_quality",
+    "weather_temperature_forecast_c_24h",
+    "weather_region_count",
+    "gas_price_usd_mmbtu_lag_2m",
+    "coal_price_usd_mt_lag_2m",
+    "eua_auction_price_eur_tco2",
+    "hydro_storage_mwh_lag_1w",
+    "fuel_reference_month",
+    "carbon_auction_at_utc",
+    "hydro_storage_observed_at_utc",
+    "compacted_at_utc",
+]
+
+CROSS_BORDER_COLUMNS = [
+    "source",
+    "source_record_id",
+    "region",
+    "timestamp_utc",
+    "granularity",
+    "from_bidding_zone",
+    "to_bidding_zone",
+    "metric",
+    "value_mw",
+    "snapshot_at_utc",
+    "vintage_quality",
+    "ingestion_timestamp_utc",
+]
+
+GRID_FORECAST_COLUMNS = [
+    "source",
+    "source_record_id",
+    "region",
+    "timestamp_utc",
+    "granularity",
+    "forecast_type",
+    "forecast_mw",
+    "snapshot_at_utc",
+    "forecast_generated_at_utc",
+    "forecast_horizon_hours",
+    "vintage_quality",
+    "ingestion_timestamp_utc",
+]
+
+GENERATION_OUTAGE_COLUMNS = [
+    "source",
+    "source_record_id",
+    "region",
+    "timestamp_utc",
+    "granularity",
+    "outage_mrid",
+    "revision_number",
+    "outage_type",
+    "status",
+    "end_utc",
+    "production_resource_id",
+    "production_resource_name",
+    "production_type",
+    "nominal_capacity_mw",
+    "available_capacity_mw",
+    "unavailable_capacity_mw",
+    "publication_timestamp_utc",
+    "snapshot_at_utc",
+    "vintage_quality",
+    "ingestion_timestamp_utc",
+]
+
+BALANCING_COLUMNS = [
+    "source",
+    "source_record_id",
+    "region",
+    "timestamp_utc",
+    "granularity",
+    "metric",
+    "value",
+    "unit",
+    "direction",
+    "reserve_type",
+    "snapshot_at_utc",
+    "vintage_quality",
+    "ingestion_timestamp_utc",
 ]
 
 CONFLICT_COLUMNS = ["source", "source_record_id"]
@@ -359,19 +464,117 @@ def upsert_future_weather_forecasts(
     )
 
 
-def build_upsert_sql(table_name: str, columns: Sequence[str]) -> str:
+def upsert_neighbor_hourly_emissions(
+    engine: Engine,
+    rows: Sequence[dict[str, Any]],
+    batch_size: int = 1_000,
+) -> int:
+    """Upsert compact neighboring-zone generation and emissions outcomes."""
+    return _upsert_rows(
+        engine=engine,
+        table_name="causal_neighbor_hourly_emissions",
+        columns=NEIGHBOR_HOURLY_EMISSIONS_COLUMNS,
+        rows=rows,
+        batch_size=batch_size,
+        conflict_columns=("timestamp_utc", "bidding_zone", "vintage_quality"),
+    )
+
+
+def upsert_pre_treatment_hourly_covariates(
+    engine: Engine,
+    rows: Sequence[dict[str, Any]],
+    batch_size: int = 1_000,
+) -> int:
+    """Upsert compact leakage-safe pre-treatment covariates."""
+    return _upsert_rows(
+        engine=engine,
+        table_name="causal_pre_treatment_hourly_covariates",
+        columns=PRE_TREATMENT_HOURLY_COLUMNS,
+        rows=rows,
+        batch_size=batch_size,
+        conflict_columns=("timestamp_utc", "vintage_quality"),
+    )
+
+
+def upsert_cross_border_observations(
+    engine: Engine,
+    observations: Sequence[CrossBorderObservation],
+    batch_size: int = 1_000,
+) -> int:
+    """Upsert directional flow, schedule, and capacity observations."""
+    return _upsert_observations(
+        engine,
+        "cross_border_observations",
+        CROSS_BORDER_COLUMNS,
+        observations,
+        batch_size,
+    )
+
+
+def upsert_grid_forecasts(
+    engine: Engine,
+    observations: Sequence[GridForecastObservation],
+    batch_size: int = 1_000,
+) -> int:
+    """Upsert versioned load and renewable forecasts."""
+    return _upsert_observations(
+        engine,
+        "grid_forecasts",
+        GRID_FORECAST_COLUMNS,
+        observations,
+        batch_size,
+    )
+
+
+def upsert_generation_outages(
+    engine: Engine,
+    observations: Sequence[GenerationOutageObservation],
+    batch_size: int = 1_000,
+) -> int:
+    """Upsert versioned generation-unit outages."""
+    return _upsert_observations(
+        engine,
+        "generation_outages",
+        GENERATION_OUTAGE_COLUMNS,
+        observations,
+        batch_size,
+    )
+
+
+def upsert_balancing_observations(
+    engine: Engine,
+    observations: Sequence[BalancingObservation],
+    batch_size: int = 1_000,
+) -> int:
+    """Upsert native-resolution balancing observations."""
+    return _upsert_observations(
+        engine,
+        "balancing_observations",
+        BALANCING_COLUMNS,
+        observations,
+        batch_size,
+    )
+
+
+def build_upsert_sql(
+    table_name: str,
+    columns: Sequence[str],
+    conflict_columns: Sequence[str] = CONFLICT_COLUMNS,
+) -> str:
     """Build a safe Postgres upsert statement for whitelisted identifiers."""
     _validate_identifier(table_name)
     for column in columns:
         _validate_identifier(column)
+    for column in conflict_columns:
+        _validate_identifier(column)
 
     insert_columns = ", ".join(columns)
     value_columns = ", ".join(f":{column}" for column in columns)
-    conflict_columns = ", ".join(CONFLICT_COLUMNS)
+    conflict_clause = ", ".join(conflict_columns)
     update_columns = [
         column
         for column in columns
-        if column not in {*CONFLICT_COLUMNS, "created_at", "id"}
+        if column not in {*conflict_columns, "created_at", "id"}
     ]
     update_assignments = ", ".join(
         f"{column} = excluded.{column}" for column in update_columns
@@ -379,7 +582,7 @@ def build_upsert_sql(table_name: str, columns: Sequence[str]) -> str:
     return (
         f"insert into {table_name} ({insert_columns}) "
         f"values ({value_columns}) "
-        f"on conflict ({conflict_columns}) do update set {update_assignments}"
+        f"on conflict ({conflict_clause}) do update set {update_assignments}"
     )
 
 
@@ -411,13 +614,14 @@ def _upsert_rows(
     columns: Sequence[str],
     rows: Sequence[dict[str, Any]],
     batch_size: int,
+    conflict_columns: Sequence[str] = CONFLICT_COLUMNS,
 ) -> int:
     if not rows:
         return 0
     if batch_size <= 0:
         raise ValueError("batch_size must be positive")
 
-    statement = text(build_upsert_sql(table_name, columns))
+    statement = text(build_upsert_sql(table_name, columns, conflict_columns))
     normalized_rows = [
         {column: _to_database_value(row.get(column)) for column in columns}
         for row in rows

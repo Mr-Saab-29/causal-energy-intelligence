@@ -1,0 +1,17 @@
+{
+  "diagnostics_version": "causal_diagnostics_v1",
+  "maximum_weighted_absolute_smd": 0.1,
+  "minimum_negative_control_p_value": 0.05,
+  "minimum_placebo_p_value": 0.05,
+  "minimum_robustness_value": 0.1,
+  "minimum_regime_decisions": 10,
+  "allow_synthetic_product_fallback": true,
+  "generate_synthetic_fallback_if_missing": true,
+  "bootstrap_iterations": 500,
+  "bootstrap_block_days": 7,
+  "confidence_levels": [0.8, 0.95],
+  "negative_control_outcomes": [
+    "pre_load_forecast_error_lag_24h_mw",
+    "pre_day_ahead_price_eur_mwh"
+  ]
+}

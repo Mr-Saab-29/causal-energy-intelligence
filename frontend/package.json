@@ -10,7 +10,8 @@
     "dev": "vite",
     "prebuild": "node scripts/ensure-dashboard-data.mjs",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:treatment-api": "node --test tests/workload-decisions.test.js"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.3.4",
