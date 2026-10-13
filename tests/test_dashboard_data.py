@@ -13,6 +13,7 @@ from scripts.build_dashboard_data import (
     enrich_scenario_recommendations,
     filter_future_recommendations,
     normalize_recommendation_fields,
+    apply_causal_product_safety,
     sanitize_json_value,
     summarize_forecast_monitoring,
     summarize_marginal_shift_metrics,
@@ -131,6 +132,57 @@ def test_add_current_reference_comparison_uses_earliest_active_hour() -> None:
     assert enriched.loc[0, "current_reference_start_utc"] == "2026-08-10T08:00:00+00:00"
     assert enriched.loc[0, "carbon_savings_vs_current_reference_g_co2e_per_kwh"] == 7.0
     assert enriched.loc[0, "cost_savings_vs_current_reference_eur_mwh"] == 15.0
+
+
+def test_current_reference_adds_avoided_emissions_interval() -> None:
+    rankings = pd.DataFrame(
+        {
+            "window": ["future_24h", "future_24h"],
+            "model": ["model_a", "model_a"],
+            "decision_group": ["2026-08-10", "2026-08-10"],
+            "timestamp_utc": ["2026-08-10T08:00:00Z", "2026-08-10T09:00:00Z"],
+            "predicted_avg_carbon_intensity_g_co2e_per_kwh": [50.0, 40.0],
+            "predicted_avg_price_eur_mwh": [70.0, 60.0],
+            "predicted_carbon_interval_half_width_g_co2e_per_kwh": [3.0, 2.0],
+        }
+    )
+    recommendations = rankings.iloc[[1]].copy()
+
+    enriched = add_current_reference_comparison(
+        recommendations, rankings, now=pd.Timestamp("2026-08-10T08:00:00Z")
+    )
+
+    assert enriched.iloc[0]["avoided_emissions_point_kgco2e_per_mwh"] == 10.0
+    assert enriched.iloc[0]["avoided_emissions_ci80_lower_kgco2e_per_mwh"] == 5.0
+    assert enriched.iloc[0]["avoided_emissions_ci80_upper_kgco2e_per_mwh"] == 15.0
+
+
+def test_causal_product_safety_removes_uncertain_rows_and_adds_tier() -> None:
+    frame = pd.DataFrame(
+        {
+            "timestamp_utc": ["2026-08-10T08:00:00Z", "2026-08-10T09:00:00Z"],
+            "window": ["future_24h", "future_24h"],
+            "model": ["model_a", "model_a"],
+            "decision_group": ["2026-08-10", "2026-08-10"],
+            "recommendation_rank": [1, 2],
+            "recommendation_status": ["recommended", "recommended"],
+            "suppressed_by_uncertainty_guard": [False, True],
+            "is_low_uncertainty_candidate": [True, False],
+        }
+    )
+
+    safe = apply_causal_product_safety(
+        frame,
+        {
+            "recommendations_allowed": True,
+            "evidence_tier": "marginal_proxy_mvp",
+            "basis_label": "Causal-adjusted MVP",
+            "promoted": False,
+        },
+    )
+
+    assert len(safe) == 1
+    assert safe.iloc[0]["causal_evidence_tier"] == "marginal_proxy_mvp"
 
 
 def test_enrich_scenario_recommendations_adds_confidence_context() -> None:

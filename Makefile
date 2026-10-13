@@ -1,7 +1,7 @@
 PYTHON ?= .venv/bin/python
 DAGSTER ?= .venv/bin/dagster
 
-.PHONY: help ingest-latest ingest-latest-cloud ingest-plan ingest-repair ingest-future ingest-future-cloud ingest-causal-grid-plan ingest-causal-grid ingest-causal-operational ingest-neighbor-emissions neighbor-emissions-backfill ingest-pre-treatment pre-treatment-backfill causal-data-quality causal-archive-compact causal-archive-compact-purge causal-backfill-history causal-feature-mart causal-estimator causal-dml causal-synthetic-demo treatment-readiness ingest-monitor ingest-monitor-cloud forecast-monitor operational-audit-readiness recommendation-outcome-audit future-recommendations operational-refresh operational-publish operational-publish-cloud train-all train-all-gated forecast-all forecast-all-candidate forecast-all-force quick-refresh daily-local-refresh forecast-price forecast-ranking forecast-decision forecast-recommendations forecast-scenarios forecast-decision-example forecast-consumption forecast-production forecast-supply-demand forecast-carbon causal-contract marginal-emissions causal-recommendations pipeline-health pipeline-health-cloud pipeline-health-allow-stale dashboard-data dashboard-data-cloud frontend-install frontend-dev frontend-build mlflow-ui dagster-dev docker-build docker-up docker-down docker-observability
+.PHONY: help ingest-latest ingest-latest-cloud ingest-plan ingest-repair ingest-future ingest-future-cloud ingest-causal-grid-plan ingest-causal-grid ingest-causal-operational ingest-neighbor-emissions neighbor-emissions-backfill ingest-pre-treatment pre-treatment-backfill causal-data-quality causal-archive-compact causal-archive-compact-purge causal-backfill-history causal-feature-mart causal-estimator causal-dml causal-diagnostics causal-structural-validation causal-synthetic-demo causal-performance causal-product-gate treatment-readiness ingest-monitor ingest-monitor-cloud forecast-monitor operational-audit-readiness recommendation-outcome-audit future-recommendations operational-refresh operational-publish operational-publish-cloud train-all train-all-gated forecast-all forecast-all-candidate forecast-all-force quick-refresh daily-local-refresh forecast-price forecast-ranking forecast-decision forecast-recommendations forecast-scenarios forecast-decision-example forecast-consumption forecast-production forecast-supply-demand forecast-carbon causal-contract marginal-emissions causal-recommendations pipeline-health pipeline-health-cloud pipeline-health-allow-stale dashboard-data dashboard-data-cloud frontend-install frontend-dev frontend-build mlflow-ui dagster-dev docker-build docker-up docker-down docker-observability
 
 help:
 	@echo "Forecast training targets:"
@@ -27,7 +27,11 @@ help:
 	@echo "  make causal-feature-mart     Build the leakage-aware causal mart and readiness report"
 	@echo "  make causal-estimator        Fit or readiness-gate the observed-treatment estimator"
 	@echo "  make causal-dml              Fit or readiness-gate the time-blocked DML companion"
+	@echo "  make causal-diagnostics      Run identification and time-series diagnostics"
+	@echo "  make causal-structural-validation  Compare estimates with dispatch response"
 	@echo "  make causal-synthetic-demo   Validate both estimators with isolated synthetic evidence"
+	@echo "  make causal-performance      Monitor settled causal regret and estimator drift"
+	@echo "  make causal-product-gate     Evaluate promotion and recommendation-safety evidence"
 	@echo "  make treatment-readiness     Audit observed workload decision and execution coverage"
 	@echo "  make forecast-monitor        Build reports/metrics/forecast_monitoring.json"
 	@echo "  make operational-audit-readiness  Verify current-month actuals and recommendation history"
@@ -131,8 +135,20 @@ causal-estimator:
 causal-dml:
 	$(PYTHON) -m src.causal.dml
 
+causal-diagnostics:
+	$(PYTHON) -m src.causal.diagnostics
+
+causal-structural-validation:
+	$(PYTHON) -m src.causal.structural_validation
+
 causal-synthetic-demo:
 	$(PYTHON) -m src.causal.synthetic_demo
+
+causal-performance: recommendation-outcome-audit
+	$(PYTHON) -m src.monitoring.causal_performance
+
+causal-product-gate: causal-performance
+	$(PYTHON) -m src.causal.product_gate
 
 treatment-readiness:
 	$(PYTHON) -m src.causal.treatment_observations
@@ -151,9 +167,9 @@ future-recommendations:
 
 operational-refresh: ingest-future operational-publish
 
-operational-publish: future-recommendations causal-recommendations pipeline-health forecast-monitor recommendation-outcome-audit dashboard-data frontend-build
+operational-publish: future-recommendations causal-recommendations pipeline-health forecast-monitor recommendation-outcome-audit causal-performance causal-product-gate dashboard-data frontend-build
 
-operational-publish-cloud: future-recommendations causal-recommendations pipeline-health-cloud forecast-monitor recommendation-outcome-audit treatment-readiness dashboard-data-cloud frontend-build
+operational-publish-cloud: future-recommendations causal-recommendations pipeline-health-cloud forecast-monitor recommendation-outcome-audit causal-performance causal-product-gate treatment-readiness dashboard-data-cloud frontend-build
 
 train-all:
 	$(PYTHON) -m src.models.train_forecast --target all

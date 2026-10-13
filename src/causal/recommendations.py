@@ -449,6 +449,7 @@ def build_causal_adjusted_recommendations(
         on=["window", "model", "decision_group", TIMESTAMP_COLUMN],
         how="left",
     )
+    output["recommendation_basis"] = "causal_adjusted_mvp"
     float_columns = output.select_dtypes(include=["float"]).columns
     output[float_columns] = output[float_columns].round(2)
     return output
@@ -596,8 +597,33 @@ def run_all_causal_adjusted_recommendations(
         "future": future,
         "quality_guard": future["quality_guard"],
     }
+    persist_future_causal_history()
     write_json(DEFAULT_METRICS_OUTPUT_PATH, metrics)
     return metrics
+
+
+def persist_future_causal_history() -> None:
+    """Persist causal operational rows so settled regret can be monitored by basis."""
+    from src.models.future_recommendations import (
+        OPERATIONAL_RANKING_HISTORY_PATH,
+        OPERATIONAL_RECOMMENDATION_HISTORY_PATH,
+        append_operational_history,
+    )
+
+    generated_at_utc = pd.Timestamp.now(tz="UTC").isoformat()
+    recommendations = pd.read_csv(DEFAULT_FUTURE_RECOMMENDATION_OUTPUT_PATH)
+    rankings = pd.read_csv(DEFAULT_FUTURE_RANKING_OUTPUT_PATH)
+    rankings["recommendation_basis"] = "causal_adjusted_mvp"
+    append_operational_history(
+        recommendations,
+        OPERATIONAL_RECOMMENDATION_HISTORY_PATH,
+        generated_at_utc,
+    )
+    append_operational_history(
+        rankings,
+        OPERATIONAL_RANKING_HISTORY_PATH,
+        generated_at_utc,
+    )
 
 
 def write_csv(path: str | Path, frame: pd.DataFrame) -> None:

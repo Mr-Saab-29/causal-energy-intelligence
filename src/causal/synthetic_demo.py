@@ -11,6 +11,11 @@ import numpy as np
 import pandas as pd
 
 from src.causal.dml import load_dml_config, run_dml_estimator, write_dml_artifacts
+from src.causal.diagnostics import (
+    load_diagnostics_config,
+    run_causal_diagnostics,
+    write_diagnostics,
+)
 from src.causal.marginal_response import (
     load_estimator_config,
     run_estimator,
@@ -282,9 +287,26 @@ def run_synthetic_demo(
         decision_effects_path=causal_dir / "dml_decision_effects.csv",
         model_path=DEFAULT_MODEL_ROOT / "time_blocked_dml.joblib",
     )
+    diagnostics_config = load_diagnostics_config()
+    diagnostics_report, diagnostic_details = run_causal_diagnostics(
+        dataset,
+        dml_models,
+        diagnostics_config,
+        data_origin="synthetic",
+    )
+    diagnostics_report["computational_status"] = diagnostics_report["status"]
+    diagnostics_report["status"] = "synthetic_demo"
+    diagnostics_report["production_eligible"] = False
+    write_diagnostics(
+        diagnostics_report,
+        diagnostic_details,
+        report_path=metrics_dir / "causal_diagnostics.json",
+        details_path=causal_dir / "causal_diagnostic_details.csv",
+    )
     success = (
         simple_report["computational_status"] == "ok"
         and dml_report["computational_status"] == "ok"
+        and diagnostics_report["computational_status"] in {"ok", "warn"}
     )
     summary = {
         "status": "ok" if success else "fail",
@@ -293,6 +315,7 @@ def run_synthetic_demo(
         "completed_decisions": len(observations),
         "constrained_estimator_status": simple_report["status"],
         "dml_estimator_status": dml_report["status"],
+        "causal_diagnostics_status": diagnostics_report["status"],
         "output_root": str(output_root),
     }
     (metrics_dir / "synthetic_demo_summary.json").write_text(

@@ -266,6 +266,30 @@ Command intent:
   It writes nuisance cross-fit diagnostics, heterogeneous effect summaries, cluster-robust average
   effect intervals, and a direct comparison against the constrained regression. Disagreement is
   marked for review rather than treated as automatic model promotion.
+- `make causal-diagnostics` evaluates held-out treatment overlap and positivity, weighted covariate
+  balance, future-treatment leads, shifted-treatment placebos, pre-treatment negative controls,
+  sensitivity to omitted confounding, stability by season and grid regime, and decision-day
+  calendar-block bootstrap intervals. It needs no additional paid data source, but production
+  causal claims still require genuine completed workload telemetry. For this personal-project
+  deployment, the command automatically falls back to the deterministic synthetic portfolio when
+  observed DML artifacts are unavailable. That mode is product-eligible but remains explicitly
+  labeled `synthetic_product_bootstrap` and is not eligible for real-world causal claims.
+- `make causal-structural-validation` compares constrained-regression and DML effects against paired
+  European dispatch counterfactuals. It accepts a PyPSA-Eur baseline/intervention manifest and uses
+  generator dispatch, snapshot weights, and the direct-operational output emissions factors.
+  Until paired PyPSA-Eur networks are supplied, the personal-project deployment uses an explicitly
+  labeled synthetic zonal merit-order fallback. Sign or magnitude disagreement is published as
+  model-risk evidence and the estimates are never averaged.
+- `make causal-performance` monitors settled carbon regret for basis-tagged causal recommendations
+  and tracks 6/12/24-hour estimator drift across successive observed-model runs. It remains
+  `insufficient_history` until at least 14 settled causal decision groups and two estimator
+  snapshots exist.
+- `make causal-product-gate` is the fail-closed product promotion gate. The dashboard keeps the
+  **Causal-adjusted MVP** label for proxy or observational-shadow evidence and uses
+  **Causal-adjusted** only after observed diagnostics, low-risk PyPSA-Eur validation, realized
+  causal regret, estimator drift, and the identified-effect recommendation engine all pass.
+  Identified recommendations are suppressed when overlap or time-series uncertainty fails;
+  candidate rows are always filtered by the operational uncertainty guard.
 - `make causal-synthetic-demo` generates a deterministic year-spanning portfolio of measured
   data-center and EV-fleet workloads and runs both estimators under their normal sample gates. It
   writes only to `reports/demo` and `models/demo`; it never writes Supabase or changes production
@@ -351,6 +375,13 @@ Current key artifacts:
 - DML readiness and metrics: `reports/metrics/causal_dml_estimator.json`
 - DML heterogeneous effects: `reports/causal/dml_heterogeneous_effects.csv`
 - DML versus constrained comparison: `reports/causal/dml_estimator_comparison.csv`
+- Causal identification diagnostics: `reports/metrics/causal_diagnostics.json`
+- Causal diagnostic detail rows: `reports/causal/causal_diagnostic_details.csv`
+- Structural validation: `reports/metrics/causal_structural_validation.json`
+- Structural/statistical comparison: `reports/causal/structural_validation_comparison.csv`
+- Causal product evidence gate: `reports/metrics/causal_product_gate.json`
+- Realized causal regret and estimator drift: `reports/metrics/causal_performance_monitoring.json`
+- Causal estimator snapshot history: `reports/monitoring/causal_estimator_history.csv`
 - Pre-treatment covariate readiness: `reports/metrics/causal_pre_treatment_readiness.json`
 - Neighbor emissions readiness: `reports/metrics/neighbor_emissions_readiness.json`
 - Neighbor emissions backfill progress: `reports/metrics/neighbor_emissions_backfill.json`

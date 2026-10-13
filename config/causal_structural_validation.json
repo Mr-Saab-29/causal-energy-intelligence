@@ -1,0 +1,31 @@
+{
+  "validation_version": "pypsa_eur_structural_validation_v1",
+  "maximum_relative_difference": 0.35,
+  "minimum_dispatch_coverage": 0.95,
+  "minimum_comparison_floor_kgco2e_per_mwh": 25.0,
+  "allow_synthetic_dispatch_fallback": true,
+  "synthetic_storage_response_multiplier": {
+    "6": 1.08,
+    "12": 1.03,
+    "24": 0.96
+  },
+  "pypsa_carrier_to_emissions_source": {
+    "nuclear": "nuclear",
+    "uranium": "nuclear",
+    "CCGT": "gas",
+    "OCGT": "gas",
+    "gas": "gas",
+    "coal": "coal",
+    "lignite": "coal",
+    "oil": "oil",
+    "onwind": "wind",
+    "offwind-ac": "wind",
+    "offwind-dc": "wind",
+    "wind": "wind",
+    "solar": "solar",
+    "ror": "hydro",
+    "hydro": "hydro",
+    "PHS": "hydro",
+    "biomass": "bioenergy"
+  }
+}

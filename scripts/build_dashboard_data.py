@@ -24,6 +24,7 @@ from src.causal.recommendations import (
     build_causal_adjusted_recommendations,
     build_causal_adjusted_scenario_recommendations,
 )
+from src.causal.product_gate import evaluate_product_gate
 from src.optimization.workload_shift import (
     CONFIDENCE_CALIBRATION_PATH,
     SCENARIO_CONFIDENCE_CALIBRATION_PATH,
@@ -62,6 +63,17 @@ def main(argv: list[str] | None = None) -> None:
     forecast_monitoring_path = ROOT / "reports/metrics/forecast_monitoring.json"
     forecast_monitoring = read_json(forecast_monitoring_path)
     recommendation_drift = read_json(ROOT / "reports/metrics/future_recommendation_drift_metrics.json")
+    causal_diagnostics = read_json(ROOT / "reports/metrics/causal_diagnostics.json")
+    causal_structural = read_json(ROOT / "reports/metrics/causal_structural_validation.json")
+    causal_monitoring = read_json(ROOT / "reports/metrics/causal_performance_monitoring.json")
+    causal_product_gate = read_json(ROOT / "reports/metrics/causal_product_gate.json")
+    if not causal_product_gate:
+        causal_product_gate = evaluate_product_gate(
+            causal_diagnostics,
+            causal_structural,
+            causal_monitoring,
+            marginal_shift_metrics,
+        )
     synthetic_demo_summary = read_json(
         ROOT / "reports/demo/metrics/synthetic_demo_summary.json"
     )
@@ -162,6 +174,10 @@ def main(argv: list[str] | None = None) -> None:
     active_causal_recommendations = normalize_recommendation_fields(
         active_future_causal_recommendations
     )
+    active_causal_recommendations = apply_causal_product_safety(
+        active_causal_recommendations,
+        causal_product_gate,
+    )
     active_future_causal_scenario_recommendations = (
         build_active_future_causal_scenario_recommendations(
             future_causal_scenario_recommendations,
@@ -176,6 +192,10 @@ def main(argv: list[str] | None = None) -> None:
     )
     active_causal_scenario_recommendations = normalize_recommendation_fields(
         active_future_causal_scenario_recommendations
+    )
+    active_causal_scenario_recommendations = apply_causal_product_safety(
+        active_causal_scenario_recommendations,
+        causal_product_gate,
     )
     recommendation_rows = prepare_records(active_recommendations)
     scenario_rows = prepare_records(active_scenario_recommendations)
@@ -222,6 +242,12 @@ def main(argv: list[str] | None = None) -> None:
             "marginal_ranking_shift_metrics": (
                 "reports/metrics/marginal_ranking_shift_metrics.json"
                 if marginal_shift_metrics
+                else None
+            ),
+            "causal_product_gate": "reports/metrics/causal_product_gate.json",
+            "causal_performance_monitoring": (
+                "reports/metrics/causal_performance_monitoring.json"
+                if causal_monitoring
                 else None
             ),
             "operational_audit_readiness": (
@@ -271,6 +297,8 @@ def main(argv: list[str] | None = None) -> None:
             "marginal_ranking_shift": summarize_marginal_shift_metrics(
                 marginal_shift_metrics
             ),
+            "causal_product_gate": causal_product_gate,
+            "causal_performance_monitoring": causal_monitoring,
             "operational_audit_readiness": summarize_operational_audit_readiness(
                 operational_audit_readiness
             ),
@@ -319,6 +347,8 @@ def main(argv: list[str] | None = None) -> None:
         },
         "recommendation_drift": recommendation_drift,
         "marginal_ranking_shift": marginal_shift_metrics,
+        "causal_product_gate": causal_product_gate,
+        "causal_performance_monitoring": causal_monitoring,
         "operational_audit_readiness": operational_audit_readiness,
         "recommendation_outcome_audit": outcome_audit_metrics,
         "filters": {
@@ -569,6 +599,10 @@ def add_current_reference_comparison(
         "predicted_avg_carbon_intensity_g_co2e_per_kwh",
         "predicted_avg_price_eur_mwh",
     ]
+    if "predicted_carbon_interval_half_width_g_co2e_per_kwh" in reference:
+        reference_columns.append(
+            "predicted_carbon_interval_half_width_g_co2e_per_kwh"
+        )
     reference = reference[reference_columns].rename(
         columns={
             "timestamp_utc": "current_reference_start_utc",
@@ -576,6 +610,9 @@ def add_current_reference_comparison(
                 "current_reference_carbon_intensity_g_co2e_per_kwh"
             ),
             "predicted_avg_price_eur_mwh": "current_reference_price_eur_mwh",
+            "predicted_carbon_interval_half_width_g_co2e_per_kwh": (
+                "current_reference_carbon_interval_half_width_g_co2e_per_kwh"
+            ),
         }
     )
     output = recommendations.merge(reference, on=group_columns, how="left")
@@ -586,6 +623,28 @@ def add_current_reference_comparison(
     output["cost_savings_vs_current_reference_eur_mwh"] = (
         output["current_reference_price_eur_mwh"] - output["predicted_avg_price_eur_mwh"]
     )
+    output["avoided_emissions_point_kgco2e_per_mwh"] = output[
+        "carbon_savings_vs_current_reference_g_co2e_per_kwh"
+    ]
+    candidate_width = pd.to_numeric(
+        output.get("predicted_carbon_interval_half_width_g_co2e_per_kwh"),
+        errors="coerce",
+    )
+    reference_width = pd.to_numeric(
+        output.get("current_reference_carbon_interval_half_width_g_co2e_per_kwh"),
+        errors="coerce",
+    )
+    if isinstance(candidate_width, pd.Series) and isinstance(reference_width, pd.Series):
+        combined_width = candidate_width + reference_width
+        output["avoided_emissions_ci80_lower_kgco2e_per_mwh"] = (
+            output["avoided_emissions_point_kgco2e_per_mwh"] - combined_width
+        )
+        output["avoided_emissions_ci80_upper_kgco2e_per_mwh"] = (
+            output["avoided_emissions_point_kgco2e_per_mwh"] + combined_width
+        )
+        output["avoided_emissions_interval_basis"] = (
+            "conservative_difference_of_forecast_80pct_intervals"
+        )
     return output
 
 
@@ -623,6 +682,7 @@ def prepare_outcome_audit_rows(frame: pd.DataFrame) -> pd.DataFrame:
         "model",
         "recommendation_rank",
         "recommendation_status",
+        "recommendation_basis",
         "timestamp_utc",
         "workload_end_utc",
         "duration_hours",
@@ -751,6 +811,30 @@ def normalize_recommendation_fields(frame: pd.DataFrame) -> pd.DataFrame:
             output.groupby(rank_group_columns, dropna=False).cumcount() + 1
         )
     return output
+
+
+def apply_causal_product_safety(
+    frame: pd.DataFrame,
+    gate: dict[str, Any],
+) -> pd.DataFrame:
+    """Suppress unsafe causal rows and attach their current evidence tier."""
+    if frame.empty:
+        return frame
+    if not gate.get("recommendations_allowed", False):
+        return frame.iloc[0:0].copy()
+    output = frame.copy()
+    safe = pd.Series(True, index=output.index)
+    if "suppressed_by_uncertainty_guard" in output:
+        safe &= ~output["suppressed_by_uncertainty_guard"].fillna(False).astype(bool)
+    if "is_low_uncertainty_candidate" in output:
+        safe &= output["is_low_uncertainty_candidate"].fillna(False).astype(bool)
+    if "recommendation_status" in output:
+        safe &= output["recommendation_status"].ne("no_low_risk_recommendation_available")
+    output = output.loc[safe].copy()
+    output["causal_evidence_tier"] = gate.get("evidence_tier", "marginal_proxy_mvp")
+    output["causal_evidence_label"] = gate.get("basis_label", "Causal-adjusted MVP")
+    output["causal_claim_promoted"] = bool(gate.get("promoted", False))
+    return normalize_recommendation_fields(output)
 
 
 def safe_float(value: float) -> float | None:

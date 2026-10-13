@@ -115,6 +115,9 @@ function App() {
   }, [payload, selectedOutcomeDate]);
 
   const hasScenarioMode = (payload?.filters?.scenarios ?? []).length > 0;
+  const causalProductGate = payload?.summary?.causal_product_gate ?? {};
+  const causalMonitoring = payload?.summary?.causal_performance_monitoring ?? {};
+  const hasCausalArtifacts = Boolean(payload?.summary?.marginal_ranking_shift?.method);
   const hasCausalMode =
     (payload?.causal_recommendations ?? []).length > 0 ||
     (payload?.causal_scenario_recommendations ?? []).length > 0;
@@ -285,7 +288,7 @@ function App() {
               >
                 <option value="scenario">Scenario</option>
                 <option value="causal" disabled={!hasCausalMode}>
-                  Causal-adjusted MVP
+                  {causalProductGate.basis_label ?? "Causal-adjusted MVP"}
                 </option>
               </select>
             </label>
@@ -366,7 +369,7 @@ function App() {
               <div className="panel-heading">
                 <div>
                   <h2>Clean-Hour Recommendations</h2>
-                  <p>{recommendationSubtitle(selectedBasis, selectedScenario)}</p>
+                  <p>{recommendationSubtitle(selectedBasis, selectedScenario, causalProductGate)}</p>
                 </div>
               </div>
               <div className="recommendation-list">
@@ -382,6 +385,8 @@ function App() {
                   <div className="empty-state">
                     {isSampleData
                       ? "Live recommendation data has not been published for this deployment yet."
+                      : selectedBasis === "causal" && causalProductGate.suppression_reasons?.length
+                        ? `Causal recommendations are suppressed: ${causalProductGate.suppression_reasons.map(formatRecommendationStatus).join(", ")}.`
                       : "No future recommendation rows are available for the selected date."}
                   </div>
                 )}
@@ -419,11 +424,23 @@ function App() {
             </div>
           </section>
 
-          {hasCausalMode && (
+          {hasCausalArtifacts && (
             <section className="causal-band">
               <div>
                 <span>Basis</span>
-                <strong>{formatCausalMethod(marginalShift.method)}</strong>
+                <strong>{causalProductGate.basis_label ?? formatCausalMethod(marginalShift.method)}</strong>
+              </div>
+              <div>
+                <span>Evidence tier</span>
+                <strong>{formatEvidenceTier(causalProductGate.evidence_tier)}</strong>
+              </div>
+              <div>
+                <span>Causal regret</span>
+                <strong>{formatRecommendationStatus(causalMonitoring.realized_causal_regret?.status ?? "unavailable")}</strong>
+              </div>
+              <div>
+                <span>Estimator drift</span>
+                <strong>{formatRecommendationStatus(causalMonitoring.estimator_drift?.status ?? "unavailable")}</strong>
               </div>
               <div>
                 <span>Top-1 changed</span>
@@ -454,7 +471,10 @@ function App() {
               selectedScenario={selectedScenario}
               championModel={payload.champion?.model}
             />
-            <CausalAverageComparisonPanel marginalShift={marginalShift} />
+            <CausalAverageComparisonPanel
+              marginalShift={marginalShift}
+              causalProductGate={causalProductGate}
+            />
           </section>
 
           <section className="content-grid lower-grid">
@@ -462,7 +482,7 @@ function App() {
               <div className="panel-heading">
                 <div>
                   <h2>Scenario Reranking</h2>
-                  <p>{scenarioPanelSubtitle(selectedBasis, selectedScenario)}</p>
+                  <p>{scenarioPanelSubtitle(selectedBasis, selectedScenario, causalProductGate)}</p>
                 </div>
               </div>
               <div className="scenario-table">
@@ -628,7 +648,7 @@ function BacktestingSummaryPanel({ policyBacktest, selectedScenario, championMod
   );
 }
 
-function CausalAverageComparisonPanel({ marginalShift }) {
+function CausalAverageComparisonPanel({ marginalShift, causalProductGate }) {
   const hasMetrics = Object.keys(marginalShift ?? {}).length > 0 && marginalShift.method;
   return (
     <div className="panel">
@@ -649,9 +669,9 @@ function CausalAverageComparisonPanel({ marginalShift }) {
               <small>Uses predicted average carbon intensity.</small>
             </div>
             <div>
-              <span>Causal-adjusted MVP</span>
-              <strong>{formatCausalMethod(marginalShift.method)}</strong>
-              <small>Uses marginal-emissions proxy where coverage is available.</small>
+              <span>{causalProductGate.basis_label ?? "Causal-adjusted MVP"}</span>
+              <strong>{formatEvidenceTier(causalProductGate.evidence_tier)}</strong>
+              <small>{causalProductGate.disclosure ?? "Uses marginal-emissions proxy where coverage is available."}</small>
             </div>
           </div>
           <div className="summary-table causal-comparison-table">
@@ -1407,6 +1427,15 @@ function RecommendationRow({ row }) {
         {row.predicted_marginal_proxy_confidence && (
           <DetailItem label="Marginal proxy confidence" value={titleCase(row.predicted_marginal_proxy_confidence)} />
         )}
+        {row.causal_evidence_tier && (
+          <DetailItem label="Evidence tier" value={formatEvidenceTier(row.causal_evidence_tier)} />
+        )}
+        {row.avoided_emissions_ci80_lower_kgco2e_per_mwh != null && row.avoided_emissions_ci80_upper_kgco2e_per_mwh != null && (
+          <DetailItem
+            label="Avoided emissions 80% interval"
+            value={`${formatFixed(row.avoided_emissions_ci80_lower_kgco2e_per_mwh)} to ${formatFixed(row.avoided_emissions_ci80_upper_kgco2e_per_mwh)} kgCO2e per shifted MWh`}
+          />
+        )}
         <DetailItem label="Carbon rank" value={`${row.predicted_carbon_rank ?? scenarioRank} of ${row.candidate_count ?? "-"} candidate hours`} />
         <DetailItem label="Price rank" value={`${priceRank} of ${row.candidate_count ?? "-"} candidate hours`} />
         {row.scenario && (
@@ -1682,6 +1711,13 @@ function formatCausalMethod(value) {
   return value ? formatRecommendationStatus(value) : "-";
 }
 
+function formatEvidenceTier(value) {
+  if (value === "operationally_validated") return "Operationally validated";
+  if (value === "observational_shadow") return "Observational shadow";
+  if (value === "marginal_proxy_mvp") return "Marginal proxy MVP";
+  return value ? formatRecommendationStatus(value) : "Unavailable";
+}
+
 function comparisonRead(value, kind) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return "-";
@@ -1725,15 +1761,17 @@ function meanBoolean(values) {
   return numericValues.reduce((total, value) => total + value, 0) / numericValues.length;
 }
 
-function recommendationSubtitle(selectedBasis, selectedScenario) {
+function recommendationSubtitle(selectedBasis, selectedScenario, causalProductGate) {
   if (selectedBasis === "causal") {
-    return `Top 5 future workload start hours for ${formatScenario(selectedScenario)} using the marginal-emissions proxy MVP.`;
+    return `Top 5 future workload start hours for ${formatScenario(selectedScenario)} using ${causalProductGate?.basis_label ?? "the causal-adjusted MVP"}.`;
   }
   return `Top 5 future workload start hours for ${formatScenario(selectedScenario)}. Scenario rank and score update with the selector.`;
 }
 
-function scenarioPanelSubtitle(selectedBasis, selectedScenario) {
-  const carbonBasis = selectedBasis === "causal" ? "marginal-carbon proxy" : "average-carbon";
+function scenarioPanelSubtitle(selectedBasis, selectedScenario, causalProductGate) {
+  const carbonBasis = selectedBasis === "causal"
+    ? causalProductGate?.basis_label ?? "marginal-carbon proxy"
+    : "average-carbon";
   return `${formatScenario(selectedScenario)} reranks the same candidate hours using ${carbonBasis} and price weights.`;
 }
 

@@ -83,6 +83,9 @@ jobs:
             reports/causal
             reports/metrics/causal_feature_readiness.json
             reports/metrics/causal_identified_estimator.json
+            reports/metrics/causal_dml_estimator.json
+            reports/metrics/causal_diagnostics.json
+            reports/metrics/causal_structural_validation.json
           if-no-files-found: warn
 
       - name: Upload ingested data
@@ -341,7 +344,10 @@ jobs:
         run: make operational-audit-readiness
 
       - name: Build isolated synthetic causal demonstration
-        run: make causal-synthetic-demo
+        run: |
+          make causal-synthetic-demo
+          make causal-diagnostics
+          make causal-structural-validation
 
       - name: Build recommendations and dashboard from current champion
         id: publish_build
@@ -407,11 +413,16 @@ jobs:
             reports/metrics/operational_audit_readiness.json
             reports/metrics/recommendation_outcome_audit.json
             reports/metrics/marginal_ranking_shift_metrics.json
+            reports/metrics/causal_structural_validation.json
+            reports/metrics/causal_performance_monitoring.json
+            reports/metrics/causal_product_gate.json
+            reports/causal/structural_validation_comparison.csv
             reports/causal/estimand_spec.json
             reports/demo/metrics
             reports/demo/causal/dml_estimator_comparison.csv
             reports/demo/causal/dml_heterogeneous_effects.csv
             reports/monitoring/recommendation_outcome_audit.csv
+            reports/monitoring/causal_estimator_history.csv
             reports/rankings/future_marginal_workload_decision_rankings.csv
             reports/recommendations/future_champion_workload_recommendations.csv
             reports/recommendations/future_causal_adjusted_workload_recommendations.csv
