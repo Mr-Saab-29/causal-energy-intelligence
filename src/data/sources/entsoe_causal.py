@@ -490,7 +490,8 @@ def _infer_granularity(index: pd.Index) -> Granularity:
     timestamps = pd.DatetimeIndex(index).dropna().sort_values().unique()
     if len(timestamps) < 2:
         return Granularity.HOURLY
-    minutes = int(np.median(np.diff(timestamps.asi8)) // 60_000_000_000)
+    deltas = timestamps[1:] - timestamps[:-1]
+    minutes = float(np.median(deltas.total_seconds()) / 60.0)
     if minutes <= 5:
         return Granularity.FIVE_MINUTES
     if minutes <= 15:

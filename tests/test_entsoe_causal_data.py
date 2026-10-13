@@ -13,6 +13,7 @@ from src.data.entsoe_causal_ingest import (
 from src.data.sources.entsoe_causal import (
     VINTAGE_HISTORICAL,
     VINTAGE_OPERATIONAL,
+    _infer_granularity,
     _optional_query,
     fetch_entsoe_causal_data,
     normalize_balancing_frame,
@@ -44,6 +45,15 @@ def test_normalize_cross_border_series_preserves_direction_and_resolution() -> N
     assert rows[0].to_bidding_zone == "FR"
     assert rows[0].granularity.value == "15m"
     assert rows[0].source_record_id.endswith("2026-09-21T00:00:00+00:00")
+
+
+@pytest.mark.parametrize("unit", ["ns", "us", "ms"])
+def test_infer_granularity_is_independent_of_datetime_storage_unit(unit: str) -> None:
+    timestamps = pd.date_range(
+        "2026-09-21", periods=2, freq="15min", tz="UTC"
+    ).as_unit(unit)
+
+    assert _infer_granularity(timestamps).value == "15m"
 
 
 def test_operational_schedule_does_not_snapshot_already_settled_hours() -> None:
