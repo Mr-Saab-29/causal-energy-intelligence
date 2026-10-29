@@ -57,3 +57,5 @@ codex_session_to_pdf.py
 docs/causal_energy_methodology_interview_handbook.md
 docs/causal_energy_methodology_interview_handbook.docx
 scripts/build_methodology_handbook.py
+tmp/
+output/pdf/

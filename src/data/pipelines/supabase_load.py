@@ -56,6 +56,7 @@ def load_france_price_history(
     start_date: date = FRANCE_START_DATE,
     end_date: date = FRANCE_END_DATE,
     batch_size: int = 1_000,
+    refresh_completed: bool = False,
 ) -> int:
     """Fetch Energy-Charts France prices and upsert each window into Supabase."""
     total_rows = 0
@@ -68,9 +69,12 @@ def load_france_price_history(
                 window_start_date=window.start_date,
                 window_end_date=window.end_date,
             )
-            if _is_completed(engine, checkpoint):
+            completed = _is_completed(engine, checkpoint)
+            if completed and not refresh_completed:
                 _log_checkpoint("skip", checkpoint)
                 continue
+            if completed:
+                _log_checkpoint("refresh", checkpoint)
 
             _log_checkpoint("start", checkpoint)
             _start(engine, checkpoint)
@@ -153,6 +157,7 @@ def load_france_electricity_mix_realtime(
         regional_dataset=ODRE_REGIONAL_DATASET,
         batch_size=batch_size,
         include_regional=include_regional,
+        refresh_completed=True,
     )
 
 
@@ -164,6 +169,7 @@ def _load_france_electricity_mix_from_datasets(
     regional_dataset: str,
     batch_size: int,
     include_regional: bool = True,
+    refresh_completed: bool = False,
 ) -> int:
     total_rows = 0
     from src.data.sources.odre import ODRE_WINDOW_DAYS
@@ -183,6 +189,7 @@ def _load_france_electricity_mix_from_datasets(
             dataset_name=national_dataset,
             scope="national",
             batch_size=batch_size,
+            refresh_completed=refresh_completed,
         )
 
         if not include_regional:
@@ -201,6 +208,7 @@ def _load_france_electricity_mix_from_datasets(
             dataset_name=regional_dataset,
             scope="regional",
             batch_size=batch_size,
+            refresh_completed=refresh_completed,
         )
 
     return total_rows
@@ -357,13 +365,17 @@ def _load_odre_mix_window(
     dataset_name: str,
     scope: str,
     batch_size: int,
+    refresh_completed: bool = False,
 ) -> int:
     # Earlier completed windows used incorrect quarter-hour weights for history.
     # Keep their audit trail, but do not let them skip a corrected backfill.
     checkpoint = replace(checkpoint, source_name="odre_hourly_v2")
-    if _is_completed(engine, checkpoint):
+    completed = _is_completed(engine, checkpoint)
+    if completed and not refresh_completed:
         _log_checkpoint("skip", checkpoint)
         return 0
+    if completed:
+        _log_checkpoint("refresh", checkpoint)
 
     _log_checkpoint("start", checkpoint)
     _start(engine, checkpoint)
