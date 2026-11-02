@@ -180,11 +180,28 @@ def build_future_feature_frame(
     future_base = fill_future_target_placeholders(future_base, history)
 
     combined = pd.concat([history[required_base_columns()], future_base], ignore_index=True, sort=False)
+    combined = fill_inference_base_gaps(combined)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", PerformanceWarning)
         features = build_price_modeling_features(combined)
     features = remove_duplicate_columns(features)
     return features[features[TIMESTAMP_COLUMN].isin(scoring_timestamps)].reset_index(drop=True)
+
+
+def fill_inference_base_gaps(frame: pd.DataFrame) -> pd.DataFrame:
+    """Fill hourly base-data gaps so operational lag features remain available."""
+    output = frame.copy()
+    output[TIMESTAMP_COLUMN] = pd.to_datetime(output[TIMESTAMP_COLUMN], utc=True)
+    output = (
+        output.sort_values(TIMESTAMP_COLUMN)
+        .drop_duplicates(TIMESTAMP_COLUMN, keep="last")
+        .set_index(TIMESTAMP_COLUMN)
+        .asfreq("h")
+    )
+    value_columns = [column for column in required_base_columns() if column != TIMESTAMP_COLUMN]
+    for column in value_columns:
+        output[column] = output[column].fillna(output[column].shift(24)).ffill()
+    return output.reset_index()
 
 
 def calculate_future_forecast_start(
