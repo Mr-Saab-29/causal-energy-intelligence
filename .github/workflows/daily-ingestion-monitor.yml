@@ -340,8 +340,10 @@ jobs:
         with:
           name: preflight-operational-state
 
-      - name: Verify current-month audit readiness
-        run: make operational-audit-readiness
+      - name: Verify actual-data readiness before recommendation build
+        run: >-
+          python -m src.monitoring.operational_readiness
+          --allow-missing-current-month-recommendations
 
       - name: Build isolated synthetic causal demonstration
         run: |
