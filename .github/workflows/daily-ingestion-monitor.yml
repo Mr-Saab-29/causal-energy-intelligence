@@ -21,6 +21,9 @@ jobs:
   ingest:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    outputs:
+      causal_degraded: ${{ steps.causal_status.outputs.degraded }}
+      causal_failures: ${{ steps.causal_status.outputs.failures }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -48,18 +51,23 @@ jobs:
         run: make ingest-future-cloud
 
       - name: Ingest neighboring-zone emissions outcomes
+        id: neighbor_emissions
+        continue-on-error: true
         run: make ingest-neighbor-emissions
 
       - name: Ingest causal pre-treatment controls
+        id: pre_treatment
+        continue-on-error: true
         run: make ingest-pre-treatment
 
       - name: Capture point-in-time causal-grid snapshot
+        id: causal_snapshot
         continue-on-error: true
         timeout-minutes: 10
         run: make ingest-causal-operational
 
       - name: Upload causal snapshot report
-        if: always()
+        if: ${{ always() && hashFiles('reports/metrics/causal_operational_snapshot.json') != '' }}
         uses: actions/upload-artifact@v7
         with:
           name: causal-operational-snapshot
@@ -67,6 +75,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Build observed-treatment causal estimates
+        id: causal_estimators
         continue-on-error: true
         run: |
           make causal-feature-mart
@@ -74,7 +83,13 @@ jobs:
           make causal-dml
 
       - name: Upload causal estimator artifacts
-        if: always()
+        if: >-
+          ${{ always() &&
+              hashFiles('models/causal/**',
+                        'reports/causal/**',
+                        'reports/metrics/causal_feature_readiness.json',
+                        'reports/metrics/causal_identified_estimator.json',
+                        'reports/metrics/causal_dml_estimator.json') != '' }}
         uses: actions/upload-artifact@v7
         with:
           name: causal-identified-estimator
@@ -87,6 +102,50 @@ jobs:
             reports/metrics/causal_diagnostics.json
             reports/metrics/causal_structural_validation.json
           if-no-files-found: warn
+
+      - name: Record causal ingestion status
+        id: causal_status
+        if: always()
+        env:
+          NEIGHBOR_EMISSIONS_OUTCOME: ${{ steps.neighbor_emissions.outcome }}
+          PRE_TREATMENT_OUTCOME: ${{ steps.pre_treatment.outcome }}
+          CAUSAL_SNAPSHOT_OUTCOME: ${{ steps.causal_snapshot.outcome }}
+          CAUSAL_ESTIMATORS_OUTCOME: ${{ steps.causal_estimators.outcome }}
+        run: |
+          failures=""
+          for result in \
+            "neighbor_emissions:$NEIGHBOR_EMISSIONS_OUTCOME" \
+            "pre_treatment:$PRE_TREATMENT_OUTCOME" \
+            "causal_snapshot:$CAUSAL_SNAPSHOT_OUTCOME" \
+            "causal_estimators:$CAUSAL_ESTIMATORS_OUTCOME"
+          do
+            case "$result" in
+              *:failure) failures="${failures:+$failures,}${result%%:*}" ;;
+            esac
+          done
+          if [ -n "$failures" ]; then
+            echo "degraded=true" >> "$GITHUB_OUTPUT"
+            echo "failures=$failures" >> "$GITHUB_OUTPUT"
+            echo "::warning::Causal ingestion degraded: $failures"
+          else
+            echo "degraded=false" >> "$GITHUB_OUTPUT"
+            echo "failures=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload causal ingestion diagnostics
+        if: >-
+          ${{ always() &&
+              hashFiles('reports/metrics/neighbor_emissions_readiness.json',
+                        'reports/metrics/causal_pre_treatment_readiness.json',
+                        'reports/metrics/causal_operational_snapshot.json') != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: causal-ingestion-diagnostics
+          path: |
+            reports/metrics/neighbor_emissions_readiness.json
+            reports/metrics/causal_pre_treatment_readiness.json
+            reports/metrics/causal_operational_snapshot.json
+          if-no-files-found: error
 
       - name: Upload ingested data
         uses: actions/upload-artifact@v7
@@ -432,3 +491,17 @@ jobs:
             reports/scenarios/future_causal_adjusted_workload_scenario_recommendations.csv
             frontend/public/data/dashboard.json
           if-no-files-found: warn
+
+  causal-health-alert:
+    needs: ingest
+    if: ${{ needs.ingest.outputs.causal_degraded == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Report degraded causal ingestion
+        env:
+          CAUSAL_FAILURES: ${{ needs.ingest.outputs.causal_failures }}
+        run: |
+          echo "Causal ingestion degraded: $CAUSAL_FAILURES"
+          echo "The core ingestion and dashboard jobs continue independently."
+          exit 1

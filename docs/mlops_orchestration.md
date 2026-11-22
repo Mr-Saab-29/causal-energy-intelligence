@@ -128,9 +128,16 @@ if top-5 hit rate or carbon regret violates the operational floors.
 Required GitHub repository secrets:
 
 - `SUPABASE_DATABASE_URL`
+- `ENTSOE_API_TOKEN`
 - `VERCEL_TOKEN`
 - `VERCEL_ORG_ID`
 - `VERCEL_PROJECT_ID`
+
+GitHub's native Actions notification emails cover core workflow failures. Isolated
+causal-ingestion failures are surfaced through the independent
+`causal-health-alert` job: it marks the workflow failed for notification purposes
+without blocking the core ingestion, recommendation, or dashboard jobs. Enable
+email delivery for Actions in your GitHub notification settings.
 
 It restores and saves a cache for operational model/report state:
 
