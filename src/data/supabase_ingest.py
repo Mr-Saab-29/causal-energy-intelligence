@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime, time, timedelta
 
 import pandas as pd
+from dotenv import load_dotenv
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
@@ -206,6 +207,7 @@ def _log(message: str) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     """Run transformed-only Supabase ingestion from the command line."""
+    load_dotenv()
     parser = argparse.ArgumentParser(description="Refresh transformed model data in Supabase.")
     parser.add_argument("--database-url", default=os.environ.get("DATABASE_URL"))
     parser.add_argument("--start-date", default=None)
