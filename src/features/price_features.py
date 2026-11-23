@@ -321,17 +321,18 @@ def _add_time_features(frame: pd.DataFrame) -> None:
 
 
 def _add_lag_features(frame: pd.DataFrame) -> None:
-    frame["price_lag_1h"] = frame["price_eur_mwh"].shift(1)
-    frame["price_lag_24h"] = frame["price_eur_mwh"].shift(24)
-    frame["price_lag_48h"] = frame["price_eur_mwh"].shift(48)
-    frame["price_lag_72h"] = frame["price_eur_mwh"].shift(72)
-    frame["price_lag_168h"] = frame["price_eur_mwh"].shift(168)
-    frame["price_lag_336h"] = frame["price_eur_mwh"].shift(336)
-    frame["price_rolling_mean_24h"] = frame["price_eur_mwh"].shift(1).rolling(24).mean()
-    frame["price_rolling_mean_168h"] = frame["price_eur_mwh"].shift(1).rolling(168).mean()
-    frame["price_rolling_std_24h"] = frame["price_eur_mwh"].shift(1).rolling(24).std()
-    frame["price_rolling_min_24h"] = frame["price_eur_mwh"].shift(1).rolling(24).min()
-    frame["price_rolling_max_24h"] = frame["price_eur_mwh"].shift(1).rolling(24).max()
+    price_history = _lag_source(frame["price_eur_mwh"])
+    frame["price_lag_1h"] = price_history.shift(1)
+    frame["price_lag_24h"] = price_history.shift(24)
+    frame["price_lag_48h"] = price_history.shift(48)
+    frame["price_lag_72h"] = price_history.shift(72)
+    frame["price_lag_168h"] = price_history.shift(168)
+    frame["price_lag_336h"] = price_history.shift(336)
+    frame["price_rolling_mean_24h"] = price_history.shift(1).rolling(24).mean()
+    frame["price_rolling_mean_168h"] = price_history.shift(1).rolling(168).mean()
+    frame["price_rolling_std_24h"] = price_history.shift(1).rolling(24).std()
+    frame["price_rolling_min_24h"] = price_history.shift(1).rolling(24).min()
+    frame["price_rolling_max_24h"] = price_history.shift(1).rolling(24).max()
     frame["price_rolling_range_24h"] = frame["price_rolling_max_24h"] - frame["price_rolling_min_24h"]
     frame["price_lag_1h_to_24h"] = frame["price_lag_1h"] - frame["price_lag_24h"]
     frame["price_lag_24h_to_168h"] = frame["price_lag_24h"] - frame["price_lag_168h"]
@@ -341,15 +342,6 @@ def _add_lag_features(frame: pd.DataFrame) -> None:
     _add_target_lag_features(frame, "total_production_mwh", "total_production")
     for source_column, feature_prefix in PRODUCTION_SOURCE_FEATURE_PREFIXES:
         _add_target_lag_features(frame, source_column, feature_prefix)
-    frame["consumption_lag_24h"] = frame["consumption_mwh"].shift(24)
-    frame["consumption_lag_168h"] = frame["consumption_mwh"].shift(168)
-    frame["consumption_lag_24h_to_168h"] = frame["consumption_lag_24h"] - frame["consumption_lag_168h"]
-    frame["wind_lag_24h"] = frame["wind_mwh"].shift(24)
-    frame["wind_lag_168h"] = frame["wind_mwh"].shift(168)
-    frame["wind_lag_24h_to_168h"] = frame["wind_lag_24h"] - frame["wind_lag_168h"]
-    frame["solar_lag_24h"] = frame["solar_mwh"].shift(24)
-    frame["solar_lag_168h"] = frame["solar_mwh"].shift(168)
-    frame["solar_lag_24h_to_168h"] = frame["solar_lag_24h"] - frame["solar_lag_168h"]
     frame["residual_demand_lag_24h"] = (
         frame["consumption_lag_24h"]
         - frame["wind_lag_24h"].fillna(0)
@@ -375,17 +367,18 @@ def _add_lag_features(frame: pd.DataFrame) -> None:
 
 
 def _add_target_lag_features(frame: pd.DataFrame, source_column: str, prefix: str) -> None:
-    frame[f"{prefix}_lag_1h"] = frame[source_column].shift(1)
-    frame[f"{prefix}_lag_24h"] = frame[source_column].shift(24)
-    frame[f"{prefix}_lag_48h"] = frame[source_column].shift(48)
-    frame[f"{prefix}_lag_72h"] = frame[source_column].shift(72)
-    frame[f"{prefix}_lag_168h"] = frame[source_column].shift(168)
-    frame[f"{prefix}_lag_336h"] = frame[source_column].shift(336)
-    frame[f"{prefix}_rolling_mean_24h"] = frame[source_column].shift(1).rolling(24).mean()
-    frame[f"{prefix}_rolling_mean_168h"] = frame[source_column].shift(1).rolling(168).mean()
-    frame[f"{prefix}_rolling_std_24h"] = frame[source_column].shift(1).rolling(24).std()
-    frame[f"{prefix}_rolling_min_24h"] = frame[source_column].shift(1).rolling(24).min()
-    frame[f"{prefix}_rolling_max_24h"] = frame[source_column].shift(1).rolling(24).max()
+    history = _lag_source(frame[source_column])
+    frame[f"{prefix}_lag_1h"] = history.shift(1)
+    frame[f"{prefix}_lag_24h"] = history.shift(24)
+    frame[f"{prefix}_lag_48h"] = history.shift(48)
+    frame[f"{prefix}_lag_72h"] = history.shift(72)
+    frame[f"{prefix}_lag_168h"] = history.shift(168)
+    frame[f"{prefix}_lag_336h"] = history.shift(336)
+    frame[f"{prefix}_rolling_mean_24h"] = history.shift(1).rolling(24).mean()
+    frame[f"{prefix}_rolling_mean_168h"] = history.shift(1).rolling(168).mean()
+    frame[f"{prefix}_rolling_std_24h"] = history.shift(1).rolling(24).std()
+    frame[f"{prefix}_rolling_min_24h"] = history.shift(1).rolling(24).min()
+    frame[f"{prefix}_rolling_max_24h"] = history.shift(1).rolling(24).max()
     frame[f"{prefix}_rolling_range_24h"] = (
         frame[f"{prefix}_rolling_max_24h"] - frame[f"{prefix}_rolling_min_24h"]
     )
@@ -393,6 +386,11 @@ def _add_target_lag_features(frame: pd.DataFrame, source_column: str, prefix: st
     frame[f"{prefix}_lag_24h_to_168h"] = (
         frame[f"{prefix}_lag_24h"] - frame[f"{prefix}_lag_168h"]
     )
+
+
+def _lag_source(series: pd.Series, max_gap_hours: int = 24) -> pd.Series:
+    """Fill bounded historical gaps for lag features without altering targets."""
+    return series.ffill(limit=max_gap_hours)
 
 
 def _safe_divide(numerator: pd.Series, denominator: pd.Series) -> pd.Series:
