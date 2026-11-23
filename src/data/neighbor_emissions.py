@@ -30,6 +30,7 @@ DEFAULT_FACTORS_PATH = ROOT / "config/emission_factors.yaml"
 DEFAULT_ARCHIVE_ROOT = ROOT / "data/archive/entsoe-neighbor-emissions"
 DEFAULT_REPORT_PATH = ROOT / "reports/metrics/neighbor_emissions_readiness.json"
 COMPACT_TABLE = "causal_neighbor_hourly_emissions"
+DEFAULT_SETTLEMENT_LAG_HOURS = 24
 ELEXON_GENERATION_URL = (
     "https://data.elexon.co.uk/bmrs/api/v1/datasets/FUELHH"
 )
@@ -545,13 +546,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--start-date")
     parser.add_argument("--end-date")
     parser.add_argument("--lookback-days", type=int, default=7)
+    parser.add_argument(
+        "--settlement-lag-hours",
+        type=int,
+        default=DEFAULT_SETTLEMENT_LAG_HOURS,
+    )
     parser.add_argument("--historical-backfill", action="store_true")
     parser.add_argument("--plan-only", action="store_true")
     parser.add_argument("--report-path", default=str(DEFAULT_REPORT_PATH))
     args = parser.parse_args(argv)
     start, end = build_window(args.start_date, args.end_date, args.lookback_days)
     if not args.end_date and not args.historical_backfill:
-        end = min(end, pd.Timestamp.now(tz="UTC").floor("h"))
+        if args.settlement_lag_hours < 0:
+            parser.error("--settlement-lag-hours must be nonnegative")
+        settled_end = pd.Timestamp.now(tz="UTC").floor("h") - pd.Timedelta(
+            hours=args.settlement_lag_hours
+        )
+        end = min(end, settled_end)
+        if not args.start_date:
+            start = end - pd.Timedelta(days=args.lookback_days)
     if args.plan_only:
         print(
             json.dumps(
