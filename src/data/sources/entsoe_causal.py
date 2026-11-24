@@ -70,6 +70,9 @@ def fetch_entsoe_causal_data(
     vintage = VINTAGE_HISTORICAL if historical_backfill else VINTAGE_OPERATIONAL
     entsoe = client or EntsoePandasClient(api_key=api_token)
     warnings: list[str] = []
+    operational_http_statuses = (
+        OPTIONAL_HTTP_STATUSES if not historical_backfill else ()
+    )
 
     cross_border: list[CrossBorderObservation] = []
     for neighbor in FRANCE_DIRECT_ENTSOE_NEIGHBORS:
@@ -92,12 +95,13 @@ def fetch_entsoe_causal_data(
                 ),
             )
             for metric, query in queries:
-                optional_capacity = metric == "day_ahead_capacity"
                 values = _optional_query(
                     query,
                     dataset=f"{metric}:{source_area}->{target_area}",
                     tolerated_http_statuses=(
-                        OPTIONAL_HTTP_STATUSES if optional_capacity else ()
+                        OPTIONAL_HTTP_STATUSES
+                        if metric == "day_ahead_capacity"
+                        else operational_http_statuses
                     ),
                     warnings=warnings,
                     country_code_from=source_area,
@@ -119,6 +123,9 @@ def fetch_entsoe_causal_data(
     forecasts: list[GridForecastObservation] = []
     load = _optional_query(
         entsoe.query_load_forecast,
+        dataset="load_forecast:FR",
+        tolerated_http_statuses=operational_http_statuses,
+        warnings=warnings,
         country_code=FRANCE_ENTSOE_AREA,
         start=start,
         end=end,
@@ -128,6 +135,9 @@ def fetch_entsoe_causal_data(
     )
     renewable = _optional_query(
         entsoe.query_wind_and_solar_forecast,
+        dataset="wind_solar_forecast:FR",
+        tolerated_http_statuses=operational_http_statuses,
+        warnings=warnings,
         country_code=FRANCE_ENTSOE_AREA,
         start=start,
         end=end,
@@ -143,6 +153,9 @@ def fetch_entsoe_causal_data(
 
     outage_frame = _optional_query(
         entsoe.query_unavailability_of_generation_units,
+        dataset="generation_outages:FR",
+        tolerated_http_statuses=operational_http_statuses,
+        warnings=warnings,
         country_code=FRANCE_ENTSOE_AREA,
         start=start,
         end=end,
@@ -170,6 +183,9 @@ def fetch_entsoe_causal_data(
     for metric, unit, query in balancing_queries:
         frame = _optional_query(
             query,
+            dataset=f"{metric}:FR",
+            tolerated_http_statuses=operational_http_statuses,
+            warnings=warnings,
             country_code=FRANCE_ENTSOE_AREA,
             start=start,
             end=realized_end,

@@ -381,6 +381,13 @@ jobs:
           name: ingested-data
           path: data
 
+      - name: Download causal ingestion diagnostics
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: causal-ingestion-diagnostics
+          path: reports/metrics
+
       - name: Download preflight reports
         uses: actions/download-artifact@v7
         with:

@@ -556,6 +556,8 @@ function TrustFreshnessBanner({ payload, trustSummary }) {
   const quantileQuality = forecast.quantile_quality ?? {};
   const readiness = payload.summary?.operational_audit_readiness ?? {};
   const reference = payload.current_reference ?? {};
+  const neighborReadiness = payload.summary?.neighbor_emissions_readiness ?? {};
+  const neighborWarning = buildNeighborCoverageMessage(neighborReadiness);
   return (
     <section className={`trust-banner ${trustSummary.level}`}>
       <div className="trust-status">
@@ -576,8 +578,12 @@ function TrustFreshnessBanner({ payload, trustSummary }) {
         {quantileQuality.carbon_coverage_80 != null && (
           <TrustItem label="Carbon P80 coverage" value={formatPercent(quantileQuality.carbon_coverage_80)} />
         )}
+        {neighborWarning && (
+          <TrustItem label="Neighbor coverage" value={neighborWarning.short} />
+        )}
       </div>
       {trustSummary.message && <p>{trustSummary.message}</p>}
+      {neighborWarning && <p>{neighborWarning.detail}</p>}
     </section>
   );
 }
@@ -1532,23 +1538,36 @@ function buildTrustSummary(payload) {
   const forecast = payload.summary?.forecast_monitoring ?? {};
   const readiness = payload.summary?.operational_audit_readiness ?? {};
   const outcome = payload.summary?.recommendation_outcome_audit ?? {};
+  const neighborReadiness = payload.summary?.neighbor_emissions_readiness ?? {};
   const reasons = [
     ...(pipeline.critical_issues ?? []),
     ...(readiness.reasons ?? []),
     ...(readiness.warnings ?? []),
   ];
-  if (pipeline.status === "fail" || readiness.status === "fail" || forecast.status === "fail") {
+  if (
+    pipeline.status === "fail" ||
+    readiness.status === "fail" ||
+    forecast.status === "fail" ||
+    neighborReadiness.status === "fail"
+  ) {
     return {
       level: "blocked",
       label: "Needs attention",
       message: formatTrustReason(reasons[0]) ?? "A required operational data check is failing.",
     };
   }
-  if (forecast.stale || forecast.status === "stale" || !outcome.available) {
+  if (
+    neighborReadiness.status === "warning" ||
+    forecast.stale ||
+    forecast.status === "stale" ||
+    !outcome.available
+  ) {
     return {
       level: "warning",
       label: "Usable with caveats",
-      message: forecast.stale
+      message: neighborReadiness.status === "warning"
+        ? "Neighbor emissions coverage is below the 95% scientific readiness target."
+        : forecast.stale
         ? "Forecast monitoring is older than the current model artifacts."
         : "Settled recommendation outcomes are not fully available yet.",
     };
@@ -1557,6 +1576,25 @@ function buildTrustSummary(payload) {
     level: "ready",
     label: "Fresh and auditable",
     message: "Recommendation data, monitoring, and settled outcome checks are available.",
+  };
+}
+
+function buildNeighborCoverageMessage(readiness) {
+  if (!readiness || !["warning", "fail"].includes(readiness.status)) return null;
+  const coverage = readiness.coverage ?? {};
+  const affected = Object.entries(coverage)
+    .filter(([, value]) => Number(value?.hourly_coverage) < 0.95)
+    .sort((left, right) => Number(left[1].hourly_coverage) - Number(right[1].hourly_coverage));
+  if (!affected.length) return null;
+  const [area, value] = affected[0];
+  const label = area === "IT_NORD" ? "Italy North" : area.replaceAll("_", " ");
+  const percent = `${(Number(value.hourly_coverage) * 100).toFixed(1)}%`;
+  const rows = Number(value.rows ?? 0);
+  const expected = Number(value.expected_hours ?? readiness.window?.expected_hours_per_area ?? 0);
+  const missing = Number(value.missing_hours ?? Math.max(expected - rows, 0));
+  return {
+    short: `${label} ${percent}`,
+    detail: `${label} coverage is ${percent}: ${rows} of ${expected} expected hours are available (${missing} missing).`,
   };
 }
 

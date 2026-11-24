@@ -183,7 +183,41 @@ def test_readiness_requires_all_zones_and_named_factor_coverage() -> None:
 
     assert ready["interconnected_boundary_ready"] is True
     assert missing_gb["interconnected_boundary_ready"] is False
+    assert missing_gb["status"] == "fail"
     assert "low_hourly_coverage:GB:0.0000" in missing_gb["critical_issues"]
+
+
+def test_readiness_warns_between_operational_and_scientific_thresholds() -> None:
+    contract = load_neighbor_emissions_contract()
+    timestamps = pd.date_range("2026-08-01", periods=100, freq="h", tz="UTC")
+    rows = []
+    for area in contract["areas"]:
+        area_timestamps = timestamps[:92] if area == "IT_NORD" else timestamps
+        for timestamp in area_timestamps:
+            rows.append(
+                {
+                    "timestamp_utc": timestamp,
+                    "bidding_zone": area,
+                    "total_generation_mwh": 100.0,
+                    "named_factor_generation_mwh": 100.0,
+                }
+            )
+
+    report = build_neighbor_emissions_readiness(
+        pd.DataFrame(rows),
+        contract,
+        timestamps.min(),
+        timestamps.max() + pd.Timedelta(hours=1),
+    )
+
+    assert report["status"] == "warning"
+    assert report["operationally_acceptable"] is True
+    assert report["interconnected_boundary_ready"] is False
+    assert report["critical_issues"] == []
+    assert report["warning_issues"] == [
+        "reduced_hourly_coverage:IT_NORD:0.9200"
+    ]
+    assert report["coverage"]["IT_NORD"]["missing_hours"] == 8
 
 
 def test_compact_upsert_uses_hour_area_and_vintage_key() -> None:

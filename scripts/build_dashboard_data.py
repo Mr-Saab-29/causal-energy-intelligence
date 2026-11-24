@@ -59,6 +59,9 @@ def main(argv: list[str] | None = None) -> None:
     operational_audit_readiness = read_json(
         ROOT / "reports/metrics/operational_audit_readiness.json"
     )
+    neighbor_emissions_readiness = read_json(
+        ROOT / "reports/metrics/neighbor_emissions_readiness.json"
+    )
     outcome_audit_metrics = read_json(ROOT / "reports/metrics/recommendation_outcome_audit.json")
     forecast_monitoring_path = ROOT / "reports/metrics/forecast_monitoring.json"
     forecast_monitoring = read_json(forecast_monitoring_path)
@@ -302,6 +305,7 @@ def main(argv: list[str] | None = None) -> None:
             "operational_audit_readiness": summarize_operational_audit_readiness(
                 operational_audit_readiness
             ),
+            "neighbor_emissions_readiness": neighbor_emissions_readiness,
             "recommendation_outcome_audit": summarize_outcome_audit_metrics(
                 outcome_audit_metrics
             ),
@@ -350,6 +354,7 @@ def main(argv: list[str] | None = None) -> None:
         "causal_product_gate": causal_product_gate,
         "causal_performance_monitoring": causal_monitoring,
         "operational_audit_readiness": operational_audit_readiness,
+        "neighbor_emissions_readiness": neighbor_emissions_readiness,
         "recommendation_outcome_audit": outcome_audit_metrics,
         "filters": {
             "dates": filter_dates,

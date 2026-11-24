@@ -103,7 +103,7 @@ ingest-causal-operational:
 	$(PYTHON) -m src.data.causal_operational_snapshot --lookback-days 2 --future-days 2
 
 ingest-neighbor-emissions:
-	$(PYTHON) -m src.data.neighbor_emissions
+	$(PYTHON) -m src.data.neighbor_emissions --allow-partial
 
 neighbor-emissions-backfill:
 	$(PYTHON) -m src.data.neighbor_emissions_backfill

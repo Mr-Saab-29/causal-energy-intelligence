@@ -361,6 +361,16 @@ def build_neighbor_emissions_readiness(
     expected_hours = int((end - start).total_seconds() // 3600)
     coverage: dict[str, Any] = {}
     critical: list[str] = []
+    warnings: list[str] = []
+    readiness_threshold = float(contract["minimum_hourly_coverage"])
+    operational_threshold = float(
+        contract.get("minimum_operational_hourly_coverage", readiness_threshold)
+    )
+    if operational_threshold > readiness_threshold:
+        raise ValueError(
+            "minimum_operational_hourly_coverage cannot exceed "
+            "minimum_hourly_coverage"
+        )
     for area in contract["areas"]:
         area_rows = hourly[hourly["bidding_zone"] == area]
         hourly_ratio = (
@@ -378,22 +388,31 @@ def build_neighbor_emissions_readiness(
             "hourly_coverage": round(hourly_ratio, 4),
             "named_factor_generation_share": round(named_ratio, 4),
             "rows": int(len(area_rows)),
+            "expected_hours": expected_hours,
+            "missing_hours": max(
+                expected_hours - int(area_rows["timestamp_utc"].nunique()), 0
+            ),
         }
-        if hourly_ratio < float(contract["minimum_hourly_coverage"]):
+        if hourly_ratio < operational_threshold:
             critical.append(f"low_hourly_coverage:{area}:{hourly_ratio:.4f}")
+        elif hourly_ratio < readiness_threshold:
+            warnings.append(f"reduced_hourly_coverage:{area}:{hourly_ratio:.4f}")
         if named_ratio < float(contract["minimum_named_factor_coverage"]):
             critical.append(f"high_fallback_factor_share:{area}:{1 - named_ratio:.4f}")
+    status = "fail" if critical else "warning" if warnings else "pass"
     return {
         "generated_at_utc": datetime.now(UTC).isoformat(),
         "contract_version": contract["contract_version"],
-        "status": "fail" if critical else "pass",
-        "interconnected_boundary_ready": not critical,
+        "status": status,
+        "interconnected_boundary_ready": not critical and not warnings,
+        "operationally_acceptable": not critical,
         "window": {
             "start_utc": start.isoformat(),
             "end_utc": end.isoformat(),
             "expected_hours_per_area": expected_hours,
         },
         "critical_issues": critical,
+        "warning_issues": warnings,
         "coverage": coverage,
         "source_by_area": contract["area_sources"],
         "fallback_factor": contract["fallback_factor"],
@@ -421,6 +440,7 @@ def ingest_neighbor_emissions(
     storage: SupabaseStorage | None = None,
     client: EntsoePandasClient | None = None,
     report_path: str | Path = DEFAULT_REPORT_PATH,
+    allow_partial: bool = False,
 ) -> dict[str, Any]:
     """Fetch, validate, optionally archive, and upsert one bounded window."""
     validate_neighbor_emissions_schema(engine)
@@ -443,10 +463,14 @@ def ingest_neighbor_emissions(
         vintage_quality=vintage,
     )
     readiness = build_neighbor_emissions_readiness(hourly, contract, start, end)
-    if not readiness["interconnected_boundary_ready"]:
+    strict_readiness_failure = (
+        not allow_partial and not readiness["interconnected_boundary_ready"]
+    )
+    if readiness["status"] == "fail" or strict_readiness_failure:
         write_json(readiness, report_path)
+        issues = readiness["critical_issues"] or readiness["warning_issues"]
         raise RuntimeError(
-            "neighbor emissions quality failed: " + ", ".join(readiness["critical_issues"])
+            "neighbor emissions quality failed: " + ", ".join(issues)
         )
 
     archive = None
@@ -462,6 +486,9 @@ def ingest_neighbor_emissions(
     rows = hourly.astype(object).where(pd.notna(hourly), None).to_dict(orient="records")
     upserted = upsert_neighbor_hourly_emissions(engine, rows)
     report = readiness | {
+        "partial_window_accepted": bool(
+            allow_partial and readiness["status"] == "warning"
+        ),
         "upserted_rows": upserted,
         "source_rows": int(len(generation)),
         "archive": archive,
@@ -552,6 +579,7 @@ def main(argv: list[str] | None = None) -> int:
         default=DEFAULT_SETTLEMENT_LAG_HOURS,
     )
     parser.add_argument("--historical-backfill", action="store_true")
+    parser.add_argument("--allow-partial", action="store_true")
     parser.add_argument("--plan-only", action="store_true")
     parser.add_argument("--report-path", default=str(DEFAULT_REPORT_PATH))
     args = parser.parse_args(argv)
@@ -588,6 +616,7 @@ def main(argv: list[str] | None = None) -> int:
         end,
         historical_backfill=args.historical_backfill,
         report_path=args.report_path,
+        allow_partial=args.allow_partial,
     )
     print(
         json.dumps(

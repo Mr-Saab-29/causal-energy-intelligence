@@ -23,6 +23,7 @@
     "WIND": "Wind Onshore"
   },
   "minimum_hourly_coverage": 0.95,
+  "minimum_operational_hourly_coverage": 0.90,
   "minimum_named_factor_coverage": 0.85,
   "fallback_factor": {
     "point_kg_co2e_per_mwh": 370.0,
